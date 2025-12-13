@@ -27,6 +27,7 @@ int main() {
     pnkr::renderer::Renderer renderer(window);
 
 
+
     int frame_count = 0;
     while (window.isRunning()) {
       window.processEvents();

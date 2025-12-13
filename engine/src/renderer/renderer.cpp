@@ -14,7 +14,7 @@ namespace pnkr::renderer
         : m_window(window)
     {
         m_context = std::make_unique<VulkanContext>(window);
-        m_device = std::make_unique<VulkanDevice>(m_context->instance(), m_context->surface());
+        m_device = std::make_unique<VulkanDevice>(*m_context);
 
         m_swapchain = std::make_unique<VulkanSwapchain>(
             m_device->physicalDevice(),

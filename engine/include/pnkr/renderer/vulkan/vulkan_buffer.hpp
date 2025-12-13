@@ -1,35 +1,41 @@
 #pragma once
 
-/**
- * @file vulkan_buffer.hpp
- * @brief Concrete Vulkan buffer management
- */
-
-#include <cstdint>
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan.hpp>
+#include <vk_mem_alloc.h>
 
 namespace pnkr::renderer {
 
-class VulkanDevice;
+  class VulkanBuffer {
+  public:
+    VulkanBuffer(VmaAllocator allocator,
+                 vk::DeviceSize size,
+                 vk::BufferUsageFlags usage,
+                 VmaMemoryUsage memoryUsage);
+    ~VulkanBuffer();
 
-class VulkanBuffer {
-public:
-  VulkanBuffer(const VulkanDevice& device, VkDeviceSize size, VkBufferUsageFlags usage);
-  ~VulkanBuffer();
+    VulkanBuffer(const VulkanBuffer&) = delete;
+    VulkanBuffer& operator=(const VulkanBuffer&) = delete;
 
-  VulkanBuffer(const VulkanBuffer&) = delete;
-  VulkanBuffer& operator=(const VulkanBuffer&) = delete;
-  VulkanBuffer(VulkanBuffer&&) = default;
-  VulkanBuffer& operator=(VulkanBuffer&&) = default;
+    VulkanBuffer(VulkanBuffer&&) noexcept;
+    VulkanBuffer& operator=(VulkanBuffer&&) noexcept;
 
-  [[nodiscard]] VkBuffer buffer() const noexcept { return m_buffer; }
-  [[nodiscard]] VkDeviceMemory memory() const noexcept { return m_memory; }
-  [[nodiscard]] VkDeviceSize size() const noexcept { return m_size; }
+    void* map();
+    void  unmap();
 
-private:
-  VkBuffer m_buffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_memory = VK_NULL_HANDLE;
-  VkDeviceSize m_size = 0;
-};
+    vk::Buffer buffer() const { return vk::Buffer{m_buffer}; }
+    vk::DeviceSize size() const { return m_size; }
 
-}  // namespace pnkr::renderer
+  private:
+    void destroy() noexcept;
+
+    VmaAllocator  m_allocator{nullptr};
+
+    // Stored as raw handle for VMA, exposed as vk::Buffer via accessor.
+    VkBuffer      m_buffer{VK_NULL_HANDLE};
+    VmaAllocation m_allocation{nullptr};
+
+    vk::DeviceSize m_size{0};
+    void*          m_mapped{nullptr};
+  };
+
+} // namespace pnkr::renderer

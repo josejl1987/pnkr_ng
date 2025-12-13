@@ -5,7 +5,8 @@ add_library(pnkr_engine STATIC
         src/renderer/vulkan/vulkan_dispatch.cpp
         src/renderer/vulkan/vulkan_context.cpp
         include/pnkr/renderer/vulkan/vulkan_sync_manager.h
-        src/renderer/vulkan/vulkan_sync_manager.cpp)
+        src/renderer/vulkan/vulkan_sync_manager.cpp
+        include/pnkr/renderer/vulkan/vma.cpp)
 
 target_sources(pnkr_engine
   PRIVATE

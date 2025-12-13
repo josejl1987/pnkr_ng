@@ -2,6 +2,9 @@
 
 #include <vulkan/vulkan.hpp>
 #include <cstdint>
+#include <vk_mem_alloc.h>
+
+#include "vulkan_context.hpp"
 
 namespace pnkr::renderer {
 
@@ -16,7 +19,8 @@ namespace pnkr::renderer {
 
   class VulkanDevice {
   public:
-    VulkanDevice(vk::Instance instance, vk::SurfaceKHR surface);
+    VulkanDevice(VulkanContext& vk_context);
+    void createAllocator();
     ~VulkanDevice();
 
     VulkanDevice(const VulkanDevice&) = delete;
@@ -32,6 +36,8 @@ namespace pnkr::renderer {
     uint32_t graphicsQueueFamily() const { return m_graphicsQueueFamilyIndex; }
     uint32_t presentQueueFamily()  const { return m_presentQueueFamilyIndex; }
     uint32_t framesInFlight() { return m_framesInFlight; }
+    VmaAllocator m_allocator = nullptr;
+    VmaAllocator allocator() const { return m_allocator; }
 
   private:
     void pickPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surface);
@@ -49,6 +55,7 @@ namespace pnkr::renderer {
     uint32_t    m_framesInFlight = 2;
     vk::Queue m_graphicsQueue{};
     vk::Queue m_presentQueue{};
+    VulkanContext& m_context;
   };
 
 } // namespace pnkr::renderer

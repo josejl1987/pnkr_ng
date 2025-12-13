@@ -11,11 +11,72 @@ static constexpr const char* kDeviceExtensions[] = {
   VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-VulkanDevice::VulkanDevice(vk::Instance instance, vk::SurfaceKHR surface) {
-  pickPhysicalDevice(instance, surface);
-  createLogicalDevice(surface);
+VulkanDevice::VulkanDevice(VulkanContext& vk_context):m_context(vk_context) {
+
+  pickPhysicalDevice(vk_context.instance(), vk_context.surface());
+  createLogicalDevice(vk_context.surface());
 
   pnkr::core::Logger::info("VulkanDevice created.");
+  vk_context.initDispatcherPostDevice(m_device);
+
+  createAllocator();
+
+  pnkr::core::Logger::info("VMA initialized.");
+
+}
+
+  void VulkanDevice::createAllocator()
+{
+  if (m_allocator) return; // optional guard
+
+  const auto& dld = m_context.dispatcher();
+
+  VmaVulkanFunctions funcs{};
+  // Instance-level
+  funcs.vkGetPhysicalDeviceProperties       = dld.vkGetPhysicalDeviceProperties;
+  funcs.vkGetPhysicalDeviceMemoryProperties = dld.vkGetPhysicalDeviceMemoryProperties;
+
+  // Device-level memory management
+  funcs.vkAllocateMemory               = dld.vkAllocateMemory;
+  funcs.vkFreeMemory                   = dld.vkFreeMemory;
+  funcs.vkMapMemory                    = dld.vkMapMemory;
+  funcs.vkUnmapMemory                  = dld.vkUnmapMemory;
+  funcs.vkFlushMappedMemoryRanges      = dld.vkFlushMappedMemoryRanges;
+  funcs.vkInvalidateMappedMemoryRanges = dld.vkInvalidateMappedMemoryRanges;
+
+  // Binding + requirements
+  funcs.vkBindBufferMemory             = dld.vkBindBufferMemory;
+  funcs.vkBindImageMemory              = dld.vkBindImageMemory;
+  funcs.vkGetBufferMemoryRequirements  = dld.vkGetBufferMemoryRequirements;
+  funcs.vkGetImageMemoryRequirements   = dld.vkGetImageMemoryRequirements;
+
+  // Resource create/destroy
+  funcs.vkCreateBuffer                 = dld.vkCreateBuffer;
+  funcs.vkDestroyBuffer                = dld.vkDestroyBuffer;
+  funcs.vkCreateImage                  = dld.vkCreateImage;
+  funcs.vkDestroyImage                 = dld.vkDestroyImage;
+  funcs.vkCmdCopyBuffer                 = dld.vkCmdCopyBuffer;
+
+  // Defensive: fail fast (avoids VMA asserts)
+  if (!funcs.vkGetPhysicalDeviceProperties || !funcs.vkGetPhysicalDeviceMemoryProperties ||
+      !funcs.vkAllocateMemory || !funcs.vkFreeMemory ||
+      !funcs.vkMapMemory || !funcs.vkUnmapMemory ||
+      !funcs.vkBindBufferMemory || !funcs.vkGetBufferMemoryRequirements ||
+      !funcs.vkCreateBuffer || !funcs.vkDestroyBuffer)
+  {
+    throw std::runtime_error("[VulkanDevice] VMA function table is incomplete. Did you call initDispatcherPostDevice()?");
+  }
+
+  VmaAllocatorCreateInfo info{};
+  info.instance       = static_cast<VkInstance>(m_context.instance());
+  info.physicalDevice = static_cast<VkPhysicalDevice>(m_physicalDevice);
+  info.device         = static_cast<VkDevice>(m_device);
+  info.pVulkanFunctions = &funcs;
+
+  VkResult r = vmaCreateAllocator(&info, &m_allocator);
+  if (r != VK_SUCCESS || !m_allocator) {
+    throw std::runtime_error("[VulkanDevice] vmaCreateAllocator failed");
+  }
 }
 
 VulkanDevice::~VulkanDevice() {
@@ -59,6 +120,9 @@ QueueFamilyIndices VulkanDevice::findQueueFamilies(vk::PhysicalDevice pd, vk::Su
 
   return out;
 }
+
+
+
 
 void VulkanDevice::pickPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surface) {
   const auto devices = instance.enumeratePhysicalDevices(VULKAN_HPP_DEFAULT_DISPATCHER);
