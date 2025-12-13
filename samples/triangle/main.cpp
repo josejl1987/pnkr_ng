@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    pnkr::Window window("PNKR - Triangle", 800, 600);
+    pnkr::Window window("PNKR - Triangle", 800, 600, SDL_WINDOW_RESIZABLE);
     pnkr::Log::info("Window created: {}x{}", window.width(), window.height());
 
     pnkr::renderer::RendererConfig renderer_config{};

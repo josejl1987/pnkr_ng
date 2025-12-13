@@ -293,22 +293,20 @@ namespace pnkr::renderer
 
         // If you pass a fence here, it will be signaled when the presentation engine is done
         // with the image acquisition step. Many engines pass VK_NULL_HANDLE and rely on per-frame fences.
-        auto rv = m_device.acquireNextImageKHR(m_swapchain, timeoutNs, imageAvailable, fence);
-
-        // Vulkan-Hpp returns ResultValue<uint32_t>
-        const vk::Result r = rv.result;
-        if (r == vk::Result::eSuccess || r == vk::Result::eSuboptimalKHR)
+        try
         {
+            auto rv = m_device.acquireNextImageKHR(m_swapchain, timeoutNs, imageAvailable, fence);
             outImageIndex = rv.value;
-            return r;
+            return rv.result;
         }
-
-        // Common expected case: swapchain needs recreation
-        if (r == vk::Result::eErrorOutOfDateKHR)
-            return r;
-
-        pnkr::core::Logger::error("[VulkanSwapchain] acquireNextImageKHR failed: {}", vk::to_string(r));
-        return r;
+        catch (const vk::OutOfDateKHRError&)
+        {
+            return vk::Result::eErrorOutOfDateKHR;
+        }
+        catch (const vk::SystemError& e)
+        {
+            return static_cast<vk::Result>(e.code().value());
+        }
     }
 
     vk::Result VulkanSwapchain::present(vk::Queue presentQueue,
@@ -330,16 +328,20 @@ namespace pnkr::renderer
         vk::Result presentResult = vk::Result::eSuccess;
         presentInfo.pResults = &presentResult;
 
-        const vk::Result r = presentQueue.presentKHR(presentInfo);
-
-        // r is usually eSuccess; presentResult can be Suboptimal/OutOfDate on some platforms/drivers.
-        if (r == vk::Result::eSuccess)
-            return presentResult;
-
-        if (r == vk::Result::eErrorOutOfDateKHR || r == vk::Result::eSuboptimalKHR)
+        try
+        {
+            const vk::Result r = presentQueue.presentKHR(presentInfo);
+            if (r == vk::Result::eSuccess)
+                return presentResult;
             return r;
-
-        pnkr::core::Logger::error("[VulkanSwapchain] presentKHR failed: {}", vk::to_string(r));
-        return r;
+        }
+        catch (const vk::OutOfDateKHRError&)
+        {
+            return vk::Result::eErrorOutOfDateKHR;
+        }
+        catch (const vk::SystemError& e)
+        {
+            return static_cast<vk::Result>(e.code().value());
+        }
     }
 } // namespace pnkr::renderer
