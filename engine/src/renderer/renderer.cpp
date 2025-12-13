@@ -10,8 +10,8 @@
 
 namespace pnkr::renderer
 {
-    Renderer::Renderer(platform::Window& window)
-        : m_window(window)
+    Renderer::Renderer(platform::Window& window, const RendererConfig& config)
+        : m_window(window), m_config(config)
     {
         m_context = std::make_unique<VulkanContext>(window);
         m_device = std::make_unique<VulkanDevice>(*m_context);
@@ -24,20 +24,50 @@ namespace pnkr::renderer
             m_device->queueFamilies().present,
             window);
 
-        m_pipeline = std::make_unique<VulkanPipeline>(m_device->device(), m_swapchain->imageFormat());
+        config.pipeline.colorFormat = m_swapchain->imageFormat();
+
+        m_pipeline = std::make_unique<
+            VulkanPipeline>(m_device->device(), m_swapchain->imageFormat(), config.pipeline);
 
         m_commandBuffer = std::make_unique<VulkanCommandBuffer>(*m_device);
-        
+
         m_sync = std::make_unique<VulkanSyncManager>(
-          m_device->device(),
-          m_device->framesInFlight(),
-          static_cast<uint32_t>(m_swapchain->images().size())
+            m_device->device(),
+            m_device->framesInFlight(),
+            static_cast<uint32_t>(m_swapchain->images().size())
         );
     }
 
-    Renderer::~Renderer() {
-        if (m_device && m_device->device()) {
-            m_device->device().waitIdle(); 
+    PipelineHandle Renderer::createPipeline(const VulkanPipeline::Config& cfg)
+    {
+        const PipelineHandle handle = m_pipelines.size();
+
+        PipelineConfig pipelineCfg = cfg;
+        pipelineCfg.colorFormat = m_swapchain->imageFormat();
+
+        m_pipelines.push_back(std::make_unique<VulkanPipeline>(
+            m_device->device(),
+            pipelineCfg.colorFormat,
+            pipelineCfg));
+
+        pnkr::core::Logger::info("[Renderer] Created pipeline handle={}", handle);
+        return handle;
+    }
+
+    const VulkanPipeline& Renderer::pipeline(PipelineHandle h) const
+    {
+        if (h >= m_pipelines.size())
+        {
+            throw std::runtime_error("[Renderer] Invalid pipeline handle: " + std::to_string(h));
+        }
+        return *m_pipelines[h];
+    }
+
+    Renderer::~Renderer()
+    {
+        if (m_device && m_device->device())
+        {
+            m_device->device().waitIdle();
         }
     }
 
@@ -53,7 +83,7 @@ namespace pnkr::renderer
         const vk::Result acq = m_swapchain->acquireNextImage(
             UINT64_MAX,
             m_sync->imageAvailableSemaphore(frame),
-            nullptr, 
+            nullptr,
             m_imageIndex);
 
         if (acq == vk::Result::eErrorOutOfDateKHR)
@@ -82,14 +112,14 @@ namespace pnkr::renderer
         vk::CommandBuffer cmd = m_commandBuffer->cmd(frame);
 
         const vk::Image swapImg = m_swapchain->images()[m_imageIndex];
-        
+
         // Transition to Attachment
         vk::ImageMemoryBarrier2 barrier{};
-        barrier.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput; 
+        barrier.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
         barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
         barrier.dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
         barrier.dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
-        barrier.oldLayout = vk::ImageLayout::eUndefined; 
+        barrier.oldLayout = vk::ImageLayout::eUndefined;
         barrier.newLayout = vk::ImageLayout::eColorAttachmentOptimal;
         barrier.image = swapImg;
         barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
@@ -208,13 +238,15 @@ namespace pnkr::renderer
             m_device->queueFamilies().graphics,
             m_device->queueFamilies().present,
             m_window);
-            
+
         m_sync->updateSwapchainSize(static_cast<uint32_t>(m_swapchain->images().size()));
 
         if (m_swapchain->imageFormat() != oldFmt)
         {
             m_pipeline.reset();
-            m_pipeline = std::make_unique<VulkanPipeline>(m_device->device(), m_swapchain->imageFormat());
+            m_pipeline_config.colorFormat = m_swapchain->imageFormat();
+            m_pipeline = std::make_unique<VulkanPipeline>(m_device->device(), m_swapchain->imageFormat(),
+                                                          m_pipeline_config);
         }
     }
 } // namespace pnkr::renderer

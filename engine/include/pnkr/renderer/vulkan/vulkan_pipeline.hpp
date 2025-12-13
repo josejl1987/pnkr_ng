@@ -2,12 +2,19 @@
 #include <vulkan/vulkan.hpp>
 #include <vector>
 #include <cstdint>
+#include <filesystem>
+
+#include "geometry/VertexInputDescription.h"
+#include "pipeline/PipelineConfig.h"
 
 namespace pnkr::renderer {
 
   class VulkanPipeline {
   public:
-    VulkanPipeline(vk::Device device, vk::Format colorFormat);
+
+    using Config = PipelineConfig;
+
+    VulkanPipeline(vk::Device device, vk::Format colorFormat, const Config& config);
     void reset() noexcept;
     ~VulkanPipeline();
 
@@ -20,15 +27,15 @@ namespace pnkr::renderer {
     [[nodiscard]] vk::Pipeline pipeline() const noexcept { return m_pipeline; }
     [[nodiscard]] vk::PipelineLayout layout() const noexcept { return m_layout; }
     [[nodiscard]] vk::Format colorFormat() const noexcept { return m_colorFormat; }
-
+    const Config& config() const { return m_config; }
   private:
-    void createShaderModules();
+    void createShaderModules(const Config& config);
     void createPipelineLayout();
     void createGraphicsPipeline();
-
     static std::vector<std::uint32_t> readSpirvFile(const char* path);
 
   private:
+    Config m_config;
     vk::Device m_device{};
     vk::Format m_colorFormat{vk::Format::eUndefined};
 

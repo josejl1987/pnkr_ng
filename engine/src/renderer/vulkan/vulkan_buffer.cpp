@@ -1,4 +1,5 @@
 #include "pnkr/renderer/vulkan/vulkan_buffer.hpp"
+#include "pnkr/renderer/vulkan/vulkan_device.hpp"
 
 #include <stdexcept>
 #include <utility>
@@ -8,7 +9,8 @@ namespace pnkr::renderer {
 VulkanBuffer::VulkanBuffer(VmaAllocator allocator,
                            vk::DeviceSize size,
                            vk::BufferUsageFlags usage,
-                           VmaMemoryUsage memoryUsage)
+                           VmaMemoryUsage memoryUsage,
+                           VmaAllocationCreateFlags allocFlags)
   : m_allocator(allocator), m_size(size)
 {
   if (!m_allocator) throw std::runtime_error("[VulkanBuffer] allocator is null");
@@ -22,7 +24,7 @@ VulkanBuffer::VulkanBuffer(VmaAllocator allocator,
 
   VmaAllocationCreateInfo allocInfo{};
   allocInfo.usage = memoryUsage;
-
+  allocInfo.flags = allocFlags;
   VkResult res = vmaCreateBuffer(
     m_allocator,
     &bufferInfo,
@@ -66,6 +68,49 @@ VulkanBuffer& VulkanBuffer::operator=(VulkanBuffer&& other) noexcept
   other.m_mapped     = nullptr;
 
   return *this;
+}
+
+
+  VulkanBuffer VulkanBuffer::CreateDeviceLocalAndUpload(
+    VulkanDevice& device,
+    const void* data,
+    vk::DeviceSize size,
+    vk::BufferUsageFlags finalUsage
+  )
+{
+  if (!data) throw std::runtime_error("[VulkanBuffer] upload: data is null");
+  if (size == 0) throw std::runtime_error("[VulkanBuffer] upload: size must be > 0");
+
+  // 1) Staging buffer (CPU-visible)
+  VulkanBuffer staging(
+    device.allocator(),
+    size,
+    vk::BufferUsageFlagBits::eTransferSrc,
+    VMA_MEMORY_USAGE_AUTO,
+    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+    VMA_ALLOCATION_CREATE_MAPPED_BIT
+  );
+
+  // staging.map() is valid due to MAPPED_BIT, but keep it uniform:
+  std::memcpy(staging.map(), data, static_cast<std::size_t>(size));
+  staging.unmap();
+
+  // 2) GPU buffer (device-local preferred)
+  VulkanBuffer gpu(
+    device.allocator(),
+    size,
+    vk::BufferUsageFlagBits::eTransferDst | finalUsage,
+    VMA_MEMORY_USAGE_AUTO
+  );
+
+  // 3) Copy
+  device.immediateSubmit([&](vk::CommandBuffer cmd) {
+    vk::BufferCopy copy{};
+    copy.size = size;
+    cmd.copyBuffer(staging.buffer(), gpu.buffer(), 1, &copy);
+  });
+
+  return gpu;
 }
 
 void VulkanBuffer::destroy() noexcept

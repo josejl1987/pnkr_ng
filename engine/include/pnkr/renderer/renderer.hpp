@@ -8,7 +8,9 @@
 #include <memory>
 #include <vector>
 
+#include "pipeline/Pipeline.h"
 #include "pnkr/platform/window.hpp"
+#include "pnkr/renderer/renderer_config.hpp"
 #include "pnkr/renderer/vulkan/vulkan_buffer.hpp"
 #include "pnkr/renderer/vulkan/vulkan_command_buffer.hpp"
 #include "pnkr/renderer/vulkan/vulkan_context.hpp"
@@ -26,7 +28,8 @@ namespace pnkr::renderer {
    */
   class Renderer {
   public:
-    explicit Renderer(platform::Window& window);
+    explicit Renderer(platform::Window& window, const RendererConfig& config);
+    explicit Renderer(platform::Window& window) : Renderer(window, RendererConfig{}) {}
     ~Renderer();
 
     Renderer(const Renderer&) = delete;
@@ -49,9 +52,18 @@ namespace pnkr::renderer {
     std::unique_ptr<VulkanBuffer> m_vertexBuffer;
     std::unique_ptr<VulkanSyncManager> m_sync;
 
+    PipelineConfig m_pipeline_config{};
+    std::vector<std::unique_ptr<VulkanPipeline>> m_pipelines{};
+    PipelineHandle createPipeline(const VulkanPipeline::Config& cfg);
+    const VulkanPipeline& pipeline(PipelineHandle h) const;
+
+    // NEW: Register a render callback instead of hardcoded drawFrame
+    void setRenderCallback(RenderCallback callback);
+
     // State
     uint32_t m_imageIndex = 0;
     bool m_frameInProgress = false;
+    RendererConfig m_config;
   };
 
 }  // namespace pnkr::renderer

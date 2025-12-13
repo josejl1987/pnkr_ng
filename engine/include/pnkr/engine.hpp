@@ -13,10 +13,12 @@
 #include "pnkr/core/logger.hpp"
 #include "pnkr/platform/window.hpp"
 #include "pnkr/renderer/renderer.hpp"
+#include "pnkr/renderer/renderer_config.hpp"
 
 // Convenience namespace
 namespace pnkr {
   using Log = core::Logger;
   using Window = platform::Window;
   using Renderer = renderer::Renderer;
+  using RendererConfig = renderer::RendererConfig;
 }  // namespace pnkr

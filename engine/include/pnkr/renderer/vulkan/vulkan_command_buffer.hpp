@@ -13,9 +13,6 @@ namespace pnkr::renderer
   public:
 
     VulkanCommandBuffer(VulkanDevice& device);
-
-
-
     ~VulkanCommandBuffer();
 
     VulkanCommandBuffer(const VulkanCommandBuffer&) = delete;
@@ -45,7 +42,6 @@ namespace pnkr::renderer
   private:
     void createPool(uint32_t graphicsQueueFamilyIndex);
     void allocateBuffers();
-    void createSyncObjects();
     VulkanCommandBuffer(vk::Device device,
                         uint32_t graphicsQueueFamilyIndex,
                         uint32_t framesInFlight);
@@ -56,9 +52,6 @@ namespace pnkr::renderer
     uint32_t m_frameIndex = 0;
 
     std::vector<vk::CommandBuffer> m_cmd;
-
-
-
 
   };
 }

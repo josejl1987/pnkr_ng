@@ -60,10 +60,14 @@ namespace pnkr::renderer
     }
   } // namespace
 
-  VulkanPipeline::VulkanPipeline(vk::Device device, vk::Format colorFormat)
-    : m_device(device)
-      , m_colorFormat(colorFormat)
+  VulkanPipeline::VulkanPipeline(vk::Device device,
+                                 vk::Format colorFormat,
+                                 const Config& config)
+    : m_config(config)
+    , m_device(device)
+    , m_colorFormat(colorFormat)
   {
+    m_config.colorFormat = colorFormat;
     if (!m_device)
     {
       throw std::runtime_error("[VulkanPipeline] device is null");
@@ -73,15 +77,28 @@ namespace pnkr::renderer
       throw std::runtime_error("[VulkanPipeline] colorFormat is undefined");
     }
 
+    vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.vertexBindingDescriptionCount =
+      static_cast<uint32_t>(config.vertexInput.bindings.size());
+    vertexInputInfo.pVertexBindingDescriptions =
+      config.vertexInput.bindings.empty() ? nullptr : config.vertexInput.bindings.data();
+
+    vertexInputInfo.vertexAttributeDescriptionCount =
+      static_cast<uint32_t>(config.vertexInput.attributes.size());
+    vertexInputInfo.pVertexAttributeDescriptions =
+      config.vertexInput.attributes.empty() ? nullptr : config.vertexInput.attributes.data();
+
     pnkr::core::Logger::info("[VulkanPipeline] Creating pipeline (dynamic rendering), format={}",
                              vk::to_string(m_colorFormat));
 
-    createShaderModules();
+    createShaderModules(config);
     createPipelineLayout();
     createGraphicsPipeline();
 
     pnkr::core::Logger::info("[VulkanPipeline] Pipeline created.");
   }
+
+
 
   void VulkanPipeline::reset() noexcept
   {
@@ -122,11 +139,11 @@ namespace pnkr::renderer
   }
 
 
-  void pnkr::renderer::VulkanPipeline::createShaderModules()
+  void pnkr::renderer::VulkanPipeline::createShaderModules(const Config & config)
   {
 
-    m_vert = CreateShaderModule(m_device, "shaders/triangle.vert.spv");
-    m_frag = CreateShaderModule(m_device, "shaders/triangle.frag.spv");
+    m_vert = CreateShaderModule(m_device, config.vertSpvPath.string().c_str());
+    m_frag = CreateShaderModule(m_device, config.fragSpvPath.string().c_str());
   }
 
   void pnkr::renderer::VulkanPipeline::createPipelineLayout()
@@ -244,5 +261,3 @@ namespace pnkr::renderer
     }
   }
 }
-
-

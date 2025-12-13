@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vk_mem_alloc.h>
 
+#include "vulkan_buffer.hpp"
 #include "vulkan_context.hpp"
 
 namespace pnkr::renderer {
@@ -19,6 +20,7 @@ namespace pnkr::renderer {
 
   class VulkanDevice {
   public:
+    void create_upload_pool();
     VulkanDevice(VulkanContext& vk_context);
     void createAllocator();
     ~VulkanDevice();
@@ -35,9 +37,18 @@ namespace pnkr::renderer {
     [[nodiscard]] vk::Queue presentQueue()  const noexcept { return m_presentQueue;  }
     uint32_t graphicsQueueFamily() const { return m_graphicsQueueFamilyIndex; }
     uint32_t presentQueueFamily()  const { return m_presentQueueFamilyIndex; }
-    uint32_t framesInFlight() { return m_framesInFlight; }
+    uint32_t framesInFlight() const { return m_framesInFlight; }
     VmaAllocator m_allocator = nullptr;
+    vk::CommandPool m_uploadPool;
     VmaAllocator allocator() const { return m_allocator; }
+    void immediateSubmit(std::function<void(vk::CommandBuffer)>&& record) const;
+
+    static VulkanBuffer CreateDeviceLocalAndUpload(
+VulkanDevice& device,
+const void* data,
+vk::DeviceSize size,
+vk::BufferUsageFlags finalUsage
+);
 
   private:
     void pickPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surface);
@@ -56,6 +67,11 @@ namespace pnkr::renderer {
     vk::Queue m_graphicsQueue{};
     vk::Queue m_presentQueue{};
     VulkanContext& m_context;
+
+
+
+
+
   };
 
 } // namespace pnkr::renderer

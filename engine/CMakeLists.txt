@@ -6,7 +6,11 @@ add_library(pnkr_engine STATIC
         src/renderer/vulkan/vulkan_context.cpp
         include/pnkr/renderer/vulkan/vulkan_sync_manager.h
         src/renderer/vulkan/vulkan_sync_manager.cpp
-        include/pnkr/renderer/vulkan/vma.cpp)
+        include/pnkr/renderer/vulkan/vma.cpp
+        include/pnkr/renderer/vulkan/geometry/Mesh.h
+        include/pnkr/renderer/vulkan/geometry/VertexInputDescription.h
+        include/pnkr/renderer/vulkan/pipeline/PipelineConfig.h
+        include/pnkr/renderer/pipeline/Pipeline.h)
 
 target_sources(pnkr_engine
   PRIVATE
@@ -28,6 +32,7 @@ target_sources(pnkr_engine
       include/pnkr/core/logger.hpp
       include/pnkr/core/common.hpp
       include/pnkr/platform/window.hpp
+      include/pnkr/renderer/renderer_config.hpp
       include/pnkr/renderer/renderer.hpp
         include/pnkr/renderer/vulkan/vulkan_buffer.hpp
         include/pnkr/renderer/vulkan/vulkan_command_buffer.hpp

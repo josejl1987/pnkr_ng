@@ -25,12 +25,9 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    pnkr::Window window("PNKR - Triangle", 800, 600);
-    pnkr::Log::info("Window created: {}x{}", window.width(), window.height());
-
     pnkr::renderer::RendererConfig renderer_config{};
-    renderer_config.pipeline.vertSpvPath = shaderDir / "triangle.vert.spv";
-    renderer_config.pipeline.fragSpvPath = shaderDir / "triangle.frag.spv";
+    renderer_config.pipeline.vertSpvPath = shaderDir / "cube.vert.spv";
+    renderer_config.pipeline.fragSpvPath = shaderDir / "cube.frag.spv";
 
     if (!fs::exists(renderer_config.pipeline.vertSpvPath)) {
       pnkr::Log::error("Vertex shader not found: {}", renderer_config.pipeline.vertSpvPath.string());
@@ -40,6 +37,9 @@ int main(int argc, char** argv) {
       pnkr::Log::error("Fragment shader not found: {}", renderer_config.pipeline.fragSpvPath.string());
       return 1;
     }
+
+    pnkr::Window window("PNKR - Cube", 800, 600);
+    pnkr::Log::info("Window created: {}x{}", window.width(), window.height());
 
     pnkr::renderer::Renderer renderer(window, renderer_config);
 

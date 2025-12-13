@@ -4,13 +4,15 @@
 #include <vk_mem_alloc.h>
 
 namespace pnkr::renderer {
+  class VulkanDevice;
 
   class VulkanBuffer {
   public:
     VulkanBuffer(VmaAllocator allocator,
                  vk::DeviceSize size,
                  vk::BufferUsageFlags usage,
-                 VmaMemoryUsage memoryUsage);
+                 VmaMemoryUsage memoryUsage,
+                 VmaAllocationCreateFlags allocFlags = 0);
     ~VulkanBuffer();
 
     VulkanBuffer(const VulkanBuffer&) = delete;
@@ -24,6 +26,16 @@ namespace pnkr::renderer {
 
     vk::Buffer buffer() const { return vk::Buffer{m_buffer}; }
     vk::DeviceSize size() const { return m_size; }
+
+    static VulkanBuffer CreateDeviceLocalAndUpload(
+      VulkanDevice& device,
+      const void* data,
+      vk::DeviceSize size,
+      vk::BufferUsageFlags finalUsage
+    );
+
+
+
 
   private:
     void destroy() noexcept;
