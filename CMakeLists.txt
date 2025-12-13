@@ -21,6 +21,22 @@ if(CCACHE_PROGRAM)
   message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
 endif()
 
+
+# --- Workaround: clang-cl (LLVM 21) exceptions ---
+# clang-cl is Clang with an MSVC-like command line in CMake terms.
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
+        CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+  # Standard MSVC exception model flag.
+  add_compile_options(/EHsc)  # enables C++ exception semantics in MSVC mode [web:42]
+
+  # clang-cl-specific: make sure Clang frontend actually enables C++ exceptions.
+  add_compile_options(-Xclang -fcxx-exceptions)  # workaround for /EH* not taking effect [web:4]
+
+  # Avoid the MSVC STL being configured as "no exceptions" via macros.
+  add_compile_definitions(_HAS_EXCEPTIONS=1)
+endif()
+
+
 # Prefer faster linkers when available
 if(NOT MSVC)
   find_program(MOLD_LINKER mold)
@@ -98,6 +114,26 @@ if(NOT Vulkan_FOUND)
     "Linux: sudo apt install vulkan-sdk\n"
     "macOS: brew install vulkan-sdk\n"
     "Windows: https://vulkan.lunarg.com/sdk/home"
+  )
+endif()
+
+# ============================================================================
+# Code Quality & Style
+# ============================================================================
+
+
+
+# 2. Formatting (Clang-Format)
+find_program(CLANG_FORMAT_PROGRAM clang-format)
+if(CLANG_FORMAT_PROGRAM)
+  file(GLOB_RECURSE PNKR_SOURCES
+    "engine/include/*.h" "engine/include/*.hpp"
+    "engine/src/*.cpp" "engine/src/*.hpp"
+    "samples/*.cpp" "samples/*.h"
+  )
+  add_custom_target(format
+    COMMAND "${CLANG_FORMAT_PROGRAM}" -i ${PNKR_SOURCES}
+    COMMENT "Formatting source code..."
   )
 endif()
 

@@ -11,4 +11,4 @@ using Handle = uint32_t;
 using MeshHandle = Handle;
 using PipelineHandle = Handle;
 
-#endif //PNKR_HANDLE_H
+#endif // PNKR_HANDLE_H

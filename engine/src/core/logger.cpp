@@ -2,15 +2,15 @@
 
 namespace pnkr::core {
 
-std::shared_ptr<spdlog::logger> Logger::s_logger;
+std::shared_ptr<spdlog::logger> Logger::sLogger;
 
-void Logger::init(const std::string& pattern) {
-  if (s_logger) {
-    return;  // Already initialized
+void Logger::init(const std::string &pattern) {
+  if (sLogger) {
+    return; // Already initialized
   }
 
-  auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-  auto logger = std::make_shared<spdlog::logger>("pnkr", console_sink);
+  auto consoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+  const auto logger = std::make_shared<spdlog::logger>("pnkr", consoleSink);
 
   logger->set_pattern(pattern);
 
@@ -21,9 +21,9 @@ void Logger::init(const std::string& pattern) {
 #endif
 
   spdlog::register_logger(logger);
-  s_logger = logger;
+  sLogger = logger;
 
   info("Logger initialized");
 }
 
-}  // namespace pnkr::core
+} // namespace pnkr::core

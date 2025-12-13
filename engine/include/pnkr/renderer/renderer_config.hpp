@@ -1,13 +1,11 @@
 #pragma once
 
-#include <filesystem>
-
 #include "pnkr/renderer/vulkan/pipeline/PipelineConfig.h"
 
 namespace pnkr::renderer {
 
 struct RendererConfig {
-    PipelineConfig pipeline{};
+  PipelineConfig m_pipeline{};
 };
 
-}  // namespace pnkr::renderer
+} // namespace pnkr::renderer

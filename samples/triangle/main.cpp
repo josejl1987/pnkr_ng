@@ -6,18 +6,23 @@
  * Stage 1: Vulkan triangle rendering
  */
 
-#include <pnkr/engine.hpp>
 #include <filesystem>
 #include <iostream>
+#include <pnkr/engine.hpp>
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   namespace fs = std::filesystem;
+  constexpr int kWindowWidth = 800;
+  constexpr int kWindowHeight = 600;
+  constexpr int kLogFps = 60;
 
   try {
     pnkr::Log::init("[%H:%M:%S] [%-8l] %v");
-    pnkr::Log::info("PNKR Engine v{}.{}.{}", PNKR_VERSION_MAJOR, PNKR_VERSION_MINOR, PNKR_VERSION_PATCH);
+    pnkr::Log::info("PNKR Engine v{}.{}.{}", PNKR_VERSION_MAJOR,
+                    PNKR_VERSION_MINOR, PNKR_VERSION_PATCH);
 
-    const fs::path exePath = (argc > 0 && argv) ? fs::path(argv[0]) : fs::current_path();
+    const fs::path exePath =
+        (argc > 0 && argv != nullptr) ? fs::path(argv[0]) : fs::current_path();
     const fs::path shaderDir = exePath.parent_path() / "shaders";
 
     if (!fs::exists(shaderDir)) {
@@ -25,25 +30,28 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    pnkr::Window window("PNKR - Triangle", 800, 600, SDL_WINDOW_RESIZABLE);
+    pnkr::Window window("PNKR - Triangle", kWindowWidth, kWindowHeight,
+                        SDL_WINDOW_RESIZABLE);
     pnkr::Log::info("Window created: {}x{}", window.width(), window.height());
 
-    pnkr::renderer::RendererConfig renderer_config{};
-    renderer_config.pipeline.vertSpvPath = shaderDir / "triangle.vert.spv";
-    renderer_config.pipeline.fragSpvPath = shaderDir / "triangle.frag.spv";
+    pnkr::renderer::RendererConfig rendererConfig{};
+    rendererConfig.m_pipeline.m_vertSpvPath = shaderDir / "triangle.vert.spv";
+    rendererConfig.m_pipeline.m_fragSpvPath = shaderDir / "triangle.frag.spv";
 
-    if (!fs::exists(renderer_config.pipeline.vertSpvPath)) {
-      pnkr::Log::error("Vertex shader not found: {}", renderer_config.pipeline.vertSpvPath.string());
+    if (!fs::exists(rendererConfig.m_pipeline.m_vertSpvPath)) {
+      pnkr::Log::error("Vertex shader not found: {}",
+                       rendererConfig.m_pipeline.m_vertSpvPath.string());
       return 1;
     }
-    if (!fs::exists(renderer_config.pipeline.fragSpvPath)) {
-      pnkr::Log::error("Fragment shader not found: {}", renderer_config.pipeline.fragSpvPath.string());
+    if (!fs::exists(rendererConfig.m_pipeline.m_fragSpvPath)) {
+      pnkr::Log::error("Fragment shader not found: {}",
+                       rendererConfig.m_pipeline.m_fragSpvPath.string());
       return 1;
     }
 
-    pnkr::renderer::Renderer renderer(window, renderer_config);
+    pnkr::renderer::Renderer renderer(window, rendererConfig);
 
-    int frame_count = 0;
+    int frameCount = 0;
     while (window.isRunning()) {
       try {
         window.processEvents();
@@ -52,20 +60,20 @@ int main(int argc, char** argv) {
         renderer.drawFrame();
         renderer.endFrame();
 
-        if (++frame_count % 60 == 0) {
-          pnkr::Log::debug("Running... (frames: {})", frame_count);
+        if (++frameCount % kLogFps == 0) {
+          pnkr::Log::debug("Running... (frames: {})", frameCount);
         }
-      } catch (const std::exception& e) {
+      } catch (const std::exception &e) {
         pnkr::Log::error("Frame error: {}", e.what());
         break;
       }
     }
 
-    pnkr::Log::info("Engine shutdown (rendered {} frames)", frame_count);
+    pnkr::Log::info("Engine shutdown (rendered {} frames)", frameCount);
     return 0;
 
-  } catch (const std::exception& e) {
-    std::cerr << "FATAL ERROR: " << e.what() << std::endl;
+  } catch (const std::exception &e) {
+    std::cerr << "FATAL ERROR: " << e.what() << '\n';
     return 1;
   }
 }

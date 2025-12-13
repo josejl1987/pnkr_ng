@@ -8,12 +8,12 @@
 namespace pnkr::renderer {
 
 struct PipelineConfig {
-    mutable vk::Format colorFormat{vk::Format::eUndefined};
-    std::filesystem::path vertSpvPath;
-    std::filesystem::path fragSpvPath;
-    VertexInputDescription vertexInput;
-    bool enableDepth = true;
-    mutable vk::Format depthFormat = vk::Format::eUndefined;
+  mutable vk::Format m_colorFormat{vk::Format::eUndefined};
+  std::filesystem::path m_vertSpvPath;
+  std::filesystem::path m_fragSpvPath;
+  VertexInputDescription m_vertexInput;
+  bool m_enableDepth = true;
+  mutable vk::Format m_depthFormat = vk::Format::eUndefined;
 };
 
-}  // namespace pnkr::renderer
+} // namespace pnkr::renderer

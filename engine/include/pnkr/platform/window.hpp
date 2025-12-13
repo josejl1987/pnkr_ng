@@ -5,9 +5,9 @@
  * @brief RAII wrapper for SDL3 window
  */
 
+#include <SDL3/SDL.h>
 #include <memory>
 #include <string>
-#include <SDL3/SDL.h>
 
 namespace pnkr::platform {
 
@@ -26,42 +26,42 @@ public:
    * @brief Create a new SDL window
    * @throw std::runtime_error if window creation fails
    */
-  explicit Window(
-    const std::string& title = "PNKR",
-    int width = 800,
-    int height = 600,
-    SDL_WindowFlags flags = 0
-  );
+  explicit Window(const std::string &title = "PNKR", int width = 800,
+                  int height = 600, SDL_WindowFlags flags = 0);
 
   // RAII: Automatic cleanup
   ~Window();
 
   // Non-copyable
-  Window(const Window&) = delete;
-  Window& operator=(const Window&) = delete;
+  Window(const Window &) = delete;
+  Window &operator=(const Window &) = delete;
 
   // Moveable (unique_ptr handles this)
-  Window(Window&&) = default;
-  Window& operator=(Window&&) = default;
+  Window(Window &&) = default;
+  Window &operator=(Window &&) = default;
 
   // Accessors
-  [[nodiscard]] SDL_Window* get() const noexcept { return m_window.get(); }
-  [[nodiscard]] SDL_Window* operator->() const noexcept { return m_window.get(); }
-  [[nodiscard]] operator SDL_Window*() const noexcept { return m_window.get(); }
+  [[nodiscard]] SDL_Window *get() const noexcept { return m_window.get(); }
+  [[nodiscard]] SDL_Window *operator->() const noexcept {
+    return m_window.get();
+  }
+  [[nodiscard]] operator SDL_Window *() const noexcept {
+    return m_window.get();
+  }
 
   // Event handling
   void processEvents() noexcept;
   [[nodiscard]] bool isRunning() const noexcept { return m_running; }
 
   // Properties
-  void setTitle(const std::string& title) const;
+  void setTitle(const std::string &title) const;
   [[nodiscard]] int width() const noexcept;
   [[nodiscard]] int height() const noexcept;
 
 private:
   // Custom deleter for SDL_Window
   struct SDLWindowDeleter {
-    void operator()(SDL_Window* window) const noexcept {
+    void operator()(SDL_Window *window) const noexcept {
       if (window) {
         SDL_DestroyWindow(window);
       }
@@ -72,4 +72,4 @@ private:
   bool m_running = true;
 };
 
-}  // namespace pnkr::platform
+} // namespace pnkr::platform

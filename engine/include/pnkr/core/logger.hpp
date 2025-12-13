@@ -5,9 +5,9 @@
  * @brief Centralized logging facade using spdlog
  */
 
-#include <spdlog/spdlog.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <memory>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 #include <string>
 
 namespace pnkr::core {
@@ -17,45 +17,53 @@ public:
   // Static-only interface
   Logger() = delete;
   ~Logger() = delete;
-  Logger(const Logger&) = delete;
-  Logger& operator=(const Logger&) = delete;
+  Logger(const Logger &) = delete;
+  Logger &operator=(const Logger &) = delete;
 
   // Initialize logger (call once on startup)
-  static void init(const std::string& pattern = "[%H:%M:%S] [%l] %v");
+  static void init(const std::string &pattern = "[%H:%M:%S] [%l] %v");
 
   // Logging interface (C++20 format strings)
-  template<typename... Args>
-  static void trace(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (s_logger) s_logger->trace(fmt, std::forward<Args>(args)...);
+  template <typename... Args>
+  static void trace(spdlog::format_string_t<Args...> fmt, Args &&...args) {
+    if (sLogger)
+      sLogger->trace(fmt, std::forward<Args>(args)...);
   }
 
-  template<typename... Args>
-  static void debug(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (s_logger) s_logger->debug(fmt, std::forward<Args>(args)...);
+  template <typename... Args>
+  static void debug(spdlog::format_string_t<Args...> fmt, Args &&...args) {
+    if (sLogger)
+      sLogger->debug(fmt, std::forward<Args>(args)...);
   }
 
-  template<typename... Args>
-  static void info(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (s_logger) s_logger->info(fmt, std::forward<Args>(args)...);
+  template <typename... Args>
+  static void info(spdlog::format_string_t<Args...> fmt, Args &&...args) {
+    if (sLogger)
+      sLogger->info(fmt, std::forward<Args>(args)...);
   }
 
-  template<typename... Args>
-  static void warn(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (s_logger) s_logger->warn(fmt, std::forward<Args>(args)...);
+  template <typename... Args>
+  static void warn(spdlog::format_string_t<Args...> fmt, Args &&...args) {
+    if (sLogger)
+      sLogger->warn(fmt, std::forward<Args>(args)...);
   }
 
-  template<typename... Args>
-  static void error(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (s_logger) s_logger->error(fmt, std::forward<Args>(args)...);
+  template <typename... Args>
+  static void error(spdlog::format_string_t<Args...> fmt, Args &&...args) {
+    if (sLogger) {
+      sLogger->error(fmt, std::forward<Args>(args)...);
+    }
   }
 
-  template<typename... Args>
-  static void critical(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (s_logger) s_logger->critical(fmt, std::forward<Args>(args)...);
+  template <typename... Args>
+  static void critical(spdlog::format_string_t<Args...> fmt, Args &&...args) {
+    if (sLogger) {
+      sLogger->critical(fmt, std::forward<Args>(args)...);
+    }
   }
 
 private:
-  static std::shared_ptr<spdlog::logger> s_logger;
+  static std::shared_ptr<spdlog::logger> sLogger;
 };
 
-}  // namespace pnkr::core
+} // namespace pnkr::core

@@ -17,8 +17,8 @@
 
 // Convenience namespace
 namespace pnkr {
-  using Log = core::Logger;
-  using Window = platform::Window;
-  using Renderer = renderer::Renderer;
-  using RendererConfig = renderer::RendererConfig;
-}  // namespace pnkr
+using Log = core::Logger;
+using Window = platform::Window;
+using Renderer = renderer::Renderer;
+using RendererConfig = renderer::RendererConfig;
+} // namespace pnkr
