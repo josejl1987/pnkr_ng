@@ -1,0 +1,16 @@
+{
+  "name": "pnkr-ng",
+  "version-string": "0.0.1",
+  "dependencies": [
+    "glm",
+    "vulkan-memory-allocator",
+    "vulkan-headers",
+    "spdlog",
+    {
+      "name": "sdl3",
+      "features": [
+        "vulkan"
+      ]
+    }
+  ]
+}

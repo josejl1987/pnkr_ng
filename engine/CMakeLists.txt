@@ -91,6 +91,23 @@ target_link_libraries(pnkr_engine
     Vulkan::Vulkan
 )
 
+# GLM (this one is usually a proper CMake package)
+find_package(glm CONFIG REQUIRED)
+target_link_libraries(pnkr_engine PUBLIC glm::glm)
+
+# VMA (vcpkg port may not export an imported target; treat as header-only unless a target exists)
+find_package(VulkanMemoryAllocator CONFIG REQUIRED)   # provides GPUOpen::VulkanMemoryAllocator
+
+target_link_libraries(pnkr_engine
+        PUBLIC
+        GPUOpen::VulkanMemoryAllocator
+)
+target_include_directories(pnkr_engine PUBLIC "${VMA_INCLUDE_DIR}")
+target_compile_definitions(pnkr_engine PUBLIC VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=0)
+
+
+
+
 # ============================================================================
 # Compiler Warnings (Per-target)
 # ============================================================================
