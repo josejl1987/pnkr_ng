@@ -31,7 +31,7 @@ namespace pnkr::renderer {
   private:
     void createShaderModules(const Config& config);
     void createPipelineLayout();
-    void createGraphicsPipeline();
+    void createGraphicsPipeline(const PipelineConfig& config);
     static std::vector<std::uint32_t> readSpirvFile(const char* path);
 
   private:
@@ -43,6 +43,8 @@ namespace pnkr::renderer {
     vk::ShaderModule m_frag{};
     vk::PipelineLayout m_layout{};
     vk::Pipeline m_pipeline{};
+    VertexInputDescription m_vertexInput;
+
   };
 
 } // namespace pnkr::renderer

@@ -12,6 +12,8 @@ struct PipelineConfig {
     std::filesystem::path vertSpvPath;
     std::filesystem::path fragSpvPath;
     VertexInputDescription vertexInput;
+    bool enableDepth = true;
+    mutable vk::Format depthFormat = vk::Format::eUndefined;
 };
 
 }  // namespace pnkr::renderer

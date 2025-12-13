@@ -1,30 +1,25 @@
-#pragma once
-#include <vulkan/vulkan.hpp>
-#include <glm/vec3.hpp>
-#include <array>
+//
+// Created by Jose on 12/13/2025.
+//
 
-namespace pnkr::renderer {
+#ifndef PNKR_MESH_H
+#define PNKR_MESH_H
+#include "Vertex.h"
+#include "pnkr/renderer/vulkan/vulkan_device.hpp"
+namespace pnkr::renderer
+{
+    class Mesh {
+    public:
 
-    struct Vertex {
-        glm::vec3 position;
-        glm::vec3 color;
+        Mesh(VulkanDevice& device, const std::vector<Vertex>& vertices,
+             const std::vector<std::uint32_t>& indices);
+        void bind(vk::CommandBuffer cmd) const;
+        void draw(vk::CommandBuffer cmd) const;
 
-        static vk::VertexInputBindingDescription binding()
-        {
-            return vk::VertexInputBindingDescription{
-                0,
-                sizeof(Vertex),
-                vk::VertexInputRate::eVertex
-              };
-        }
-
-        static std::array<vk::VertexInputAttributeDescription, 2> attributes()
-        {
-            return {
-                vk::VertexInputAttributeDescription{0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, position)},
-                vk::VertexInputAttributeDescription{1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color)}
-            };
-        }
+    private:
+        VulkanBuffer m_vertexBuffer;
+        VulkanBuffer m_indexBuffer;
+        std::uint32_t m_indexCount = 0;
     };
-
-} // namespace pnkr::renderer
+}
+#endif //PNKR_MESH_H

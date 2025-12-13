@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan.hpp>
 #include <vector>
+#include <vma/vk_mem_alloc.h>
 
 namespace pnkr::platform
 {
@@ -18,7 +19,8 @@ namespace pnkr::renderer
                         vk::SurfaceKHR surface,
                         uint32_t graphicsQueueFamily,
                         uint32_t presentQueueFamily,
-                        pnkr::platform::Window& window);
+                        pnkr::platform::Window& window,
+                        VmaAllocator allocator);
 
         ~VulkanSwapchain();
 
@@ -30,7 +32,7 @@ namespace pnkr::renderer
                       vk::SurfaceKHR surface,
                       uint32_t graphicsQueueFamily,
                       uint32_t presentQueueFamily,
-                      pnkr::platform::Window& window);
+                      platform::Window& window);
 
         [[nodiscard]] vk::SwapchainKHR swapchain() const noexcept { return m_swapchain; }
         [[nodiscard]] vk::Format imageFormat() const noexcept { return m_format; }
@@ -48,8 +50,24 @@ namespace pnkr::renderer
                            uint32_t imageIndex,
                            vk::Semaphore renderFinished);
         vk::ImageLayout& imageLayout(uint32_t index) { return m_imageLayouts[index]; }
-        vk::ImageLayout  imageLayout(uint32_t index) const { return m_imageLayouts[index]; }
+        vk::ImageLayout imageLayout(uint32_t index) const { return m_imageLayouts[index]; }
+        vk::Format depthFormat() const noexcept { return m_depthFormat; }
+        vk::ImageView depthImageView() const noexcept { return m_depthView; }
+        vk::Image depthImage() const noexcept { return m_depthImage; }
+
     private:
+        void createDepthResources();
+        void destroyDepthResources();
+
+        VmaAllocator  m_allocator{nullptr};
+
+        vk::Format    m_depthFormat = vk::Format::eD32Sfloat;
+        vk::Image     m_depthImage{};
+        VmaAllocation m_depthAlloc{nullptr};
+        vk::ImageView m_depthView{};
+
+        bool m_depthNeedsInitBarrier = true;
+
         void destroy(vk::Device device);
 
         void createSwapchain(vk::PhysicalDevice physicalDevice,
@@ -70,9 +88,9 @@ namespace pnkr::renderer
         vk::Format m_format{};
         vk::Extent2D m_extent{};
         vk::Device m_device{nullptr};
+
         std::vector<vk::Image> m_images;
         std::vector<vk::ImageView> m_imageViews;
         std::vector<vk::ImageLayout> m_imageLayouts;
-
     };
 } // namespace pnkr::renderer

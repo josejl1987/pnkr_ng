@@ -24,7 +24,7 @@ namespace pnkr::renderer {
     void* map();
     void  unmap();
 
-    vk::Buffer buffer() const { return vk::Buffer{m_buffer}; }
+    const vk::Buffer& buffer() const noexcept { return m_buffer; }
     vk::DeviceSize size() const { return m_size; }
 
     static VulkanBuffer CreateDeviceLocalAndUpload(
@@ -43,7 +43,7 @@ namespace pnkr::renderer {
     VmaAllocator  m_allocator{nullptr};
 
     // Stored as raw handle for VMA, exposed as vk::Buffer via accessor.
-    VkBuffer      m_buffer{VK_NULL_HANDLE};
+    vk::Buffer      m_buffer{VK_NULL_HANDLE};
     VmaAllocation m_allocation{nullptr};
 
     vk::DeviceSize m_size{0};

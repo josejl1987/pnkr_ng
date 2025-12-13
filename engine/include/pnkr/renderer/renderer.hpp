@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "pipeline/Pipeline.h"
+#include "pnkr/core/Handle.h"
 #include "pnkr/platform/window.hpp"
 #include "pnkr/renderer/renderer_config.hpp"
 #include "pnkr/renderer/vulkan/vulkan_buffer.hpp"
@@ -18,9 +19,12 @@
 #include "pnkr/renderer/vulkan/vulkan_pipeline.hpp"
 #include "pnkr/renderer/vulkan/vulkan_swapchain.hpp"
 #include "pnkr/renderer/vulkan/vulkan_sync_manager.h"
+#include "vulkan/geometry/Mesh.h"
+#include "vulkan/geometry/Vertex.h"
 
 namespace pnkr::renderer {
 
+  using RecordFunc = std::function<void(RenderFrameContext&)>;
   /**
    * @brief High-level renderer entry point exposed to applications
    *
@@ -37,10 +41,20 @@ namespace pnkr::renderer {
     Renderer(Renderer&&) = delete;
     Renderer& operator=(Renderer&&) = delete;
 
+    void bindMesh(vk::CommandBuffer cmd, MeshHandle h) const;
+    void drawMesh(vk::CommandBuffer cmd, MeshHandle h) const;
+
     void beginFrame();
     void drawFrame();
     void endFrame();
     void resize(int width, int height);
+
+    MeshHandle createMesh(const std::vector<Vertex>& vertices,
+                      const std::vector<uint32_t>& indices);
+    PipelineHandle createPipeline(const VulkanPipeline::Config& cfg);
+    void setRecordFunc(RecordFunc callback);
+    void bindPipeline(vk::CommandBuffer cmd, PipelineHandle h) const;
+    vk::PipelineLayout pipelineLayout(PipelineHandle h) const;
 
   private:
     platform::Window& m_window;
@@ -51,14 +65,12 @@ namespace pnkr::renderer {
     std::unique_ptr<VulkanCommandBuffer> m_commandBuffer;
     std::unique_ptr<VulkanBuffer> m_vertexBuffer;
     std::unique_ptr<VulkanSyncManager> m_sync;
+    std::vector<std::unique_ptr<Mesh>> m_meshes;
 
     PipelineConfig m_pipeline_config{};
     std::vector<std::unique_ptr<VulkanPipeline>> m_pipelines{};
-    PipelineHandle createPipeline(const VulkanPipeline::Config& cfg);
     const VulkanPipeline& pipeline(PipelineHandle h) const;
-
-    // NEW: Register a render callback instead of hardcoded drawFrame
-    void setRenderCallback(RenderCallback callback);
+    RecordFunc m_record_callback; // default empty; Renderer can fall back to a debug draw
 
     // State
     uint32_t m_imageIndex = 0;

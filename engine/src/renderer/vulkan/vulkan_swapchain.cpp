@@ -1,7 +1,6 @@
 #include "pnkr/renderer/vulkan/vulkan_swapchain.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/platform/window.hpp" // adjust include path to your actual Window header
-
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
@@ -37,8 +36,10 @@ namespace pnkr::renderer
                                      vk::SurfaceKHR surface,
                                      uint32_t graphicsQueueFamily,
                                      uint32_t presentQueueFamily,
-                                     pnkr::platform::Window& window)
+                                     pnkr::platform::Window& window,
+                                     VmaAllocator allocator)
     {
+        m_allocator = allocator;
         recreate(physicalDevice, device, surface, graphicsQueueFamily, presentQueueFamily, window);
     }
 
@@ -54,6 +55,7 @@ namespace pnkr::renderer
                                    uint32_t graphicsQueueFamily,
                                    uint32_t presentQueueFamily,
                                    pnkr::platform::Window& window)
+
     {
         if (!physicalDevice) throw std::runtime_error("[VulkanSwapchain] physicalDevice is null");
         if (!device) throw std::runtime_error("[VulkanSwapchain] device is null");
@@ -65,7 +67,7 @@ namespace pnkr::renderer
 
         createSwapchain(physicalDevice, device, surface, graphicsQueueFamily, presentQueueFamily, window);
         createImageViews(device);
-
+        createDepthResources();
         pnkr::core::Logger::info("[VulkanSwapchain] Created ({} images, {}x{}, format={}).",
                                  static_cast<uint32_t>(m_images.size()),
                                  m_extent.width,
@@ -92,6 +94,7 @@ namespace pnkr::renderer
         m_images.clear();
         m_format = vk::Format::eUndefined;
         m_extent = vk::Extent2D{};
+        destroyDepthResources();
     }
 
     void VulkanSwapchain::createSwapchain(vk::PhysicalDevice physicalDevice,
@@ -318,7 +321,7 @@ namespace pnkr::renderer
 
         vk::PresentInfoKHR presentInfo{};
         presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores = &renderFinished;  // ✅ must be set
+        presentInfo.pWaitSemaphores = &renderFinished; // ✅ must be set
 
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = &m_swapchain;
@@ -343,5 +346,83 @@ namespace pnkr::renderer
         {
             return static_cast<vk::Result>(e.code().value());
         }
+    }
+
+    void VulkanSwapchain::createDepthResources()
+    {
+        if (!m_device || !m_allocator)
+            throw std::runtime_error("[VulkanSwapchain] createDepthResources: device/allocator not set");
+
+        // Destroy old if any
+        destroyDepthResources();
+
+        vk::ImageCreateInfo ici{};
+        ici.imageType = vk::ImageType::e2D;
+        ici.format = m_depthFormat;
+        ici.extent = vk::Extent3D{m_extent.width, m_extent.height, 1};
+        ici.mipLevels = 1;
+        ici.arrayLayers = 1;
+        ici.samples = vk::SampleCountFlagBits::e1;
+        ici.tiling = vk::ImageTiling::eOptimal;
+        ici.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment;
+        ici.sharingMode = vk::SharingMode::eExclusive;
+        ici.initialLayout = vk::ImageLayout::eUndefined;
+
+        VmaAllocationCreateInfo aci{};
+        aci.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+        VkImage raw = VK_NULL_HANDLE;
+
+        const VkImageCreateInfo rawIci = static_cast<VkImageCreateInfo>(ici);
+
+        VkResult res = vmaCreateImage(
+            m_allocator,
+            &rawIci,
+            &aci,
+            &raw,
+            &m_depthAlloc,
+            nullptr
+        );
+
+        if (res != VK_SUCCESS || raw == VK_NULL_HANDLE)
+            throw std::runtime_error("[VulkanSwapchain] vmaCreateImage(depth) failed");
+
+        m_depthImage = vk::Image(raw);
+
+        vk::ImageViewCreateInfo ivci{};
+        ivci.image = m_depthImage;
+        ivci.viewType = vk::ImageViewType::e2D;
+        ivci.format = m_depthFormat;
+        ivci.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
+        ivci.subresourceRange.baseMipLevel = 0;
+        ivci.subresourceRange.levelCount = 1;
+        ivci.subresourceRange.baseArrayLayer = 0;
+        ivci.subresourceRange.layerCount = 1;
+
+        m_depthView = m_device.createImageView(ivci);
+
+        // First frame after recreate needs Undefined->DepthAttachment barrier
+        m_depthNeedsInitBarrier = true;
+    }
+
+    void VulkanSwapchain::destroyDepthResources()
+    {
+        if (!m_device) return;
+
+        if (m_depthView)
+        {
+            m_device.destroyImageView(m_depthView);
+            m_depthView = nullptr;
+        }
+
+        if (m_depthImage && m_allocator && m_depthAlloc)
+        {
+            vmaDestroyImage(m_allocator,
+                            static_cast<VkImage>(m_depthImage),
+                            m_depthAlloc);
+        }
+
+        m_depthImage = nullptr;
+        m_depthAlloc = nullptr;
     }
 } // namespace pnkr::renderer

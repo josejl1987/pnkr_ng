@@ -122,9 +122,12 @@ namespace pnkr::renderer
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &renderFinished;
 
-    const vk::Result r = graphicsQueue.submit(1, &submit, signalFence);
-    if (r != vk::Result::eSuccess)
-      throw std::runtime_error("[VulkanCommandBuffer] queue submit failed");
+    try {
+        // vulkan.hpp submit takes (ArrayProxy, Fence). Pass single submitInfo directly.
+        graphicsQueue.submit(submit, signalFence);
+    } catch (const vk::SystemError& e) {
+        throw std::runtime_error(std::string("[VulkanCommandBuffer] queue submit failed: ") + e.what());
+    }
   }
 
 }

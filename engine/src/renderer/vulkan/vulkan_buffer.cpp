@@ -25,14 +25,17 @@ VulkanBuffer::VulkanBuffer(VmaAllocator allocator,
   VmaAllocationCreateInfo allocInfo{};
   allocInfo.usage = memoryUsage;
   allocInfo.flags = allocFlags;
+  VkBuffer rawBuffer;
   VkResult res = vmaCreateBuffer(
     m_allocator,
     &bufferInfo,
     &allocInfo,
-    &m_buffer,
+    &rawBuffer,
     &m_allocation,
     nullptr
   );
+
+  m_buffer = vk::Buffer(rawBuffer);
 
   if (res != VK_SUCCESS) {
     throw std::runtime_error("[VulkanBuffer] vmaCreateBuffer failed");

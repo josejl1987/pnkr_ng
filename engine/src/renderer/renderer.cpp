@@ -22,12 +22,17 @@ namespace pnkr::renderer
             m_context->surface(),
             m_device->queueFamilies().graphics,
             m_device->queueFamilies().present,
-            window);
+            window,
+            m_device->allocator());
 
         config.pipeline.colorFormat = m_swapchain->imageFormat();
+        config.pipeline.depthFormat = m_swapchain->depthFormat();
 
         m_pipeline = std::make_unique<
             VulkanPipeline>(m_device->device(), m_swapchain->imageFormat(), config.pipeline);
+
+
+
 
         m_commandBuffer = std::make_unique<VulkanCommandBuffer>(*m_device);
 
@@ -44,6 +49,7 @@ namespace pnkr::renderer
 
         PipelineConfig pipelineCfg = cfg;
         pipelineCfg.colorFormat = m_swapchain->imageFormat();
+        pipelineCfg.depthFormat = m_swapchain->depthFormat();
 
         m_pipelines.push_back(std::make_unique<VulkanPipeline>(
             m_device->device(),
@@ -61,6 +67,60 @@ namespace pnkr::renderer
             throw std::runtime_error("[Renderer] Invalid pipeline handle: " + std::to_string(h));
         }
         return *m_pipelines[h];
+    }
+
+    vk::PipelineLayout Renderer::pipelineLayout(PipelineHandle h) const
+    {
+        if (h >= m_pipelines.size())
+            throw std::runtime_error("[Renderer] Invalid pipeline handle");
+        return m_pipelines[h]->layout();
+    }
+
+
+    MeshHandle Renderer::createMesh(const std::vector<Vertex>& vertices,
+                                  const std::vector<uint32_t>& indices)
+    {
+        if (vertices.empty() || indices.empty())
+            throw std::runtime_error("[Renderer] createMesh: empty data");
+
+        MeshHandle handle = static_cast<MeshHandle>(m_meshes.size());
+
+        m_meshes.push_back(
+          std::make_unique<Mesh>(*m_device, vertices, indices)
+        );
+
+        pnkr::core::Logger::info("[Renderer] Created mesh handle={}", handle);
+        return handle;
+    }
+
+
+    void Renderer::bindMesh(vk::CommandBuffer cmd, MeshHandle h) const
+    {
+        if (h >= m_meshes.size())
+            throw std::runtime_error("[Renderer] Invalid mesh handle");
+
+        m_meshes[h]->bind(cmd);
+    }
+
+    void Renderer::drawMesh(vk::CommandBuffer cmd, MeshHandle h) const
+    {
+        if (h >= m_meshes.size())
+            throw std::runtime_error("[Renderer] Invalid mesh handle");
+
+        m_meshes[h]->draw(cmd);
+    }
+
+    void Renderer::setRecordFunc(RecordFunc callback)
+    {
+        m_record_callback = callback;
+    }
+
+    void Renderer::bindPipeline(vk::CommandBuffer cmd, PipelineHandle h) const
+    {
+        if (h >= m_pipelines.size())
+            throw std::runtime_error("[Renderer] Invalid pipeline handle");
+
+        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, m_pipelines[h]->pipeline());
     }
 
     Renderer::~Renderer()
@@ -128,10 +188,39 @@ namespace pnkr::renderer
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
 
+
+
+
+
+
+
         vk::DependencyInfo dep{};
         dep.imageMemoryBarrierCount = 1;
         dep.pImageMemoryBarriers = &barrier;
         cmd.pipelineBarrier2(dep);
+
+
+        if (m_swapchain->depthImage())
+        {
+            vk::ImageMemoryBarrier2 depthBarrier{};
+            depthBarrier.srcStageMask = vk::PipelineStageFlagBits2::eNone;
+            depthBarrier.srcAccessMask = vk::AccessFlagBits2::eNone;
+            depthBarrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests;
+            depthBarrier.dstAccessMask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+            depthBarrier.oldLayout = vk::ImageLayout::eUndefined;
+            depthBarrier.newLayout = vk::ImageLayout::eDepthAttachmentOptimal;
+            depthBarrier.image = m_swapchain->depthImage();
+            depthBarrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
+            depthBarrier.subresourceRange.levelCount = 1;
+            depthBarrier.subresourceRange.layerCount = 1;
+
+            vk::DependencyInfo depDepth{};
+            depDepth.imageMemoryBarrierCount = 1;
+            depDepth.pImageMemoryBarriers = &depthBarrier;
+            cmd.pipelineBarrier2(depDepth);
+        }
+
+
 
         // Render
         const vk::Extent2D ext = m_swapchain->extent();
@@ -145,11 +234,25 @@ namespace pnkr::renderer
         colorAtt.storeOp = vk::AttachmentStoreOp::eStore;
         colorAtt.clearValue = clear;
 
+
+        vk::RenderingAttachmentInfo depthAtt{};
+        depthAtt.imageView = m_swapchain->depthImageView();
+        depthAtt.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal;
+        depthAtt.loadOp = vk::AttachmentLoadOp::eClear;
+        depthAtt.storeOp = vk::AttachmentStoreOp::eStore;
+        depthAtt.clearValue.depthStencil.depth = 1.0f;
+        depthAtt.clearValue.depthStencil.stencil = 0.0f;
+
+
+
+
+
         vk::RenderingInfo ri{};
         ri.renderArea = vk::Rect2D{vk::Offset2D{0, 0}, ext};
         ri.layerCount = 1;
         ri.colorAttachmentCount = 1;
         ri.pColorAttachments = &colorAtt;
+        ri.pDepthAttachment = &depthAtt;
 
         cmd.beginRendering(ri);
 
@@ -166,7 +269,17 @@ namespace pnkr::renderer
         cmd.setScissor(0, 1, &sc);
 
         cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, m_pipeline->pipeline());
-        cmd.draw(3, 1, 0, 0);
+
+        if (m_record_callback)
+        {
+            RenderFrameContext ctx{ cmd, frame, ext };
+            m_record_callback(ctx);
+        }
+        else
+        {
+            // Stage 1 fallback if no callback is provided
+            cmd.draw(3, 1, 0, 0);
+        }
         cmd.endRendering();
 
         // Transition to Present

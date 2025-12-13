@@ -7,10 +7,14 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/vulkan/vulkan_sync_manager.h
         src/renderer/vulkan/vulkan_sync_manager.cpp
         include/pnkr/renderer/vulkan/vma.cpp
-        include/pnkr/renderer/vulkan/geometry/Mesh.h
+        include/pnkr/renderer/vulkan/geometry/Vertex.h
         include/pnkr/renderer/vulkan/geometry/VertexInputDescription.h
         include/pnkr/renderer/vulkan/pipeline/PipelineConfig.h
-        include/pnkr/renderer/pipeline/Pipeline.h)
+        include/pnkr/renderer/pipeline/Pipeline.h
+        include/pnkr/renderer/vulkan/geometry/Mesh.h
+        src/renderer/vulkan/geometry/Mesh.cpp
+        include/pnkr/core/Handle.h
+        include/pnkr/renderer/vulkan/PushConstants.h)
 
 target_sources(pnkr_engine
   PRIVATE
@@ -58,8 +62,11 @@ target_include_directories(pnkr_engine
 target_compile_definitions(pnkr_engine
   PUBLIC
     SPDLOG_USE_STD_FORMAT=1
-  PRIVATE
+    GLM_FORCE_RADIANS
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    PRIVATE
     VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
+
 )
 
 # Unity build to reduce per-TU header parsing overhead
