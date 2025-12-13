@@ -184,11 +184,11 @@ void pnkr::renderer::VulkanPipeline::createGraphicsPipeline(
   raster.depthClampEnable = VK_FALSE;
   raster.rasterizerDiscardEnable = VK_FALSE;
   raster.polygonMode = vk::PolygonMode::eFill;
-  raster.cullMode = vk::CullModeFlagBits::eNone;
+  raster.cullMode = config.m_cullMode;
   // NOTE: Vulkan screen-space Y is inverted vs OpenGL; your shader can handle
   // it. If your triangle appears mirrored, flip this to eCounterClockwise or
   // adjust shader positions.
-  raster.frontFace = vk::FrontFace::eClockwise;
+  raster.frontFace = config.m_frontFace;
   raster.depthBiasEnable = VK_FALSE;
   raster.lineWidth = 1.0f;
 

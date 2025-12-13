@@ -101,7 +101,10 @@ int main(int argc, char **argv) {
                        rendererConfig.m_pipeline.m_fragSpvPath.string());
       return 1;
     }
+    uint64_t freq = SDL_GetPerformanceFrequency();
+    uint64_t last = SDL_GetPerformanceCounter();
 
+    float deltaTime = 0.0f;
     pnkr::Window window("PNKR - Cube", kWindowWidth, kWindowHeight);
     pnkr::Log::info("Window created: {}x{}", window.width(), window.height());
 
@@ -116,7 +119,7 @@ int main(int argc, char **argv) {
 
     renderer.setRecordFunc([&](const pnkr::renderer::RenderFrameContext &ctx) {
       static float timeVal = 0.0F;
-      timeVal += kDeltaTime; // however you track time
+      timeVal += deltaTime; // however you track time
 
       PushConstants pushConsts{};
       pushConsts.m_model =
@@ -146,9 +149,21 @@ int main(int argc, char **argv) {
       renderer.drawMesh(ctx.m_cmd, cube);
     });
     int frameCount = 0;
+
+
+
+
     while (window.isRunning()) {
       try {
         window.processEvents();
+
+        uint64_t now = SDL_GetPerformanceCounter();
+        deltaTime = float(now - last) / float(freq);
+        last = now;
+
+        // avoid crazy jumps when resizing / breakpoints
+        if (deltaTime > 0.05f) deltaTime = 0.05f;
+
 
         renderer.beginFrame();
         renderer.drawFrame();

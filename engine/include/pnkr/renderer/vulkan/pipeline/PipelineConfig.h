@@ -14,6 +14,8 @@ struct PipelineConfig {
   VertexInputDescription m_vertexInput;
   bool m_enableDepth = true;
   mutable vk::Format m_depthFormat = vk::Format::eUndefined;
+  vk::CullModeFlags m_cullMode = vk::CullModeFlagBits::eBack;
+  vk::FrontFace m_frontFace = vk::FrontFace::eCounterClockwise;
 };
 
 } // namespace pnkr::renderer
