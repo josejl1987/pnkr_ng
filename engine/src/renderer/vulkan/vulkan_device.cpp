@@ -89,7 +89,19 @@ void VulkanDevice::createAllocator() {
 
 VulkanDevice::~VulkanDevice() {
   if (m_device) {
-    m_device.destroy(nullptr, VULKAN_HPP_DEFAULT_DISPATCHER);
+    m_device.waitIdle();
+
+    if (m_uploadPool) {
+      m_device.destroyCommandPool(m_uploadPool);
+      m_uploadPool = nullptr;
+    }
+
+    if (m_allocator) {
+      vmaDestroyAllocator(m_allocator);
+      m_allocator = nullptr;
+    }
+
+    m_device.destroy();
     m_device = nullptr;
   }
 }

@@ -7,6 +7,7 @@
  */
 
 #include <filesystem>
+#include <cstdint>
 #include <iostream>
 #include <pnkr/engine.hpp>
 
@@ -34,29 +35,47 @@ int main(int argc, char **argv) {
                         SDL_WINDOW_RESIZABLE);
     pnkr::Log::info("Window created: {}x{}", window.width(), window.height());
 
-    pnkr::renderer::RendererConfig rendererConfig{};
-    rendererConfig.m_pipeline.m_vertSpvPath = shaderDir / "triangle.vert.spv";
-    rendererConfig.m_pipeline.m_fragSpvPath = shaderDir / "triangle.frag.spv";
-
-    if (!fs::exists(rendererConfig.m_pipeline.m_vertSpvPath)) {
+    pnkr::renderer::VulkanPipeline::Config triCfg{};
+    triCfg.m_vertSpvPath = shaderDir / "triangle.vert.spv";
+    triCfg.m_fragSpvPath = shaderDir / "triangle.frag.spv";
+    triCfg.m_cullMode = vk::CullModeFlagBits::eNone;
+    if (!fs::exists(triCfg.m_vertSpvPath)) {
       pnkr::Log::error("Vertex shader not found: {}",
-                       rendererConfig.m_pipeline.m_vertSpvPath.string());
+                       triCfg.m_vertSpvPath.string());
       return 1;
     }
-    if (!fs::exists(rendererConfig.m_pipeline.m_fragSpvPath)) {
+    if (!fs::exists(triCfg.m_fragSpvPath)) {
       pnkr::Log::error("Fragment shader not found: {}",
-                       rendererConfig.m_pipeline.m_fragSpvPath.string());
+                       triCfg.m_fragSpvPath.string());
       return 1;
     }
 
-    pnkr::renderer::Renderer renderer(window, rendererConfig);
+    pnkr::renderer::Renderer renderer(window);
+    const pnkr::renderer::PipelineHandle triPipe =
+        renderer.createPipeline(triCfg);
+
+    renderer.setRecordFunc([&](const pnkr::renderer::RenderFrameContext& ctx) {
+      renderer.bindPipeline(ctx.m_cmd, triPipe);
+      ctx.m_cmd.draw(3, 1, 0, 0);
+    });
+
+    uint64_t freq = SDL_GetPerformanceFrequency();
+    uint64_t last = SDL_GetPerformanceCounter();
+    float deltaTime = 0.0f;
 
     int frameCount = 0;
     while (window.isRunning()) {
       try {
         window.processEvents();
 
-        renderer.beginFrame(TODO);
+        uint64_t now = SDL_GetPerformanceCounter();
+        deltaTime = float(now - last) / float(freq);
+        last = now;
+
+        // avoid crazy jumps when resizing / breakpoints
+        if (deltaTime > 0.05f) deltaTime = 0.05f;
+
+        renderer.beginFrame(deltaTime);
         renderer.drawFrame();
         renderer.endFrame();
 

@@ -49,6 +49,9 @@ public:
   }
   vk::Format depthFormat() const noexcept { return m_depthFormat; }
   vk::ImageView depthImageView() const noexcept { return m_depthView; }
+  bool hasDepth() const noexcept {
+    return depthFormat() != vk::Format::eUndefined && depthImageView();
+  }
   vk::Image depthImage() const noexcept { return m_depthImage; }
 
 private:

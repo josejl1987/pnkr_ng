@@ -7,6 +7,7 @@
  */
 
 #include <filesystem>
+#include <cstdint>
 #include <glm/common.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -24,7 +25,6 @@ int main(int argc, char** argv)
 {
     namespace fs = std::filesystem;
     constexpr int kLogFps = 60;
-    constexpr float kDeltaTime = 0.1F;
     constexpr float kSize = 0.5F;
 
     std::vector<pnkr::renderer::Vertex> cubeVertices = {
@@ -108,20 +108,17 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        pnkr::renderer::RendererConfig rendererConfig{};
-        rendererConfig.m_pipeline.m_vertSpvPath = shaderDir / "cube.vert.spv";
-        rendererConfig.m_pipeline.m_fragSpvPath = shaderDir / "cube.frag.spv";
+        const fs::path cubeVert = shaderDir / "cube.vert.spv";
+        const fs::path cubeFrag = shaderDir / "cube.frag.spv";
 
-        if (!fs::exists(rendererConfig.m_pipeline.m_vertSpvPath))
+        if (!fs::exists(cubeVert))
         {
-            pnkr::Log::error("Vertex shader not found: {}",
-                             rendererConfig.m_pipeline.m_vertSpvPath.string());
+            pnkr::Log::error("Vertex shader not found: {}", cubeVert.string());
             return 1;
         }
-        if (!fs::exists(rendererConfig.m_pipeline.m_fragSpvPath))
+        if (!fs::exists(cubeFrag))
         {
-            pnkr::Log::error("Fragment shader not found: {}",
-                             rendererConfig.m_pipeline.m_fragSpvPath.string());
+            pnkr::Log::error("Fragment shader not found: {}", cubeFrag.string());
             return 1;
         }
         uint64_t freq = SDL_GetPerformanceFrequency();
@@ -131,11 +128,11 @@ int main(int argc, char** argv)
         pnkr::Window window("PNKR - Cube", kWindowWidth, kWindowHeight);
         pnkr::Log::info("Window created: {}x{}", window.width(), window.height());
 
-        pnkr::renderer::Renderer renderer(window, rendererConfig);
+        pnkr::renderer::Renderer renderer(window);
         MeshHandle cube = renderer.createMesh(cubeVertices, cubeIndices);
         pnkr::renderer::VulkanPipeline::Config cubeCfg{};
-        cubeCfg.m_vertSpvPath = "shaders/cube.vert.spv";
-        cubeCfg.m_fragSpvPath = "shaders/cube.frag.spv";
+        cubeCfg.m_vertSpvPath = cubeVert;
+        cubeCfg.m_fragSpvPath = cubeFrag;
         cubeCfg.m_vertexInput = VertexInputDescription::VertexInputCube();
 
         PipelineHandle cubePipe = renderer.createPipeline(cubeCfg);
@@ -143,7 +140,7 @@ int main(int argc, char** argv)
         MeshHandle plane = renderer.createMesh(planeVertices, planeIndices);
 
         pnkr::renderer::VulkanPipeline::Config planeCfg = cubeCfg;
-        planeCfg.m_fragSpvPath = "shaders/plane_tint.frag.spv";
+        planeCfg.m_fragSpvPath = shaderDir / "plane_tint.frag.spv";
         PipelineHandle planePipe = renderer.createPipeline(planeCfg);
 
 

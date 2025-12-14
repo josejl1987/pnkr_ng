@@ -12,7 +12,6 @@
 #include "pnkr/core/Handle.h"
 #include "pnkr/platform/window.hpp"
 #include "pnkr/renderer/renderer_config.hpp"
-#include "pnkr/renderer/vulkan/vulkan_buffer.hpp"
 #include "pnkr/renderer/vulkan/vulkan_command_buffer.hpp"
 #include "pnkr/renderer/vulkan/vulkan_context.hpp"
 #include "pnkr/renderer/vulkan/vulkan_device.hpp"
@@ -33,7 +32,8 @@ namespace pnkr::renderer
     class Renderer
     {
     public:
-        explicit Renderer(platform::Window& window, const RendererConfig& config);
+        explicit Renderer(platform::Window& window,
+                          [[maybe_unused]] const RendererConfig& config);
 
         explicit Renderer(platform::Window& window)
             : Renderer(window, RendererConfig{})
@@ -61,7 +61,6 @@ namespace pnkr::renderer
         void setRecordFunc(const RecordFunc& callback);
         void bindPipeline(vk::CommandBuffer cmd, PipelineHandle handle) const;
         vk::PipelineLayout pipelineLayout(PipelineHandle handle) const;
-        float m_deltaTime = 0.0f;
 
 
         template <typename T>
@@ -96,21 +95,17 @@ namespace pnkr::renderer
         std::unique_ptr<VulkanContext> m_context;
         std::unique_ptr<VulkanDevice> m_device;
         std::unique_ptr<VulkanSwapchain> m_swapchain;
-        std::unique_ptr<VulkanPipeline> m_pipeline;
         std::unique_ptr<VulkanCommandBuffer> m_commandBuffer;
-        std::unique_ptr<VulkanBuffer> m_vertexBuffer;
         std::unique_ptr<VulkanSyncManager> m_sync;
         std::vector<std::unique_ptr<Mesh>> m_meshes;
 
-        PipelineConfig m_pipelineConfig{};
         std::vector<std::unique_ptr<VulkanPipeline>> m_pipelines;
         const VulkanPipeline& pipeline(PipelineHandle handle) const;
-        RecordFunc
-        m_recordCallback; // default empty; Renderer can fall back to a debug draw
+        RecordFunc m_recordCallback; // must be set by app
 
         // State
         uint32_t m_imageIndex = 0;
         bool m_frameInProgress = false;
-        RendererConfig m_config;
+        float m_deltaTime = 0.0f;
     };
 } // namespace pnkr::renderer

@@ -9,8 +9,9 @@
 #include "pnkr/renderer/vulkan/vulkan_sync_manager.h"
 
 namespace pnkr::renderer {
-Renderer::Renderer(platform::Window &window, const RendererConfig &config)
-    : m_window(window), m_config(config) {
+Renderer::Renderer(platform::Window &window,
+                   [[maybe_unused]] const RendererConfig &config)
+    : m_window(window) {
   m_context = std::make_unique<VulkanContext>(window);
   m_device = std::make_unique<VulkanDevice>(*m_context);
 
@@ -18,12 +19,6 @@ Renderer::Renderer(platform::Window &window, const RendererConfig &config)
       m_device->physicalDevice(), m_device->device(), m_context->surface(),
       m_device->queueFamilies().graphics, m_device->queueFamilies().present,
       window, m_device->allocator());
-
-  config.m_pipeline.m_colorFormat = m_swapchain->imageFormat();
-  config.m_pipeline.m_depthFormat = m_swapchain->depthFormat();
-
-  m_pipeline = std::make_unique<VulkanPipeline>(
-      m_device->device(), m_swapchain->imageFormat(), config.m_pipeline);
 
   m_commandBuffer = std::make_unique<VulkanCommandBuffer>(*m_device);
 
@@ -73,19 +68,28 @@ MeshHandle Renderer::createMesh(const std::vector<Vertex> &vertices,
   return handle;
 }
 
-void Renderer::bindMesh(vk::CommandBuffer cmd, MeshHandle handle) const {
+  void Renderer::bindMesh(vk::CommandBuffer cmd, MeshHandle handle) const {
   if (handle >= m_meshes.size())
-    throw std::runtime_error("[Renderer] Invalid mesh handle");
+    throw std::runtime_error("[Renderer] Invalid mesh handle: out of range");
 
-  m_meshes[handle]->bind(cmd);
+  const auto& mesh = m_meshes[handle];
+  if (!mesh)
+    throw std::runtime_error("[Renderer] Invalid mesh handle: null mesh slot");
+
+  mesh->bind(cmd);
 }
 
-void Renderer::drawMesh(vk::CommandBuffer cmd, MeshHandle handle) const {
+  void Renderer::drawMesh(vk::CommandBuffer cmd, MeshHandle handle) const {
   if (handle >= m_meshes.size())
-    throw std::runtime_error("[Renderer] Invalid mesh handle");
+    throw std::runtime_error("[Renderer] Invalid mesh handle: out of range");
 
-  m_meshes[handle]->draw(cmd);
+  const auto& mesh = m_meshes[handle];
+  if (!mesh)
+    throw std::runtime_error("[Renderer] Invalid mesh handle: null mesh slot");
+
+  mesh->draw(cmd);
 }
+
 
 void Renderer::setRecordFunc(const RecordFunc &callback) {
   m_recordCallback = callback;
@@ -101,14 +105,24 @@ void Renderer::bindPipeline(vk::CommandBuffer cmd,
 }
 
 Renderer::~Renderer() {
-  if (m_device && m_device->device()) {
-    m_device->device().waitIdle();
-  }
+  if (m_device && m_device->device()) m_device->device().waitIdle();
+
+  m_meshes.clear();
+  m_pipelines.clear();
+  m_swapchain.reset();
+  m_sync.reset();
+  m_commandBuffer.reset();
+  m_device.reset();   // last
+  m_context.reset();
 }
 
 void Renderer::beginFrame(float deltaTime) {
   if (m_frameInProgress)
     return;
+  if (!m_recordCallback) {
+    throw std::runtime_error(
+        "[Renderer] No record callback set (call setRecordFunc first)");
+  }
 
   const uint32_t frame = m_commandBuffer->currentFrame();
   m_deltaTime = deltaTime;
@@ -137,6 +151,10 @@ void Renderer::beginFrame(float deltaTime) {
 void Renderer::drawFrame() const {
   if (!m_frameInProgress)
     return;
+  if (!m_recordCallback) {
+    throw std::runtime_error(
+        "[Renderer] No record callback set (call setRecordFunc first)");
+  }
 
   const uint32_t frame = m_commandBuffer->currentFrame();
   vk::CommandBuffer cmd = m_commandBuffer->cmd(frame);
@@ -163,7 +181,7 @@ void Renderer::drawFrame() const {
   dep.pImageMemoryBarriers = &barrier;
   cmd.pipelineBarrier2(dep);
 
-  if (m_swapchain->depthImage()) {
+  if (m_swapchain->hasDepth()) {
     vk::ImageMemoryBarrier2 depthBarrier{};
     depthBarrier.srcStageMask = vk::PipelineStageFlagBits2::eNone;
     depthBarrier.srcAccessMask = vk::AccessFlagBits2::eNone;
@@ -197,19 +215,21 @@ void Renderer::drawFrame() const {
   colorAtt.clearValue = clear;
 
   vk::RenderingAttachmentInfo depthAtt{};
-  depthAtt.imageView = m_swapchain->depthImageView();
-  depthAtt.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal;
-  depthAtt.loadOp = vk::AttachmentLoadOp::eClear;
-  depthAtt.storeOp = vk::AttachmentStoreOp::eStore;
-  depthAtt.clearValue.depthStencil.depth = 1.0f;
-  depthAtt.clearValue.depthStencil.stencil = 0.0f;
+  if (m_swapchain->hasDepth()) {
+    depthAtt.imageView = m_swapchain->depthImageView();
+    depthAtt.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal;
+    depthAtt.loadOp = vk::AttachmentLoadOp::eClear;
+    depthAtt.storeOp = vk::AttachmentStoreOp::eStore;
+    depthAtt.clearValue.depthStencil.depth = 1.0f;
+    depthAtt.clearValue.depthStencil.stencil = 0.0f;
+  }
 
   vk::RenderingInfo ri{};
   ri.renderArea = vk::Rect2D{vk::Offset2D{0, 0}, ext};
   ri.layerCount = 1;
   ri.colorAttachmentCount = 1;
   ri.pColorAttachments = &colorAtt;
-  ri.pDepthAttachment = &depthAtt;
+  ri.pDepthAttachment = m_swapchain->hasDepth() ? &depthAtt : nullptr;
 
   cmd.beginRendering(ri);
 
@@ -225,14 +245,8 @@ void Renderer::drawFrame() const {
   cmd.setViewport(0, 1, &vp);
   cmd.setScissor(0, 1, &sc);
 
-  cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, m_pipeline->pipeline());
-
-  if (m_recordCallback) {
-    RenderFrameContext ctx{cmd, frame ,m_imageIndex, ext, m_deltaTime};
-    m_recordCallback(ctx);
-  } else {
-    cmd.draw(3, 1, 0, 0);
-  }
+  RenderFrameContext ctx{cmd, frame, m_imageIndex, ext, m_deltaTime};
+  m_recordCallback(ctx);
   cmd.endRendering();
 
   // Transition to Present
@@ -292,6 +306,7 @@ void Renderer::resize(int /*width*/, int /*height*/) {
   m_device->device().waitIdle();
 
   const vk::Format oldFmt = m_swapchain->imageFormat();
+  const vk::Format oldDepthFmt = m_swapchain->depthFormat();
 
   m_swapchain->recreate(m_device->physicalDevice(), m_device->device(),
                         m_context->surface(),
@@ -301,11 +316,17 @@ void Renderer::resize(int /*width*/, int /*height*/) {
   m_sync->updateSwapchainSize(
       static_cast<uint32_t>(m_swapchain->images().size()));
 
-  if (m_swapchain->imageFormat() != oldFmt) {
-    m_pipeline.reset();
-    m_pipelineConfig.m_colorFormat = m_swapchain->imageFormat();
-    m_pipeline = std::make_unique<VulkanPipeline>(
-        m_device->device(), m_swapchain->imageFormat(), m_pipelineConfig);
+  if (m_swapchain->imageFormat() != oldFmt ||
+      m_swapchain->depthFormat() != oldDepthFmt) {
+    for (auto &pipe : m_pipelines) {
+      if (!pipe)
+        continue;
+      auto cfg = pipe->config();
+      cfg.m_colorFormat = m_swapchain->imageFormat();
+      cfg.m_depthFormat = m_swapchain->depthFormat();
+      pipe = std::make_unique<VulkanPipeline>(m_device->device(),
+                                              cfg.m_colorFormat, cfg);
+    }
   }
 }
 } // namespace pnkr::renderer

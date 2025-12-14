@@ -320,6 +320,11 @@ vk::Result VulkanSwapchain::present(vk::Queue presentQueue, uint32_t imageIndex,
 }
 
 void VulkanSwapchain::createDepthResources() {
+  if (m_depthFormat == vk::Format::eUndefined) {
+    destroyDepthResources();
+    return;
+  }
+
   if (!m_device || !m_allocator)
     throw std::runtime_error(
         "[VulkanSwapchain] createDepthResources: device/allocator not set");

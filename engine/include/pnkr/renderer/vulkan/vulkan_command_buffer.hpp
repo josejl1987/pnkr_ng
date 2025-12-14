@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include <vulkan/vulkan.hpp>
+#include "vulkan_device.hpp"
 
 namespace pnkr::renderer {
 class VulkanCommandBuffer {

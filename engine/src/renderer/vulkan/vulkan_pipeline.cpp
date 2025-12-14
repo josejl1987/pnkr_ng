@@ -202,12 +202,6 @@ void pnkr::renderer::VulkanPipeline::createGraphicsPipeline(
       vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
       vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
 
-  vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-  depthStencil.depthTestEnable = config.m_enableDepth;
-  depthStencil.stencilTestEnable = VK_FALSE;
-  depthStencil.depthWriteEnable = config.m_enableDepth;
-  depthStencil.depthCompareOp = vk::CompareOp::eLess;
-
   vk::PipelineColorBlendStateCreateInfo blend{};
   blend.logicOpEnable = VK_FALSE;
   blend.attachmentCount = 1;
@@ -217,11 +211,14 @@ void pnkr::renderer::VulkanPipeline::createGraphicsPipeline(
   vk::PipelineRenderingCreateInfo renderingInfo{};
   renderingInfo.colorAttachmentCount = 1;
   renderingInfo.pColorAttachmentFormats = &m_colorFormat;
+  const bool haveDepthFormat =
+      (m_config.m_depthFormat != vk::Format::eUndefined);
   renderingInfo.depthAttachmentFormat =
-      (m_config.m_enableDepth ? m_config.m_depthFormat
-                              : vk::Format::eUndefined);
+      haveDepthFormat ? m_config.m_depthFormat : vk::Format::eUndefined;
+  renderingInfo.stencilAttachmentFormat = vk::Format::eUndefined;
 
   vk::GraphicsPipelineCreateInfo gpci{};
+  vk::PipelineDepthStencilStateCreateInfo depth{};
 
   vertexInput.vertexBindingDescriptionCount =
       static_cast<uint32_t>(m_vertexInput.bindings.size());
@@ -247,9 +244,19 @@ void pnkr::renderer::VulkanPipeline::createGraphicsPipeline(
   gpci.pDynamicState = &dynamicState;
   gpci.layout = m_layout;
   gpci.subpass = 0;
-  if (config.m_enableDepth) {
-    gpci.pDepthStencilState = &depthStencil;
+
+  if (haveDepthFormat) {
+    depth.depthTestEnable = m_config.m_depth.testEnable ? VK_TRUE : VK_FALSE;
+    depth.depthWriteEnable = m_config.m_depth.writeEnable ? VK_TRUE : VK_FALSE;
+    depth.depthCompareOp = m_config.m_depth.compareOp;
+    depth.depthBoundsTestEnable = VK_FALSE;
+    depth.stencilTestEnable = VK_FALSE;
+    gpci.pDepthStencilState = &depth;
+  } else {
+    gpci.pDepthStencilState = nullptr;
   }
+
+
   try {
     auto result = m_device.createGraphicsPipeline(nullptr, gpci);
     if (result.result != vk::Result::eSuccess) {

@@ -7,15 +7,21 @@
 
 namespace pnkr::renderer {
 
+  struct DepthConfig {
+    bool testEnable = false;
+    bool writeEnable = false;
+    vk::CompareOp compareOp = vk::CompareOp::eLess;
+  };
+
 struct PipelineConfig {
   mutable vk::Format m_colorFormat{vk::Format::eUndefined};
   std::filesystem::path m_vertSpvPath;
   std::filesystem::path m_fragSpvPath;
   VertexInputDescription m_vertexInput;
-  bool m_enableDepth = true;
   mutable vk::Format m_depthFormat = vk::Format::eUndefined;
   vk::CullModeFlags m_cullMode = vk::CullModeFlagBits::eBack;
   vk::FrontFace m_frontFace = vk::FrontFace::eCounterClockwise;
+  DepthConfig m_depth{};
 };
 
 } // namespace pnkr::renderer
