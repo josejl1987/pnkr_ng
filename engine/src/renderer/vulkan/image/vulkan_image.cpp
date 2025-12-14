@@ -8,7 +8,6 @@
 #include "pnkr/core/logger.hpp"
 #include <filesystem>
 #include <cstring>
-#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 namespace pnkr::renderer
@@ -134,8 +133,8 @@ namespace pnkr::renderer
     {
         vk::DeviceSize imageSize = width * height * 4; // Assume RGBA
         const vk::Format format = srgb
-            ? vk::Format::eR8G8B8A8Srgb
-            : vk::Format::eR8G8B8A8Unorm;
+                                      ? vk::Format::eR8G8B8A8Srgb
+                                      : vk::Format::eR8G8B8A8Unorm;
 
         // Create staging buffer
         VulkanBuffer stagingBuffer(
@@ -223,13 +222,24 @@ namespace pnkr::renderer
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = m_image;
-        barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+
+        // Detect Aspect
+        if (newLayout == vk::ImageLayout::eDepthAttachmentOptimal ||
+            newLayout == vk::ImageLayout::eDepthStencilAttachmentOptimal)
+        {
+            barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
+        }
+        else
+        {
+            barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+        }
+
         barrier.subresourceRange.baseMipLevel = 0;
         barrier.subresourceRange.levelCount = 1;
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
 
-        // Configure access masks based on layouts
+        // Configure access masks
         if (oldLayout == vk::ImageLayout::eUndefined &&
             newLayout == vk::ImageLayout::eTransferDstOptimal)
         {
@@ -242,6 +252,25 @@ namespace pnkr::renderer
             barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
             barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
         }
+        // New Cases for Rendering
+        else if (oldLayout == vk::ImageLayout::eUndefined &&
+            newLayout == vk::ImageLayout::eColorAttachmentOptimal)
+        {
+            barrier.srcAccessMask = vk::AccessFlagBits::eNone;
+            barrier.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+        }
+        else if (oldLayout == vk::ImageLayout::eUndefined &&
+            newLayout == vk::ImageLayout::eDepthAttachmentOptimal)
+        {
+            barrier.srcAccessMask = vk::AccessFlagBits::eNone;
+            barrier.dstAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+        }
+        else if (oldLayout == vk::ImageLayout::eColorAttachmentOptimal &&
+            newLayout == vk::ImageLayout::eTransferSrcOptimal)
+        {
+            barrier.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+        }
         else
         {
             throw std::runtime_error("Unsupported layout transition");
@@ -251,6 +280,7 @@ namespace pnkr::renderer
                             vk::DependencyFlags{},
                             nullptr, nullptr, barrier);
     }
+
 
     void VulkanImage::createImageView(vk::Device device, vk::ImageAspectFlags aspectFlags)
     {

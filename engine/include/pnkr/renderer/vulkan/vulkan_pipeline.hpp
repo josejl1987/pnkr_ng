@@ -10,7 +10,7 @@ class VulkanPipeline {
 public:
   using Config = PipelineConfig;
 
-  VulkanPipeline(vk::Device device, vk::Format colorFormat,
+  VulkanPipeline(vk::Device device,
                  const Config &config);
   void reset() noexcept;
   ~VulkanPipeline();

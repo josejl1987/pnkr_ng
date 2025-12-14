@@ -12,7 +12,6 @@
 
 #include "pipeline/Pipeline.h"
 #include "pnkr/core/Handle.h"
-#include "pnkr/platform/window.hpp"
 #include "pnkr/renderer/renderer_config.hpp"
 #include "pnkr/renderer/vulkan/vulkan_command_buffer.hpp"
 #include "pnkr/renderer/vulkan/vulkan_context.hpp"
@@ -20,6 +19,8 @@
 #include "pnkr/renderer/vulkan/vulkan_pipeline.hpp"
 #include "pnkr/renderer/vulkan/vulkan_swapchain.hpp"
 #include "pnkr/renderer/vulkan/vulkan_sync_manager.h"
+#include "pnkr/renderer/vulkan/vulkan_render_target.h"
+
 #include "vulkan/geometry/mesh.h"
 #include "vulkan/geometry/Vertex.h"
 #include "vulkan/image/vulkan_image.hpp"
@@ -32,6 +33,7 @@ namespace pnkr::renderer {
     class VulkanPipeline;
     class VulkanSwapchain;
     class VulkanSyncManager;
+    class VulkanRenderTarget;
     class VulkanDescriptorAllocator;
     class VulkanDescriptorLayoutCache;
     class VulkanImage;
@@ -42,7 +44,6 @@ namespace pnkr::renderer {
 namespace pnkr::renderer
 {
     using RecordFunc = std::function<void(const RenderFrameContext&)>;
-    using TextureHandle = Handle;
     /**
      * @brief High-level renderer entry point exposed to applications
      *
@@ -117,7 +118,8 @@ namespace pnkr::renderer
         {
             cmd.pushConstants(pipelineLayout(pipe), stages, offset, size, data);
         }
-
+        [[nodiscard]] vk::Format getDrawColorFormat() const { return m_mainTarget->colorImage().format(); }
+        [[nodiscard]] vk::Format getDrawDepthFormat() const { return m_mainTarget->depthImage().format(); }
     private:
         platform::Window& m_window;
         std::unique_ptr<VulkanContext> m_context;
@@ -126,7 +128,7 @@ namespace pnkr::renderer
         std::unique_ptr<VulkanCommandBuffer> m_commandBuffer;
         std::unique_ptr<VulkanSyncManager> m_sync;
         std::vector<std::unique_ptr<Mesh>> m_meshes;
-
+        std::unique_ptr<VulkanRenderTarget> m_mainTarget;
         std::unique_ptr<VulkanDescriptorAllocator> m_descriptorAllocator;
         std::unique_ptr<VulkanDescriptorLayoutCache> m_descriptorLayoutCache;
         std::unique_ptr<VulkanSampler> m_defaultSampler;
@@ -143,6 +145,6 @@ namespace pnkr::renderer
         uint32_t m_imageIndex = 0;
         bool m_frameInProgress = false;
         float m_deltaTime = 0.0f;
-        TextureHandle m_whiteTexture{INVALID_HANDLE};
+        TextureHandle m_whiteTexture{INVALID_TEXTURE_HANDLE};
     };
 } // namespace pnkr::renderer

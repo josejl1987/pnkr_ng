@@ -164,7 +164,7 @@ int main(int argc, char** argv)
 
         const fs::path texturePath = textureDir / "blini.png";
 
-        pnkr::renderer::TextureHandle texture = renderer.loadTexture(texturePath);
+        TextureHandle texture = renderer.loadTexture(texturePath);
 
 
 

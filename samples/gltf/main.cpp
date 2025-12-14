@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "pnkr/renderer/vulkan/PushConstants.h"
+#include "pnkr/renderer/vulkan/pipeline/PipelineBuilder.h"
 
 using namespace pnkr;
 using namespace pnkr::renderer;
@@ -55,8 +56,14 @@ int main(int argc, char* argv[]) {
     cfg.m_depth.testEnable = true;
     cfg.m_depth.writeEnable = true;
 
-    auto pipeline = renderer.createPipeline(cfg);
+    auto pipeline = PipelineBuilder(renderer)
+        .setShaders(shaderDir / "gltf.vert.spv", shaderDir / "gltf.frag.spv")
+        .enableDepthTest(true, vk::CompareOp::eLess)
 
+        .addDescriptorSetLayout(renderer.getTextureDescriptorLayout())
+        .setPushConstantSize(sizeof(PushConstants))
+        .setPushConstantsShaderFlags(vk::ShaderStageFlagBits::eVertex)
+        .build();
     // Setup Camera
     scene.cameraController().setPosition({0.0f, 1.0f, 3.0f});
     scene.cameraController().setMoveSpeed(2.0f);

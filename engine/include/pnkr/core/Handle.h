@@ -2,17 +2,36 @@
 // Created by Jose on 12/13/2025.
 //
 
-#ifndef PNKR_HANDLE_H
-#define PNKR_HANDLE_H
+#pragma once
 
 #include <cstdint>
 #include <limits>
+#include <compare>
 
-using Handle = uint32_t;
-using MeshHandle = Handle;
-using PipelineHandle = Handle;
-using TextureHandle = Handle;
+namespace pnkr::core {
 
-constexpr Handle INVALID_HANDLE = std::numeric_limits<Handle>::max();
+template <typename Tag>
+struct Handle {
+    uint32_t id = std::numeric_limits<uint32_t>::max();
 
-#endif // PNKR_HANDLE_H
+    constexpr bool isValid() const { return id != std::numeric_limits<uint32_t>::max(); }
+    constexpr void invalidate() { id = std::numeric_limits<uint32_t>::max(); }
+
+    auto operator<=>(const Handle&) const = default;
+    explicit operator bool() const { return isValid(); }
+};
+
+struct MeshTag {};
+struct PipelineTag {};
+struct TextureTag {};
+
+} // namespace pnkr::core
+
+using MeshHandle = pnkr::core::Handle<pnkr::core::MeshTag>;
+using PipelineHandle = pnkr::core::Handle<pnkr::core::PipelineTag>;
+using TextureHandle = pnkr::core::Handle<pnkr::core::TextureTag>;
+
+constexpr uint32_t INVALID_ID = std::numeric_limits<uint32_t>::max();
+inline constexpr MeshHandle INVALID_MESH_HANDLE{};
+inline constexpr PipelineHandle INVALID_PIPELINE_HANDLE{};
+inline constexpr TextureHandle INVALID_TEXTURE_HANDLE{};

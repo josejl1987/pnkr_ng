@@ -5,11 +5,8 @@
 #include <cstdint>
 #include <functional>
 #include <vulkan/vulkan.hpp>
+#include "pnkr/core/Handle.h"
 namespace pnkr::renderer {
-
-// Handle to a cached pipeline
-using PipelineHandle = uint32_t;
-constexpr PipelineHandle INVALID_PIPELINE_HANDLE = UINT32_MAX;
 
 // Frame context passed to record callback
 struct RenderFrameContext {

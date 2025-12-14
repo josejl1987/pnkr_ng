@@ -44,6 +44,7 @@ int main(int argc, char **argv) {
                        triCfg.m_vertSpvPath.string());
       return 1;
     }
+
     if (!fs::exists(triCfg.m_fragSpvPath)) {
       pnkr::Log::error("Fragment shader not found: {}",
                        triCfg.m_fragSpvPath.string());
@@ -51,7 +52,7 @@ int main(int argc, char **argv) {
     }
 
     pnkr::renderer::Renderer renderer(window);
-    const pnkr::renderer::PipelineHandle triPipe =
+    const PipelineHandle triPipe =
         renderer.createPipeline(triCfg);
 
     renderer.setRecordFunc([&](const pnkr::renderer::RenderFrameContext& ctx) {

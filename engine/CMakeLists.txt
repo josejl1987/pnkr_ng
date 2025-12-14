@@ -2,6 +2,7 @@
 # PNKR Engine Static Library
 # ============================================================================
 add_library(pnkr_engine STATIC
+        src/core/implementations.cpp
         src/renderer/vulkan/vulkan_dispatch.cpp
         src/renderer/vulkan/vulkan_context.cpp
         include/pnkr/renderer/vulkan/vulkan_sync_manager.h
@@ -26,7 +27,11 @@ add_library(pnkr_engine STATIC
         src/renderer/vulkan/vulkan_descriptor.cpp
         include/pnkr/renderer/scene/Model.hpp
         include/pnkr/renderer/scene/Node.hpp
-        include/pnkr/renderer/material/Material.hpp)
+        include/pnkr/renderer/material/Material.hpp
+        include/pnkr/renderer/vulkan/vulkan_render_target.h
+        src/renderer/vulkan/vulkan_render_target.cpp
+        include/pnkr/renderer/vulkan/pipeline/PipelineBuilder.h
+        src/renderer/vulkan/pipeline/pipeline_builder.cpp)
 
 target_sources(pnkr_engine
   PRIVATE
@@ -90,6 +95,7 @@ set_target_properties(pnkr_engine PROPERTIES
   UNITY_BUILD ON
   UNITY_BUILD_BATCH_SIZE 8
 )
+set_source_files_properties(src/core/implementations.cpp PROPERTIES UNITY_BUILD OFF)
 
 # Precompiled headers to avoid repeatedly parsing heavy includes like vulkan.hpp
 target_precompile_headers(pnkr_engine PRIVATE

@@ -1,5 +1,5 @@
 #include "pnkr/renderer/renderer.hpp"
-
+#include "pnkr/platform/window.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/renderer/vulkan/vulkan_command_buffer.hpp"
 #include "pnkr/renderer/vulkan/vulkan_context.hpp"
@@ -8,6 +8,7 @@
 #include "pnkr/renderer/vulkan/vulkan_swapchain.hpp"
 #include "pnkr/renderer/vulkan/vulkan_sync_manager.h"
 #include "pnkr/renderer/vulkan/vulkan_descriptor.hpp"
+#include "pnkr/renderer/vulkan/vulkan_render_target.h"
 
 namespace pnkr::renderer
 {
@@ -24,6 +25,15 @@ namespace pnkr::renderer
             window, m_device->allocator());
 
         m_commandBuffer = std::make_unique<VulkanCommandBuffer>(*m_device);
+
+        m_mainTarget = std::make_unique<VulkanRenderTarget>(
+            m_device->allocator(),
+            m_device->device(),
+            m_swapchain->extent().width,
+            m_swapchain->extent().height,
+            vk::Format::eR16G16B16A16Sfloat, // HDR Color
+            vk::Format::eD32Sfloat // High precision depth
+        );
 
         m_sync = std::make_unique<VulkanSyncManager>(
             m_device->device(), m_device->framesInFlight(),
@@ -112,7 +122,7 @@ namespace pnkr::renderer
                        vk::ShaderStageFlagBits::eFragment)
             .build(descriptorSet);
 
-        TextureHandle handle = static_cast<TextureHandle>(m_textures.size());
+        TextureHandle handle{static_cast<uint32_t>(m_textures.size())};
         m_textures.push_back(std::move(texture));
         m_textureDescriptors.push_back(descriptorSet);
 
@@ -138,28 +148,28 @@ namespace pnkr::renderer
                        vk::ShaderStageFlagBits::eFragment)
             .build(descriptorSet);
 
-        TextureHandle handle = static_cast<TextureHandle>(m_textures.size());
+        TextureHandle handle{static_cast<uint32_t>(m_textures.size())};
         m_textures.push_back(std::move(texture));
         m_textureDescriptors.push_back(descriptorSet);
 
-        core::Logger::info("Loaded texture: {} (handle={})", filepath.string(), handle);
+        core::Logger::info("Loaded texture: {} (handle={})", filepath.string(), handle.id);
         return handle;
     }
 
     vk::DescriptorSet Renderer::getTextureDescriptor(TextureHandle handle) const
     {
-        const bool fallback = (handle == INVALID_HANDLE) || (handle >= m_textureDescriptors.size());
+        const bool fallback = (!handle) || (handle.id >= m_textureDescriptors.size());
         if (fallback)
         {
             if (m_textureDescriptors.empty() ||
-                m_whiteTexture == INVALID_HANDLE ||
-                m_whiteTexture >= m_textureDescriptors.size())
+                !m_whiteTexture ||
+                m_whiteTexture.id >= m_textureDescriptors.size())
             {
                 throw std::runtime_error("Default texture descriptor not initialized");
             }
-            return m_textureDescriptors[m_whiteTexture];
+            return m_textureDescriptors[m_whiteTexture.id];
         }
-        return m_textureDescriptors[handle];
+        return m_textureDescriptors[handle.id];
     }
 
     vk::DescriptorSetLayout Renderer::getTextureDescriptorLayout() const
@@ -170,34 +180,32 @@ namespace pnkr::renderer
 
     PipelineHandle Renderer::createPipeline(const VulkanPipeline::Config& cfg)
     {
-        const PipelineHandle handle = m_pipelines.size();
+        PipelineHandle handle{static_cast<uint32_t>(m_pipelines.size())};
 
         PipelineConfig pipelineCfg = cfg;
-        pipelineCfg.m_colorFormat = m_swapchain->imageFormat();
-        pipelineCfg.m_depthFormat = m_swapchain->depthFormat();
 
         m_pipelines.push_back(std::make_unique<VulkanPipeline>(
-            m_device->device(), pipelineCfg.m_colorFormat, pipelineCfg));
+            m_device->device(),  pipelineCfg));
 
-        pnkr::core::Logger::info("[Renderer] Created pipeline handle={}", handle);
+        pnkr::core::Logger::info("[Renderer] Created pipeline handle={}", handle.id);
         return handle;
     }
 
     const VulkanPipeline& Renderer::pipeline(PipelineHandle handle) const
     {
-        if (handle >= m_pipelines.size())
+        if (handle.id >= m_pipelines.size())
         {
             throw std::runtime_error("[Renderer] Invalid pipeline handle: " +
-                std::to_string(handle));
+                std::to_string(handle.id));
         }
-        return *m_pipelines[handle];
+        return *m_pipelines[handle.id];
     }
 
     vk::PipelineLayout Renderer::pipelineLayout(PipelineHandle handle) const
     {
-        if (handle >= m_pipelines.size())
+        if (handle.id >= m_pipelines.size())
             throw std::runtime_error("[Renderer] Invalid pipeline handle");
-        return m_pipelines[handle]->layout();
+        return m_pipelines[handle.id]->layout();
     }
 
     MeshHandle Renderer::createMesh(const std::vector<Vertex>& vertices,
@@ -206,20 +214,20 @@ namespace pnkr::renderer
         if (vertices.empty() || indices.empty())
             throw std::runtime_error("[Renderer] createMesh: empty data");
 
-        MeshHandle handle = static_cast<MeshHandle>(m_meshes.size());
+        MeshHandle handle{static_cast<uint32_t>(m_meshes.size())};
 
         m_meshes.push_back(std::make_unique<Mesh>(*m_device, vertices, indices));
 
-        pnkr::core::Logger::info("[Renderer] Created mesh handle={}", handle);
+        pnkr::core::Logger::info("[Renderer] Created mesh handle={}", handle.id);
         return handle;
     }
 
     void Renderer::bindMesh(vk::CommandBuffer cmd, MeshHandle handle) const
     {
-        if (handle >= m_meshes.size())
+        if (handle.id >= m_meshes.size())
             throw std::runtime_error("[Renderer] Invalid mesh handle: out of range");
 
-        const auto& mesh = m_meshes[handle];
+        const auto& mesh = m_meshes[handle.id];
         if (!mesh)
             throw std::runtime_error("[Renderer] Invalid mesh handle: null mesh slot");
 
@@ -228,10 +236,10 @@ namespace pnkr::renderer
 
     void Renderer::drawMesh(vk::CommandBuffer cmd, MeshHandle handle) const
     {
-        if (handle >= m_meshes.size())
+        if (handle.id >= m_meshes.size())
             throw std::runtime_error("[Renderer] Invalid mesh handle: out of range");
 
-        const auto& mesh = m_meshes[handle];
+        const auto& mesh = m_meshes[handle.id];
         if (!mesh)
             throw std::runtime_error("[Renderer] Invalid mesh handle: null mesh slot");
 
@@ -247,11 +255,11 @@ namespace pnkr::renderer
     void Renderer::bindPipeline(vk::CommandBuffer cmd,
                                 PipelineHandle handle) const
     {
-        if (handle >= m_pipelines.size())
+        if (handle.id >= m_pipelines.size())
             throw std::runtime_error("[Renderer] Invalid pipeline handle");
 
         cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                         m_pipelines[handle]->pipeline());
+                         m_pipelines[handle.id]->pipeline());
     }
 
     Renderer::~Renderer()
@@ -340,114 +348,100 @@ namespace pnkr::renderer
         const uint32_t frame = m_commandBuffer->currentFrame();
         vk::CommandBuffer cmd = m_commandBuffer->cmd(frame);
 
-        const vk::Image swapImg = m_swapchain->images()[m_imageIndex];
+        // --- PASS 1: Render Scene to Offscreen Target ---
 
-        // Transition to Attachment
-        vk::ImageMemoryBarrier2 barrier{};
-        barrier.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
-        barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
-        barrier.dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
-        barrier.dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
-        barrier.oldLayout = vk::ImageLayout::eUndefined;
-        barrier.newLayout = vk::ImageLayout::eColorAttachmentOptimal;
-        barrier.image = swapImg;
-        barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
+        m_mainTarget->transitionToAttachment(cmd);
 
-        vk::DependencyInfo dep{};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &barrier;
-        cmd.pipelineBarrier2(dep);
+        m_mainTarget->beginRendering(cmd);
 
-        if (m_swapchain->hasDepth())
-        {
-            vk::ImageMemoryBarrier2 depthBarrier{};
-            depthBarrier.srcStageMask = vk::PipelineStageFlagBits2::eNone;
-            depthBarrier.srcAccessMask = vk::AccessFlagBits2::eNone;
-            depthBarrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests;
-            depthBarrier.dstAccessMask =
-                vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-            depthBarrier.oldLayout = vk::ImageLayout::eUndefined;
-            depthBarrier.newLayout = vk::ImageLayout::eDepthAttachmentOptimal;
-            depthBarrier.image = m_swapchain->depthImage();
-            depthBarrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
-            depthBarrier.subresourceRange.levelCount = 1;
-            depthBarrier.subresourceRange.layerCount = 1;
-
-            vk::DependencyInfo depDepth{};
-            depDepth.imageMemoryBarrierCount = 1;
-            depDepth.pImageMemoryBarriers = &depthBarrier;
-            cmd.pipelineBarrier2(depDepth);
-        }
-
-        // Render
-        const vk::Extent2D ext = m_swapchain->extent();
-        vk::ClearValue clear{};
-        clear.color =
-            vk::ClearColorValue(std::array<float, 4>{0.1f, 0.1f, 0.1f, 1.0f});
-
-        vk::RenderingAttachmentInfo colorAtt{};
-        colorAtt.imageView = m_swapchain->imageViews()[m_imageIndex];
-        colorAtt.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
-        colorAtt.loadOp = vk::AttachmentLoadOp::eClear;
-        colorAtt.storeOp = vk::AttachmentStoreOp::eStore;
-        colorAtt.clearValue = clear;
-
-        vk::RenderingAttachmentInfo depthAtt{};
-        if (m_swapchain->hasDepth())
-        {
-            depthAtt.imageView = m_swapchain->depthImageView();
-            depthAtt.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal;
-            depthAtt.loadOp = vk::AttachmentLoadOp::eClear;
-            depthAtt.storeOp = vk::AttachmentStoreOp::eStore;
-            depthAtt.clearValue.depthStencil.depth = 1.0f;
-            depthAtt.clearValue.depthStencil.stencil = 0.0f;
-        }
-
-        vk::RenderingInfo ri{};
-        ri.renderArea = vk::Rect2D{vk::Offset2D{0, 0}, ext};
-        ri.layerCount = 1;
-        ri.colorAttachmentCount = 1;
-        ri.pColorAttachments = &colorAtt;
-        ri.pDepthAttachment = m_swapchain->hasDepth() ? &depthAtt : nullptr;
-
-        cmd.beginRendering(ri);
-
-        vk::Viewport vp{};
-        vp.x = 0.0f;
-        vp.y = 0.0f;
-        vp.width = static_cast<float>(ext.width);
-        vp.height = static_cast<float>(ext.height);
-        vp.minDepth = 0.0f;
-        vp.maxDepth = 1.0f;
-
-        vk::Rect2D sc{vk::Offset2D{0, 0}, ext};
-        cmd.setViewport(0, 1, &vp);
-        cmd.setScissor(0, 1, &sc);
-
-        RenderFrameContext ctx{cmd, frame, m_imageIndex, ext, m_deltaTime};
+        // Call User Record Function
+        RenderFrameContext ctx{
+            cmd,
+            frame,
+            m_imageIndex,
+            m_mainTarget->extent(), // Changed from swapchain->extent()
+            m_deltaTime
+        };
         m_recordCallback(ctx);
-        cmd.endRendering();
 
-        // Transition to Present
+        m_mainTarget->endRendering(cmd);
+
+
+        // --- PASS 2: Blit to Swapchain ---
+
+        const vk::Image swapImg = m_swapchain->images()[m_imageIndex];
+        const vk::Extent2D swapExt = m_swapchain->extent();
+
+        // 1. Transition Offscreen Target to Transfer Source
+        m_mainTarget->transitionToRead(cmd);
+
+        // 2. Transition Swapchain Image to Transfer Destination
+
+        vk::ImageMemoryBarrier2 swapDstBarrier{};
+        swapDstBarrier.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+        swapDstBarrier.srcAccessMask = vk::AccessFlagBits2::eNone;
+        swapDstBarrier.dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
+        swapDstBarrier.dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
+        swapDstBarrier.oldLayout = vk::ImageLayout::eUndefined;
+        swapDstBarrier.newLayout = vk::ImageLayout::eTransferDstOptimal;
+        swapDstBarrier.image = swapImg;
+        swapDstBarrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+        swapDstBarrier.subresourceRange.baseMipLevel = 0;
+        swapDstBarrier.subresourceRange.levelCount = 1;
+        swapDstBarrier.subresourceRange.baseArrayLayer = 0;
+        swapDstBarrier.subresourceRange.layerCount = 1;
+
+        vk::DependencyInfo depSwapDst{};
+        depSwapDst.imageMemoryBarrierCount = 1;
+        depSwapDst.pImageMemoryBarriers = &swapDstBarrier;
+        cmd.pipelineBarrier2(depSwapDst);
+
+        // 3. Perform Blit
+        vk::ImageBlit blitRegion{};
+        blitRegion.srcSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+        blitRegion.srcSubresource.layerCount = 1;
+        blitRegion.srcOffsets[0] = vk::Offset3D{0, 0, 0};
+        blitRegion.srcOffsets[1] = vk::Offset3D{
+            (int32_t)m_mainTarget->extent().width,
+            (int32_t)m_mainTarget->extent().height,
+            1
+        };
+        blitRegion.dstSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+        blitRegion.dstSubresource.layerCount = 1;
+        blitRegion.dstOffsets[0] = vk::Offset3D{0, 0, 0};
+        blitRegion.dstOffsets[1] = vk::Offset3D{
+            (int32_t)swapExt.width,
+            (int32_t)swapExt.height,
+            1
+        };
+
+        // Use Linear filter if size differs, Nearest if identical (faster/cleaner)
+        vk::Filter blitFilter = (m_mainTarget->extent() == swapExt) ? vk::Filter::eNearest : vk::Filter::eLinear;
+
+        cmd.blitImage(
+            m_mainTarget->colorImage().image(), vk::ImageLayout::eTransferSrcOptimal,
+            swapImg, vk::ImageLayout::eTransferDstOptimal,
+            1, &blitRegion, blitFilter
+        );
+
+        // 4. Transition Swapchain to Present
+        // (Matches the final barrier in your base code, but src is now Transfer)
         vk::ImageMemoryBarrier2 toPresent{};
-        toPresent.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
-        toPresent.srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+        toPresent.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
+        toPresent.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
         toPresent.dstStageMask = vk::PipelineStageFlagBits2::eNone;
-        toPresent.dstAccessMask = vk::AccessFlagBits2::eNone;
-        toPresent.oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
+        toPresent.dstAccessMask = vk::AccessFlagBits2::eNone; // Present engine handles visibility
+        toPresent.oldLayout = vk::ImageLayout::eTransferDstOptimal;
         toPresent.newLayout = vk::ImageLayout::ePresentSrcKHR;
         toPresent.image = swapImg;
-        toPresent.subresourceRange = barrier.subresourceRange;
+        toPresent.subresourceRange = swapDstBarrier.subresourceRange;
 
-        vk::DependencyInfo dep2{};
-        dep2.imageMemoryBarrierCount = 1;
-        dep2.pImageMemoryBarriers = &toPresent;
-        cmd.pipelineBarrier2(dep2);
+        vk::DependencyInfo depPresent{};
+        depPresent.imageMemoryBarrierCount = 1;
+        depPresent.pImageMemoryBarriers = &toPresent;
+        cmd.pipelineBarrier2(depPresent);
     }
+
 
     void Renderer::endFrame()
     {
@@ -494,28 +488,33 @@ namespace pnkr::renderer
         m_device->device().waitIdle();
 
         const vk::Format oldFmt = m_swapchain->imageFormat();
-        const vk::Format oldDepthFmt = m_swapchain->depthFormat();
 
         m_swapchain->recreate(m_device->physicalDevice(), m_device->device(),
                               m_context->surface(),
                               m_device->queueFamilies().graphics,
                               m_device->queueFamilies().present, m_window);
 
+        m_mainTarget = std::make_unique<VulkanRenderTarget>(
+            m_device->allocator(),
+            m_device->device(),
+            m_swapchain->extent().width,
+            m_swapchain->extent().height,
+            vk::Format::eR16G16B16A16Sfloat,
+            vk::Format::eD32Sfloat
+        );
+
         m_sync->updateSwapchainSize(
             static_cast<uint32_t>(m_swapchain->images().size()));
 
-        if (m_swapchain->imageFormat() != oldFmt ||
-            m_swapchain->depthFormat() != oldDepthFmt)
+        if (m_swapchain->imageFormat() != oldFmt)
         {
             for (auto& pipe : m_pipelines)
             {
                 if (!pipe)
                     continue;
                 auto cfg = pipe->config();
-                cfg.m_colorFormat = m_swapchain->imageFormat();
-                cfg.m_depthFormat = m_swapchain->depthFormat();
                 pipe = std::make_unique<VulkanPipeline>(m_device->device(),
-                                                        cfg.m_colorFormat, cfg);
+                                                         cfg);
             }
         }
     }

@@ -13,6 +13,7 @@ namespace pnkr::renderer {
     vk::CompareOp compareOp = vk::CompareOp::eLess;
   };
 
+
   struct PipelineConfig {
     mutable vk::Format m_colorFormat{vk::Format::eUndefined};
     std::filesystem::path m_vertSpvPath;
@@ -26,6 +27,18 @@ namespace pnkr::renderer {
     std::vector<vk::DescriptorSetLayout> m_descriptorSetLayouts{};
     uint32_t m_pushConstantSize = 0;
     vk::ShaderStageFlags m_pushConstantStages = vk::ShaderStageFlagBits::eVertex;
+
+    struct BlendConfig {
+      bool enable = false;
+      vk::BlendFactor srcColor = vk::BlendFactor::eOne;
+      vk::BlendFactor dstColor = vk::BlendFactor::eZero;
+      vk::BlendOp colorOp = vk::BlendOp::eAdd;
+      vk::BlendFactor srcAlpha = vk::BlendFactor::eOne;
+      vk::BlendFactor dstAlpha = vk::BlendFactor::eZero;
+      vk::BlendOp alphaOp = vk::BlendOp::eAdd;
+    } m_blend;
+
+    vk::PrimitiveTopology m_topology = vk::PrimitiveTopology::eTriangleList;
   };
 
 } // namespace pnkr::renderer

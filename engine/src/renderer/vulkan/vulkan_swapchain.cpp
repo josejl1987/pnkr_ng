@@ -127,7 +127,7 @@ void VulkanSwapchain::createSwapchain(vk::PhysicalDevice physicalDevice,
   sci.imageColorSpace = surfaceFormat.colorSpace;
   sci.imageExtent = extent;
   sci.imageArrayLayers = 1;
-  sci.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
+  sci.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
 
   // If you later want post-processing / screenshots, add:
   // sci.imageUsage |= vk::ImageUsageFlagBits::eTransferDst;

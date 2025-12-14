@@ -3,9 +3,6 @@
 #include "pnkr/renderer/vulkan/geometry/Vertex.h"
 #include "pnkr/core/logger.hpp"
 
-#define TINYGLTF_IMPLEMENTATION
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <tiny_gltf.h>
 
 #include <cstdint>
 #include <functional>
@@ -151,10 +148,10 @@ std::unique_ptr<Model> Model::load(Renderer& renderer, const std::filesystem::pa
                 model->m_textures.push_back(renderer.loadTexture(texPath.string(), srgb));
             } else {
                 core::Logger::warn("Texture has no data or URI");
-                model->m_textures.push_back(TextureHandle{INVALID_HANDLE});
+                model->m_textures.push_back(INVALID_TEXTURE_HANDLE);
             }
         } else {
-            model->m_textures.push_back(TextureHandle{INVALID_HANDLE});
+            model->m_textures.push_back(INVALID_TEXTURE_HANDLE);
         }
     }
 
@@ -173,7 +170,7 @@ std::unique_ptr<Model> Model::load(Renderer& renderer, const std::filesystem::pa
              md.baseColorTexture = model->m_textures[pbr.baseColorTexture.index];
         } else {
              // Use invalid handle to signal "use default white texture" or "use color only"
-             md.baseColorTexture = INVALID_HANDLE;
+             md.baseColorTexture = INVALID_TEXTURE_HANDLE;
         }
         model->m_materials.push_back(md);
     }
