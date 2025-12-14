@@ -17,12 +17,16 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/vulkan/PushConstants.h
         include/pnkr/renderer/scene/camera.hpp
         src/renderer/scene.cpp
+        src/renderer/scene/Model.cpp
         include/pnkr/core/Timer.h
         include/pnkr/renderer/vulkan/image/vulkan_image.hpp
         src/renderer/vulkan/image/vulkan_image.cpp
         include/pnkr/renderer/vulkan/image/vulkan_sampler.hpp
         src/renderer/vulkan/image/vulkan_sampler.cpp
-        src/renderer/vulkan/vulkan_descriptor.cpp)
+        src/renderer/vulkan/vulkan_descriptor.cpp
+        include/pnkr/renderer/scene/Model.hpp
+        include/pnkr/renderer/scene/Node.hpp
+        include/pnkr/renderer/material/Material.hpp)
 
 target_sources(pnkr_engine
   PRIVATE
@@ -52,6 +56,9 @@ target_sources(pnkr_engine
         include/pnkr/renderer/vulkan/vulkan_device.hpp
         include/pnkr/renderer/vulkan/vulkan_pipeline.hpp
         include/pnkr/renderer/vulkan/vulkan_swapchain.hpp
+        include/pnkr/renderer/scene/Model.hpp
+        include/pnkr/renderer/scene/Node.hpp
+        include/pnkr/renderer/material/Material.hpp
 )
 
 # ============================================================================
@@ -72,6 +79,7 @@ target_compile_definitions(pnkr_engine
     SPDLOG_USE_STD_FORMAT=1
     GLM_FORCE_RADIANS
     GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_ENABLE_EXPERIMENTAL
     PRIVATE
     VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
 
@@ -116,6 +124,8 @@ target_link_libraries(pnkr_engine
 # GLM (this one is usually a proper CMake package)
 find_package(glm CONFIG REQUIRED)
 target_link_libraries(pnkr_engine PUBLIC glm::glm)
+
+
 
 # VMA (vcpkg port may not export an imported target; treat as header-only unless a target exists)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)   # provides GPUOpen::VulkanMemoryAllocator

@@ -5,6 +5,8 @@
  * @brief Public rendering facade for PNKR applications
  */
 
+#include <filesystem>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -52,6 +54,11 @@ namespace pnkr::renderer
         explicit Renderer(platform::Window& window,
                           [[maybe_unused]] const RendererConfig& config);
         void createTextureDescriptorSetLayout();
+        TextureHandle createTextureFromPixels(const unsigned char* data,
+                                              int width,
+                                              int height,
+                                              int channels,
+                                              bool srgb = true);
 
         explicit Renderer(platform::Window& window)
             : Renderer(window, RendererConfig{})
@@ -79,7 +86,8 @@ namespace pnkr::renderer
         void setRecordFunc(const RecordFunc& callback);
         void bindPipeline(vk::CommandBuffer cmd, PipelineHandle handle) const;
         vk::PipelineLayout pipelineLayout(PipelineHandle handle) const;
-        TextureHandle loadTexture(const std::filesystem::path& filepath);
+        TextureHandle loadTexture(const std::filesystem::path& filepath,
+                                  bool srgb = true);
         vk::DescriptorSet getTextureDescriptor(TextureHandle handle) const;
         vk::DescriptorSetLayout getTextureDescriptorLayout() const;
 
@@ -135,5 +143,6 @@ namespace pnkr::renderer
         uint32_t m_imageIndex = 0;
         bool m_frameInProgress = false;
         float m_deltaTime = 0.0f;
+        TextureHandle m_whiteTexture{INVALID_HANDLE};
     };
 } // namespace pnkr::renderer

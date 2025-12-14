@@ -5,6 +5,7 @@
 #ifndef PNKR_VULKANIMAGE_H
 #define PNKR_VULKANIMAGE_H
 
+#include <filesystem>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.hpp>
 
@@ -30,10 +31,15 @@ namespace pnkr::renderer {
 
         VulkanImage(VulkanImage&& other) noexcept;
         VulkanImage& operator=(VulkanImage&& other) noexcept;
-
-        // Create from file
         static VulkanImage createFromFile(const VulkanDevice& device,
-                                          const std::filesystem::path& filepath);
+                                          const std::filesystem::path& filepath,
+                                          bool srgb = true);
+
+        static VulkanImage createFromMemory(const VulkanDevice& vulkan_device,
+                                            const unsigned char* src_data,
+                                            int width,
+                                            int height,
+                                            bool srgb);
 
         // Transition image layout
         void transitionLayout(vk::CommandBuffer cmd,

@@ -6,6 +6,7 @@
     "vulkan-memory-allocator",
     "vulkan-headers",
     "stb",
+    "tinygltf",
     "spdlog",
     {
       "name": "sdl3",

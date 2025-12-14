@@ -2,6 +2,7 @@
 #include "pnkr/renderer/renderer.hpp"
 #include "pnkr/renderer/vulkan/PushConstants.h"
 #include <glm/gtc/constants.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 namespace pnkr::renderer::scene {
 
@@ -23,7 +24,8 @@ namespace pnkr::renderer::scene {
 
         // Example animation: spin first object
         if (!m_objects.empty()) {
-            m_objects[0].xform.m_rotation.y += dt;
+            auto& rot = m_objects[0].xform.m_rotation;
+            rot = glm::normalize(glm::rotate(rot, dt, glm::vec3(0.0f, 1.0f, 0.0f)));
         }
     }
 
