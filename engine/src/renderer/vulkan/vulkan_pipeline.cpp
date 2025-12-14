@@ -12,14 +12,14 @@ namespace {
 std::vector<std::uint32_t> ReadSpirvU32(const char *path) {
   std::ifstream file(path, std::ios::ate | std::ios::binary);
   if (!file.is_open()) {
-    pnkr::core::Logger::error("[VulkanPipeline] Failed to open SPIR-V file: {}",
+    core::Logger::error("[VulkanPipeline] Failed to open SPIR-V file: {}",
                               path);
     throw std::runtime_error("Failed to open SPIR-V file");
   }
 
   const std::streamsize byteSize = file.tellg();
   if (byteSize <= 0 || (byteSize % 4) != 0) {
-    pnkr::core::Logger::error(
+    core::Logger::error(
         "[VulkanPipeline] Invalid SPIR-V size ({} bytes): {}", byteSize, path);
     throw std::runtime_error("Invalid SPIR-V file size");
   }
@@ -29,7 +29,7 @@ std::vector<std::uint32_t> ReadSpirvU32(const char *path) {
   file.read(reinterpret_cast<char *>(words.data()), byteSize);
 
   if (!file) {
-    pnkr::core::Logger::error("[VulkanPipeline] Failed to read SPIR-V file: {}",
+    core::Logger::error("[VulkanPipeline] Failed to read SPIR-V file: {}",
                               path);
     throw std::runtime_error("Failed to read SPIR-V file");
   }
@@ -48,7 +48,7 @@ vk::ShaderModule CreateShaderModule(vk::Device device, const char *path) {
   try {
     module = device.createShaderModule(smci);
   } catch (const vk::SystemError &e) {
-    pnkr::core::Logger::error(
+    core::Logger::error(
         "[VulkanPipeline] createShaderModule failed for {}: {}", path,
         e.what());
     throw;
@@ -70,7 +70,7 @@ VulkanPipeline::VulkanPipeline(vk::Device device, vk::Format colorFormat,
 
   m_vertexInput = config.m_vertexInput;
 
-  pnkr::core::Logger::info(
+  core::Logger::info(
       "[VulkanPipeline] Creating pipeline (dynamic rendering), format={}",
       vk::to_string(m_colorFormat));
 
@@ -78,7 +78,7 @@ VulkanPipeline::VulkanPipeline(vk::Device device, vk::Format colorFormat,
   createPipelineLayout();
   createGraphicsPipeline(config);
 
-  pnkr::core::Logger::info("[VulkanPipeline] Pipeline created.");
+  core::Logger::info("[VulkanPipeline] Pipeline created.");
 }
 
 void VulkanPipeline::reset() noexcept {
@@ -125,31 +125,34 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&other) noexcept {
   return *this;
 }
 
-void pnkr::renderer::VulkanPipeline::createShaderModules(const Config &config) {
+void VulkanPipeline::createShaderModules(const Config &config) {
   m_vert = CreateShaderModule(m_device, config.m_vertSpvPath.string().c_str());
   m_frag = CreateShaderModule(m_device, config.m_fragSpvPath.string().c_str());
 }
 
-void pnkr::renderer::VulkanPipeline::createPipelineLayout() {
-  vk::PushConstantRange pcr{};
-  pcr.stageFlags = vk::ShaderStageFlagBits::eVertex;
-  pcr.offset = 0;
-  pcr.size = sizeof(PushConstants);
-
-  vk::PipelineLayoutCreateInfo plci{};
-  try {
-    plci.pushConstantRangeCount = 1;
-    plci.pPushConstantRanges = &pcr;
-
-    m_layout = m_device.createPipelineLayout(plci);
-  } catch (const vk::SystemError &e) {
-    pnkr::core::Logger::error(
-        "[VulkanPipeline] createPipelineLayout failed: {}", e.what());
-    throw;
+  void VulkanPipeline::createPipelineLayout() {
+  // Push constant range
+  vk::PushConstantRange pushConstantRange{};
+  if (m_config.m_pushConstantSize > 0) {
+    pushConstantRange.stageFlags = m_config.m_pushConstantStages;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = m_config.m_pushConstantSize;
   }
+
+  vk::PipelineLayoutCreateInfo layoutInfo{};
+  layoutInfo.setLayoutCount = static_cast<uint32_t>(m_config.m_descriptorSetLayouts.size());
+  layoutInfo.pSetLayouts = m_config.m_descriptorSetLayouts.data();
+
+  if (m_config.m_pushConstantSize > 0) {
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushConstantRange;
+  }
+
+  m_layout = m_device.createPipelineLayout(layoutInfo);
 }
 
-void pnkr::renderer::VulkanPipeline::createGraphicsPipeline(
+
+void VulkanPipeline::createGraphicsPipeline(
     const PipelineConfig &config) {
   // Shader stages
   vk::PipelineShaderStageCreateInfo stages[2]{};
@@ -260,14 +263,14 @@ void pnkr::renderer::VulkanPipeline::createGraphicsPipeline(
   try {
     auto result = m_device.createGraphicsPipeline(nullptr, gpci);
     if (result.result != vk::Result::eSuccess) {
-      pnkr::core::Logger::error(
+      core::Logger::error(
           "[VulkanPipeline] createGraphicsPipeline failed: {}",
           vk::to_string(result.result));
       throw std::runtime_error("createGraphicsPipeline failed");
     }
     m_pipeline = result.value;
   } catch (const vk::SystemError &e) {
-    pnkr::core::Logger::error(
+    core::Logger::error(
         "[VulkanPipeline] createGraphicsPipeline threw: {}", e.what());
     throw;
   }

@@ -26,8 +26,11 @@ endif()
 
 set(SCENE_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 set(SCENE_SHADER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+set(SCENE_TEXTURE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/textures")
+set(SCENE_TEXTURE_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
 file(MAKE_DIRECTORY "${SCENE_SHADER_OUT_DIR}")
+file(MAKE_DIRECTORY "${SCENE_TEXTURE_OUT_DIR}")
 
 set(SCENE_SHADERS
         "${SCENE_SHADER_DIR}/plane_tint.frag"
@@ -53,6 +56,15 @@ endforeach()
 
 add_custom_target(scene_shaders ALL DEPENDS ${SCENE_SPV_OUTPUTS})
 add_dependencies(pnkr_scene scene_shaders)
+
+
+add_custom_command(TARGET pnkr_scene POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_scene>/textures"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${SCENE_TEXTURE_OUT_DIR}"
+        "$<TARGET_FILE_DIR:pnkr_scene>/textures"
+        COMMENT "Copying textures to runtime output directory"
+)
 
 add_custom_command(TARGET pnkr_scene POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_scene>/shaders"

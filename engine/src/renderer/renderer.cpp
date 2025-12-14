@@ -7,6 +7,7 @@
 #include "pnkr/renderer/vulkan/vulkan_pipeline.hpp"
 #include "pnkr/renderer/vulkan/vulkan_swapchain.hpp"
 #include "pnkr/renderer/vulkan/vulkan_sync_manager.h"
+#include "pnkr/renderer/vulkan/vulkan_descriptor.hpp"
 
 namespace pnkr::renderer {
 Renderer::Renderer(platform::Window &window,
@@ -25,7 +26,66 @@ Renderer::Renderer(platform::Window &window,
   m_sync = std::make_unique<VulkanSyncManager>(
       m_device->device(), m_device->framesInFlight(),
       static_cast<uint32_t>(m_swapchain->images().size()));
+
+  m_descriptorAllocator = std::make_unique<VulkanDescriptorAllocator>(m_device->device());
+  m_descriptorLayoutCache = std::make_unique<VulkanDescriptorLayoutCache>(m_device->device());
+  m_defaultSampler = std::make_unique<VulkanSampler>(m_device->device());
+  createTextureDescriptorSetLayout();
+
 }
+
+  void Renderer::createTextureDescriptorSetLayout() {
+  vk::DescriptorSetLayoutBinding samplerBinding{};
+  samplerBinding.binding = 0;
+  samplerBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+  samplerBinding.descriptorCount = 1;
+  samplerBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+  vk::DescriptorSetLayoutCreateInfo layoutInfo{};
+  layoutInfo.bindingCount = 1;
+  layoutInfo.pBindings = &samplerBinding;
+
+  m_textureSetLayout = m_device->device().createDescriptorSetLayout(layoutInfo);
+}
+
+  TextureHandle Renderer::loadTexture(const std::filesystem::path& filepath) {
+  auto texture = std::make_unique<VulkanImage>(
+    VulkanImage::createFromFile(*m_device, filepath)
+  );
+
+  // Create descriptor set for this texture
+  vk::DescriptorImageInfo imageInfo{};
+  imageInfo.sampler = m_defaultSampler->sampler();
+  imageInfo.imageView = texture->view();
+  imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+  vk::DescriptorSet descriptorSet;
+  VulkanDescriptorBuilder::begin(m_descriptorLayoutCache.get(), m_descriptorAllocator.get())
+    .bindImage(0, &imageInfo, vk::DescriptorType::eCombinedImageSampler,
+               vk::ShaderStageFlagBits::eFragment)
+    .build(descriptorSet);
+
+  TextureHandle handle = static_cast<TextureHandle>(m_textures.size());
+  m_textures.push_back(std::move(texture));
+  m_textureDescriptors.push_back(descriptorSet);
+
+  core::Logger::info("Loaded texture: {} (handle={})", filepath.string(), handle);
+  return handle;
+}
+
+  vk::DescriptorSet Renderer::getTextureDescriptor(TextureHandle handle) const {
+  if (handle >= m_textureDescriptors.size()) {
+    throw std::runtime_error("Invalid texture handle");
+  }
+  return m_textureDescriptors[handle];
+}
+
+  vk::DescriptorSetLayout Renderer::getTextureDescriptorLayout() const {
+  return m_textureSetLayout;
+}
+
+
+
 
 PipelineHandle Renderer::createPipeline(const VulkanPipeline::Config &cfg) {
   const PipelineHandle handle = m_pipelines.size();
@@ -104,15 +164,36 @@ void Renderer::bindPipeline(vk::CommandBuffer cmd,
                    m_pipelines[handle]->pipeline());
 }
 
-Renderer::~Renderer() {
-  if (m_device && m_device->device()) m_device->device().waitIdle();
+  Renderer::~Renderer() {
+  if (m_device && m_device->device()) {
+    m_device->device().waitIdle();
+  }
+
+  // 1) Pipelines first (they may reference descriptor set layouts)
+  m_pipelines.clear();
+
+  // 2) Texture descriptors + textures + sampler
+  m_textureDescriptors.clear();   // optional, but keeps vectors tidy
+  m_textures.clear();             // triggers VulkanImage destructors
+  m_defaultSampler.reset();       // destroys vk::Sampler
+
+  if (m_device && m_textureSetLayout) {
+    m_device->device().destroyDescriptorSetLayout(m_textureSetLayout);
+    m_textureSetLayout = nullptr;
+  }
+
+  if (m_descriptorLayoutCache) {
+    m_descriptorLayoutCache->cleanup(); // if you implemented this
+  }
+
+  m_descriptorAllocator.reset();
+  m_descriptorLayoutCache.reset();
 
   m_meshes.clear();
-  m_pipelines.clear();
   m_swapchain.reset();
   m_sync.reset();
   m_commandBuffer.reset();
-  m_device.reset();   // last
+  m_device.reset();
   m_context.reset();
 }
 

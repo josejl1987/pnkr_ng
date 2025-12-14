@@ -69,11 +69,11 @@ void VulkanSyncManager::waitForFrame(uint32_t frameIndex) const {
     auto result = m_device.waitForFences(1, &m_inFlightFences[frameIndex],
                                          VK_TRUE, UINT64_MAX);
     if (result != vk::Result::eSuccess) {
-      pnkr::core::Logger::error("[Sync] waitForFences result: {}",
+      core::Logger::error("[Sync] waitForFences result: {}",
                                 vk::to_string(result));
     }
   } catch (const vk::SystemError &e) {
-    pnkr::core::Logger::error("[Sync] waitForFences threw: {}", e.what());
+    core::Logger::error("[Sync] waitForFences threw: {}", e.what());
     // Device lost is usually fatal; rethrow or let it crash to main
     throw;
   }
@@ -86,7 +86,7 @@ void VulkanSyncManager::resetFrame(uint32_t frameIndex) const {
   try {
     (void)m_device.resetFences(1, &m_inFlightFences[frameIndex]);
   } catch (const vk::SystemError &e) {
-    pnkr::core::Logger::error("[Sync] resetFences failed: {}", e.what());
+    core::Logger::error("[Sync] resetFences failed: {}", e.what());
     throw;
   }
 }

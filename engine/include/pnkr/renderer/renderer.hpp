@@ -20,10 +20,27 @@
 #include "pnkr/renderer/vulkan/vulkan_sync_manager.h"
 #include "vulkan/geometry/mesh.h"
 #include "vulkan/geometry/Vertex.h"
+#include "vulkan/image/vulkan_image.hpp"
+#include "vulkan/image/vulkan_sampler.hpp"
+
+namespace pnkr::renderer {
+    class VulkanCommandBuffer;
+    class VulkanContext;
+    class VulkanDevice;
+    class VulkanPipeline;
+    class VulkanSwapchain;
+    class VulkanSyncManager;
+    class VulkanDescriptorAllocator;
+    class VulkanDescriptorLayoutCache;
+    class VulkanImage;
+    class VulkanSampler;
+}
+
 
 namespace pnkr::renderer
 {
     using RecordFunc = std::function<void(const RenderFrameContext&)>;
+    using TextureHandle = Handle;
     /**
      * @brief High-level renderer entry point exposed to applications
      *
@@ -34,6 +51,7 @@ namespace pnkr::renderer
     public:
         explicit Renderer(platform::Window& window,
                           [[maybe_unused]] const RendererConfig& config);
+        void createTextureDescriptorSetLayout();
 
         explicit Renderer(platform::Window& window)
             : Renderer(window, RendererConfig{})
@@ -61,7 +79,9 @@ namespace pnkr::renderer
         void setRecordFunc(const RecordFunc& callback);
         void bindPipeline(vk::CommandBuffer cmd, PipelineHandle handle) const;
         vk::PipelineLayout pipelineLayout(PipelineHandle handle) const;
-
+        TextureHandle loadTexture(const std::filesystem::path& filepath);
+        vk::DescriptorSet getTextureDescriptor(TextureHandle handle) const;
+        vk::DescriptorSetLayout getTextureDescriptorLayout() const;
 
         template <typename T>
         void pushConstants(vk::CommandBuffer cmd,
@@ -98,6 +118,14 @@ namespace pnkr::renderer
         std::unique_ptr<VulkanCommandBuffer> m_commandBuffer;
         std::unique_ptr<VulkanSyncManager> m_sync;
         std::vector<std::unique_ptr<Mesh>> m_meshes;
+
+        std::unique_ptr<VulkanDescriptorAllocator> m_descriptorAllocator;
+        std::unique_ptr<VulkanDescriptorLayoutCache> m_descriptorLayoutCache;
+        std::unique_ptr<VulkanSampler> m_defaultSampler;
+        std::vector<std::unique_ptr<VulkanImage>> m_textures;
+        std::vector<vk::DescriptorSet> m_textureDescriptors;
+        vk::DescriptorSetLayout m_textureSetLayout{};
+
 
         std::vector<std::unique_ptr<VulkanPipeline>> m_pipelines;
         const VulkanPipeline& pipeline(PipelineHandle handle) const;

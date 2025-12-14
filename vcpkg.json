@@ -5,6 +5,7 @@
     "glm",
     "vulkan-memory-allocator",
     "vulkan-headers",
+    "stb",
     "spdlog",
     {
       "name": "sdl3",

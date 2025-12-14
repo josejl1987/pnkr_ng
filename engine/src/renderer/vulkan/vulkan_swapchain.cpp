@@ -32,7 +32,7 @@ VulkanSwapchain::VulkanSwapchain(vk::PhysicalDevice physicalDevice,
                                  vk::Device device, vk::SurfaceKHR surface,
                                  uint32_t graphicsQueueFamily,
                                  uint32_t presentQueueFamily,
-                                 pnkr::platform::Window &window,
+                                 platform::Window &window,
                                  VmaAllocator allocator) {
   m_allocator = allocator;
   recreate(physicalDevice, device, surface, graphicsQueueFamily,
@@ -48,7 +48,7 @@ void VulkanSwapchain::recreate(vk::PhysicalDevice physicalDevice,
                                vk::Device device, vk::SurfaceKHR surface,
                                uint32_t graphicsQueueFamily,
                                uint32_t presentQueueFamily,
-                               pnkr::platform::Window &window)
+                               platform::Window &window)
 
 {
   if (!physicalDevice)
@@ -66,7 +66,7 @@ void VulkanSwapchain::recreate(vk::PhysicalDevice physicalDevice,
                   presentQueueFamily, window);
   createImageViews(device);
   createDepthResources();
-  pnkr::core::Logger::info(
+  core::Logger::info(
       "[VulkanSwapchain] Created ({} images, {}x{}, format={}).",
       static_cast<uint32_t>(m_images.size()), m_extent.width, m_extent.height,
       vk::to_string(m_format));
@@ -97,7 +97,7 @@ void VulkanSwapchain::createSwapchain(vk::PhysicalDevice physicalDevice,
                                       vk::Device device, vk::SurfaceKHR surface,
                                       uint32_t graphicsQueueFamily,
                                       uint32_t presentQueueFamily,
-                                      pnkr::platform::Window &window) {
+                                      platform::Window &window) {
   const auto support = QuerySwapchainSupport(physicalDevice, surface);
 
   if (support.formats.empty())
@@ -165,7 +165,7 @@ void VulkanSwapchain::createSwapchain(vk::PhysicalDevice physicalDevice,
   try {
     m_swapchain = device.createSwapchainKHR(sci);
   } catch (const vk::SystemError &e) {
-    pnkr::core::Logger::error("[VulkanSwapchain] createSwapchainKHR failed: {}",
+    core::Logger::error("[VulkanSwapchain] createSwapchainKHR failed: {}",
                               e.what());
     throw;
   }
@@ -196,7 +196,7 @@ void VulkanSwapchain::createImageViews(vk::Device device) {
     try {
       m_imageViews[i] = device.createImageView(ivci);
     } catch (const vk::SystemError &e) {
-      pnkr::core::Logger::error(
+      core::Logger::error(
           "[VulkanSwapchain] createImageView failed (index {}): {}", i,
           e.what());
       throw;
@@ -248,7 +248,7 @@ vk::PresentModeKHR VulkanSwapchain::choosePresentMode(
 
 vk::Extent2D
 VulkanSwapchain::chooseExtent(const vk::SurfaceCapabilitiesKHR &caps,
-                              pnkr::platform::Window &window) {
+                              platform::Window &window) {
   // If the surface size is defined, the swapchain must match it.
   if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
     return caps.currentExtent;

@@ -17,7 +17,12 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/vulkan/PushConstants.h
         include/pnkr/renderer/scene/camera.hpp
         src/renderer/scene.cpp
-        include/pnkr/core/Timer.h)
+        include/pnkr/core/Timer.h
+        include/pnkr/renderer/vulkan/image/vulkan_image.hpp
+        src/renderer/vulkan/image/vulkan_image.cpp
+        include/pnkr/renderer/vulkan/image/vulkan_sampler.hpp
+        src/renderer/vulkan/image/vulkan_sampler.cpp
+        src/renderer/vulkan/vulkan_descriptor.cpp)
 
 target_sources(pnkr_engine
   PRIVATE
@@ -105,6 +110,7 @@ target_link_libraries(pnkr_engine
     ${PNKR_SPDLOG_TARGET}
     SDL3::SDL3
     Vulkan::Vulkan
+
 )
 
 # GLM (this one is usually a proper CMake package)

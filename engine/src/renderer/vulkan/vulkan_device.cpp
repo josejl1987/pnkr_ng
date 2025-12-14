@@ -22,14 +22,14 @@ VulkanDevice::VulkanDevice(VulkanContext &vk_context) : m_context(vk_context) {
   pickPhysicalDevice(vk_context.instance(), vk_context.surface());
   createLogicalDevice(vk_context.surface());
 
-  pnkr::core::Logger::info("VulkanDevice created.");
+  core::Logger::info("VulkanDevice created.");
   vk_context.initDispatcherPostDevice(m_device);
 
   createAllocator();
 
   create_upload_pool();
 
-  pnkr::core::Logger::info("VMA initialized.");
+  core::Logger::info("VMA initialized.");
 }
 
 void VulkanDevice::createAllocator() {
@@ -203,7 +203,7 @@ void VulkanDevice::pickPhysicalDevice(vk::Instance instance,
         (VK_API_VERSION_MAJOR(api) == 1 && VK_API_VERSION_MINOR(api) < 3)) {
       continue;
     }
-    pnkr::core::Logger::info("Selected GPU: {}", props.deviceName.data());
+    core::Logger::info("Selected GPU: {}", props.deviceName.data());
     return;
   }
 
@@ -250,7 +250,7 @@ void VulkanDevice::createLogicalDevice(vk::SurfaceKHR /*surface*/) {
       m_device.getQueue(m_indices.present, 0, VULKAN_HPP_DEFAULT_DISPATCHER);
   m_graphicsQueueFamilyIndex = m_indices.graphics;
   m_presentQueueFamilyIndex = m_indices.present;
-  pnkr::core::Logger::info(
+  core::Logger::info(
       "Logical device created. GraphicsQ family={}, PresentQ family={}",
       m_indices.graphics, m_indices.present);
 }

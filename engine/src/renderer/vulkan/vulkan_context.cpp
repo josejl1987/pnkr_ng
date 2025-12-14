@@ -16,7 +16,7 @@ static VKAPI_ATTR vk::Bool32 VKAPI_CALL DebugCallback(
     vk::DebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
     vk::DebugUtilsMessageTypeFlagsEXT,
     const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *) {
-  using pnkr::core::Logger;
+  using core::Logger;
 
   const char *msg =
       pCallbackData->pMessage ? pCallbackData->pMessage : "(null)";
@@ -73,7 +73,7 @@ void VulkanContext::initDispatcherPostDevice(vk::Device device) {
                                             device, getDeviceProcAddr);
 }
 
-VulkanContext::VulkanContext(const pnkr::platform::Window &window) {
+VulkanContext::VulkanContext(const platform::Window &window) {
   // Load instance-level function pointers (DebugUtils lives here).
   initDispatcherPreInstance();
   createInstance(window);
@@ -86,7 +86,7 @@ VulkanContext::VulkanContext(const pnkr::platform::Window &window) {
 
   createSurface(window);
 
-  pnkr::core::Logger::info("VulkanContext created (instance + surface).");
+  core::Logger::info("VulkanContext created (instance + surface).");
 }
 
 VulkanContext::~VulkanContext() {
@@ -109,7 +109,7 @@ VulkanContext::~VulkanContext() {
   m_instance = nullptr;
 }
 
-void VulkanContext::createInstance(const pnkr::platform::Window &window) {
+void VulkanContext::createInstance(const platform::Window &window) {
   (void)window;
   // Query required instance extensions from SDL.
   unsigned int extCount = 0;
@@ -170,12 +170,12 @@ void VulkanContext::createInstance(const pnkr::platform::Window &window) {
   m_instance =
       vk::createInstance(createInfo, nullptr, VULKAN_HPP_DEFAULT_DISPATCHER);
 
-  pnkr::core::Logger::info(
+  core::Logger::info(
       "Vulkan instance created ({} extensions, {} layers).", extensions.size(),
       layers.size());
 }
 
-void VulkanContext::createSurface(const pnkr::platform::Window &window) {
+void VulkanContext::createSurface(const platform::Window &window) {
   VkSurfaceKHR rawSurface = VK_NULL_HANDLE;
 
   if (!SDL_Vulkan_CreateSurface(window.get(),
@@ -186,7 +186,7 @@ void VulkanContext::createSurface(const pnkr::platform::Window &window) {
   }
 
   m_surface = vk::SurfaceKHR(rawSurface);
-  pnkr::core::Logger::info("SDL Vulkan surface created.");
+  core::Logger::info("SDL Vulkan surface created.");
 }
 
 #ifndef NDEBUG
@@ -203,7 +203,7 @@ void VulkanContext::setupDebugMessenger() {
 
   m_debugMessenger = m_instance.createDebugUtilsMessengerEXT(
       createInfo, nullptr, VULKAN_HPP_DEFAULT_DISPATCHER);
-  pnkr::core::Logger::info("Vulkan debug utils messenger created.");
+  core::Logger::info("Vulkan debug utils messenger created.");
 }
 #endif
 } // namespace pnkr::renderer

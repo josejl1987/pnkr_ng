@@ -125,7 +125,7 @@ VulkanCommandBuffer::VulkanCommandBuffer(vk::Device device,
   createPool(graphicsQueueFamilyIndex);
   allocateBuffers();
 
-  pnkr::core::Logger::info("[VulkanCommandBuffer] Created (framesInFlight={})",
+  core::Logger::info("[VulkanCommandBuffer] Created (framesInFlight={})",
                            m_frames);
 }
 
