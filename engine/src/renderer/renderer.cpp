@@ -1,4 +1,8 @@
 #include "pnkr/renderer/renderer.hpp"
+
+#include <imgui.h>
+#include <imgui_impl_vulkan.h>
+
 #include "pnkr/platform/window.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/renderer/vulkan/vulkan_command_buffer.hpp"
@@ -9,6 +13,7 @@
 #include "pnkr/renderer/vulkan/vulkan_sync_manager.h"
 #include "pnkr/renderer/vulkan/vulkan_descriptor.hpp"
 #include "pnkr/renderer/vulkan/vulkan_render_target.h"
+#include <array>
 
 namespace pnkr::renderer
 {
@@ -185,7 +190,7 @@ namespace pnkr::renderer
         PipelineConfig pipelineCfg = cfg;
 
         m_pipelines.push_back(std::make_unique<VulkanPipeline>(
-            m_device->device(),  pipelineCfg));
+            m_device->device(), pipelineCfg));
 
         pnkr::core::Logger::info("[Renderer] Created pipeline handle={}", handle.id);
         return handle;
@@ -335,111 +340,250 @@ namespace pnkr::renderer
         m_frameInProgress = true;
     }
 
-    void Renderer::drawFrame() const
+    void Renderer::bindPipeline(vk::CommandBuffer cmd, const ComputePipeline& pipeline)
+    {
+        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.pipeline());
+    }
+
+    void Renderer::dispatch(vk::CommandBuffer cmd, uint32_t groupX, uint32_t groupY, uint32_t groupZ)
+    {
+        cmd.dispatch(groupX, groupY, groupZ);
+    }
+
+
+    void Renderer::drawFrame()
     {
         if (!m_frameInProgress)
             return;
-        if (!m_recordCallback)
-        {
-            throw std::runtime_error(
-                "[Renderer] No record callback set (call setRecordFunc first)");
-        }
 
-        const uint32_t frame = m_commandBuffer->currentFrame();
-        vk::CommandBuffer cmd = m_commandBuffer->cmd(frame);
+        const uint32_t frameIndex = m_commandBuffer->currentFrame();
+        vk::CommandBuffer cmd = m_commandBuffer->cmd(frameIndex);
 
-        // --- PASS 1: Render Scene to Offscreen Target ---
-
+        // Render scene into HDR target
         m_mainTarget->transitionToAttachment(cmd);
 
-        m_mainTarget->beginRendering(cmd);
+        vk::ClearValue colorClear{vk::ClearColorValue{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}}};
+        vk::ClearValue depthClear{vk::ClearDepthStencilValue{1.0f, 0}};
+        m_mainTarget->beginRendering(cmd, colorClear, depthClear);
 
-        // Call User Record Function
-        RenderFrameContext ctx{
-            cmd,
-            frame,
-            m_imageIndex,
-            m_mainTarget->extent(), // Changed from swapchain->extent()
-            m_deltaTime
-        };
-        m_recordCallback(ctx);
+        if (m_recordCallback)
+        {
+            RenderFrameContext ctx{};
+            ctx.m_cmd = cmd;
+            ctx.m_frameIndex = frameIndex;
+            ctx.m_imageIndex = m_imageIndex;
+            ctx.m_extent = m_swapchain->extent();
+            ctx.m_deltaTime = m_deltaTime;
+            m_recordCallback(ctx);
+        }
 
         m_mainTarget->endRendering(cmd);
 
+        const vk::Image hdrImage = m_mainTarget->colorImage().image();
+        const vk::Image swapImage = m_swapchain->images()[m_imageIndex];
 
-        // --- PASS 2: Blit to Swapchain ---
+        // Post-Process (Compute) OR Blit (Fallback)
+        if (m_postProcessCallback)
+        {
+            vk::ImageLayout oldSwapLayout = m_swapchain->imageLayout(m_imageIndex);
 
-        const vk::Image swapImg = m_swapchain->images()[m_imageIndex];
-        const vk::Extent2D swapExt = m_swapchain->extent();
+            vk::ImageMemoryBarrier2 preBarriers[2]{};
 
-        // 1. Transition Offscreen Target to Transfer Source
-        m_mainTarget->transitionToRead(cmd);
+            // HDR: color attachment -> shader read for compute sampling
+            preBarriers[0].srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+            preBarriers[0].srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+            preBarriers[0].dstStageMask = vk::PipelineStageFlagBits2::eComputeShader;
+            preBarriers[0].dstAccessMask = vk::AccessFlagBits2::eShaderRead;
+            preBarriers[0].oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            preBarriers[0].newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+            preBarriers[0].image = hdrImage;
+            preBarriers[0].subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 
-        // 2. Transition Swapchain Image to Transfer Destination
+            // Swapchain: previous layout -> general for storage writes
+            preBarriers[1].srcStageMask = (oldSwapLayout == vk::ImageLayout::eUndefined)
+                                              ? vk::PipelineStageFlagBits2::eTopOfPipe
+                                              : vk::PipelineStageFlagBits2::eAllCommands;
+            preBarriers[1].srcAccessMask = (oldSwapLayout == vk::ImageLayout::eUndefined)
+                                              ? vk::AccessFlagBits2::eNone
+                                              : vk::AccessFlagBits2::eMemoryRead;
+            preBarriers[1].dstStageMask = vk::PipelineStageFlagBits2::eComputeShader;
+            preBarriers[1].dstAccessMask = vk::AccessFlagBits2::eShaderStorageWrite;
+            preBarriers[1].oldLayout = oldSwapLayout;
+            preBarriers[1].newLayout = vk::ImageLayout::eGeneral;
+            preBarriers[1].image = swapImage;
+            preBarriers[1].subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 
-        vk::ImageMemoryBarrier2 swapDstBarrier{};
-        swapDstBarrier.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
-        swapDstBarrier.srcAccessMask = vk::AccessFlagBits2::eNone;
-        swapDstBarrier.dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
-        swapDstBarrier.dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
-        swapDstBarrier.oldLayout = vk::ImageLayout::eUndefined;
-        swapDstBarrier.newLayout = vk::ImageLayout::eTransferDstOptimal;
-        swapDstBarrier.image = swapImg;
-        swapDstBarrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        swapDstBarrier.subresourceRange.baseMipLevel = 0;
-        swapDstBarrier.subresourceRange.levelCount = 1;
-        swapDstBarrier.subresourceRange.baseArrayLayer = 0;
-        swapDstBarrier.subresourceRange.layerCount = 1;
+            vk::DependencyInfo preDep{};
+            preDep.imageMemoryBarrierCount = 2;
+            preDep.pImageMemoryBarriers = preBarriers;
+            cmd.pipelineBarrier2(preDep);
 
-        vk::DependencyInfo depSwapDst{};
-        depSwapDst.imageMemoryBarrierCount = 1;
-        depSwapDst.pImageMemoryBarriers = &swapDstBarrier;
-        cmd.pipelineBarrier2(depSwapDst);
+            m_swapchain->imageLayout(m_imageIndex) = vk::ImageLayout::eGeneral;
 
-        // 3. Perform Blit
-        vk::ImageBlit blitRegion{};
-        blitRegion.srcSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
-        blitRegion.srcSubresource.layerCount = 1;
-        blitRegion.srcOffsets[0] = vk::Offset3D{0, 0, 0};
-        blitRegion.srcOffsets[1] = vk::Offset3D{
-            (int32_t)m_mainTarget->extent().width,
-            (int32_t)m_mainTarget->extent().height,
-            1
-        };
-        blitRegion.dstSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
-        blitRegion.dstSubresource.layerCount = 1;
-        blitRegion.dstOffsets[0] = vk::Offset3D{0, 0, 0};
-        blitRegion.dstOffsets[1] = vk::Offset3D{
-            (int32_t)swapExt.width,
-            (int32_t)swapExt.height,
-            1
-        };
+            // C. Execute Callback
+            m_postProcessCallback(cmd, m_imageIndex, m_swapchain->extent());
 
-        // Use Linear filter if size differs, Nearest if identical (faster/cleaner)
-        vk::Filter blitFilter = (m_mainTarget->extent() == swapExt) ? vk::Filter::eNearest : vk::Filter::eLinear;
+            // D. Prepare images for UI rendering
+            vk::ImageMemoryBarrier2 postBarriers[2]{};
 
-        cmd.blitImage(
-            m_mainTarget->colorImage().image(), vk::ImageLayout::eTransferSrcOptimal,
-            swapImg, vk::ImageLayout::eTransferDstOptimal,
-            1, &blitRegion, blitFilter
-        );
+            postBarriers[0].srcStageMask = vk::PipelineStageFlagBits2::eComputeShader;
+            postBarriers[0].srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite;
+            postBarriers[0].dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+            postBarriers[0].dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite |
+                                            vk::AccessFlagBits2::eColorAttachmentRead;
+            postBarriers[0].oldLayout = vk::ImageLayout::eGeneral;
+            postBarriers[0].newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            postBarriers[0].image = swapImage;
+            postBarriers[0].subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 
-        // 4. Transition Swapchain to Present
-        // (Matches the final barrier in your base code, but src is now Transfer)
-        vk::ImageMemoryBarrier2 toPresent{};
-        toPresent.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
-        toPresent.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
-        toPresent.dstStageMask = vk::PipelineStageFlagBits2::eNone;
-        toPresent.dstAccessMask = vk::AccessFlagBits2::eNone; // Present engine handles visibility
-        toPresent.oldLayout = vk::ImageLayout::eTransferDstOptimal;
-        toPresent.newLayout = vk::ImageLayout::ePresentSrcKHR;
-        toPresent.image = swapImg;
-        toPresent.subresourceRange = swapDstBarrier.subresourceRange;
+            postBarriers[1].srcStageMask = vk::PipelineStageFlagBits2::eComputeShader;
+            postBarriers[1].srcAccessMask = vk::AccessFlagBits2::eShaderRead;
+            postBarriers[1].dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+            postBarriers[1].dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+            postBarriers[1].oldLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+            postBarriers[1].newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            postBarriers[1].image = hdrImage;
+            postBarriers[1].subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 
-        vk::DependencyInfo depPresent{};
-        depPresent.imageMemoryBarrierCount = 1;
-        depPresent.pImageMemoryBarriers = &toPresent;
-        cmd.pipelineBarrier2(depPresent);
+            vk::DependencyInfo postDep{};
+            postDep.imageMemoryBarrierCount = 2;
+            postDep.pImageMemoryBarriers = postBarriers;
+            cmd.pipelineBarrier2(postDep);
+
+            m_swapchain->imageLayout(m_imageIndex) = vk::ImageLayout::eColorAttachmentOptimal;
+        }
+        else
+        {
+            vk::ImageLayout oldSwapLayout = m_swapchain->imageLayout(m_imageIndex);
+
+            vk::ImageMemoryBarrier2 barriers[2]{};
+
+            // HDR src for blit
+            barriers[0].srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+            barriers[0].srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+            barriers[0].dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
+            barriers[0].dstAccessMask = vk::AccessFlagBits2::eTransferRead;
+            barriers[0].oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            barriers[0].newLayout = vk::ImageLayout::eTransferSrcOptimal;
+            barriers[0].image = hdrImage;
+            barriers[0].subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+
+            // Swapchain dst for blit
+            barriers[1].srcStageMask = (oldSwapLayout == vk::ImageLayout::eUndefined)
+                                           ? vk::PipelineStageFlagBits2::eTopOfPipe
+                                           : vk::PipelineStageFlagBits2::eAllCommands;
+            barriers[1].srcAccessMask = (oldSwapLayout == vk::ImageLayout::eUndefined)
+                                           ? vk::AccessFlagBits2::eNone
+                                           : vk::AccessFlagBits2::eMemoryRead;
+            barriers[1].dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
+            barriers[1].dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
+            barriers[1].oldLayout = oldSwapLayout;
+            barriers[1].newLayout = vk::ImageLayout::eTransferDstOptimal;
+            barriers[1].image = swapImage;
+            barriers[1].subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+
+            vk::DependencyInfo dep{};
+            dep.imageMemoryBarrierCount = 2;
+            dep.pImageMemoryBarriers = barriers;
+            cmd.pipelineBarrier2(dep);
+
+            // Blit full image
+            const vk::Extent2D srcExtent = m_mainTarget->extent();
+            const vk::Extent2D dstExtent = m_swapchain->extent();
+
+            vk::ImageBlit2 blit{};
+            blit.srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+            blit.srcOffsets[0] = vk::Offset3D{0, 0, 0};
+            blit.srcOffsets[1] = vk::Offset3D{
+                static_cast<int32_t>(srcExtent.width), static_cast<int32_t>(srcExtent.height), 1
+            };
+            blit.dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+            blit.dstOffsets[0] = vk::Offset3D{0, 0, 0};
+            blit.dstOffsets[1] = vk::Offset3D{
+                static_cast<int32_t>(dstExtent.width), static_cast<int32_t>(dstExtent.height), 1
+            };
+
+            vk::BlitImageInfo2 blitInfo{};
+            blitInfo.srcImage = hdrImage;
+            blitInfo.srcImageLayout = vk::ImageLayout::eTransferSrcOptimal;
+            blitInfo.dstImage = swapImage;
+            blitInfo.dstImageLayout = vk::ImageLayout::eTransferDstOptimal;
+            blitInfo.filter = vk::Filter::eLinear;
+            blitInfo.regionCount = 1;
+            blitInfo.pRegions = &blit;
+
+            cmd.blitImage2(blitInfo);
+
+            // Restore layouts for UI rendering
+            vk::ImageMemoryBarrier2 postBarriers[2]{};
+
+            postBarriers[0].srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
+            postBarriers[0].srcAccessMask = vk::AccessFlagBits2::eTransferRead;
+            postBarriers[0].dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+            postBarriers[0].dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+            postBarriers[0].oldLayout = vk::ImageLayout::eTransferSrcOptimal;
+            postBarriers[0].newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            postBarriers[0].image = hdrImage;
+            postBarriers[0].subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+
+            postBarriers[1].srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
+            postBarriers[1].srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
+            postBarriers[1].dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+            postBarriers[1].dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+            postBarriers[1].oldLayout = vk::ImageLayout::eTransferDstOptimal;
+            postBarriers[1].newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            postBarriers[1].image = swapImage;
+            postBarriers[1].subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+
+            vk::DependencyInfo postDep{};
+            postDep.imageMemoryBarrierCount = 2;
+            postDep.pImageMemoryBarriers = postBarriers;
+            cmd.pipelineBarrier2(postDep);
+
+            m_swapchain->imageLayout(m_imageIndex) = vk::ImageLayout::eColorAttachmentOptimal;
+        }
+
+        // 6) ImGui pass using dynamic rendering into the swapchain image (LoadOp=LOAD)
+        {
+            vk::RenderingAttachmentInfo colorAttach{};
+            colorAttach.imageView = m_swapchain->imageViews()[m_imageIndex];
+            colorAttach.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            colorAttach.loadOp = vk::AttachmentLoadOp::eLoad; // Keep previously blitted scene
+            colorAttach.storeOp = vk::AttachmentStoreOp::eStore;
+
+            vk::RenderingInfo renderInfo{};
+            renderInfo.renderArea = vk::Rect2D({0, 0}, m_swapchain->extent());
+            renderInfo.layerCount = 1;
+            renderInfo.colorAttachmentCount = 1;
+            renderInfo.pColorAttachments = &colorAttach;
+
+            cmd.beginRendering(renderInfo);
+
+            // Make sure you've called ImGui::Render() before this, e.g. in beginImGuiFrame()/UI build path.
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+            cmd.endRendering();
+        }
+
+        // 7) Transition swapchain image to PRESENT
+        {
+            vk::ImageMemoryBarrier2 presentBarrier{};
+            presentBarrier.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+            presentBarrier.srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+            presentBarrier.dstStageMask = vk::PipelineStageFlagBits2::eBottomOfPipe; // or none
+            presentBarrier.dstAccessMask = vk::AccessFlagBits2::eNone;
+            presentBarrier.oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            presentBarrier.newLayout = vk::ImageLayout::ePresentSrcKHR;
+            presentBarrier.image = m_swapchain->images()[m_imageIndex];
+            presentBarrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+
+            vk::DependencyInfo dep{};
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers = &presentBarrier;
+            cmd.pipelineBarrier2(dep);
+
+            m_swapchain->imageLayout(m_imageIndex) = vk::ImageLayout::ePresentSrcKHR;
+        }
     }
 
 
@@ -514,7 +658,7 @@ namespace pnkr::renderer
                     continue;
                 auto cfg = pipe->config();
                 pipe = std::make_unique<VulkanPipeline>(m_device->device(),
-                                                         cfg);
+                                                        cfg);
             }
         }
     }

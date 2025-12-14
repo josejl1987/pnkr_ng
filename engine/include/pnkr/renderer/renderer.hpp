@@ -25,7 +25,7 @@
 #include "vulkan/geometry/Vertex.h"
 #include "vulkan/image/vulkan_image.hpp"
 #include "vulkan/image/vulkan_sampler.hpp"
-
+#include "pnkr/renderer/vulkan/pipeline/compute_pipeline.hpp"
 namespace pnkr::renderer {
     class VulkanCommandBuffer;
     class VulkanContext;
@@ -77,7 +77,7 @@ namespace pnkr::renderer
         void drawMesh(vk::CommandBuffer cmd, MeshHandle handle) const;
 
         void beginFrame(float deltaTime);
-        void drawFrame() const;
+        void drawFrame();
         void endFrame();
         void resize(int width, int height);
 
@@ -120,6 +120,31 @@ namespace pnkr::renderer
         }
         [[nodiscard]] vk::Format getDrawColorFormat() const { return m_mainTarget->colorImage().format(); }
         [[nodiscard]] vk::Format getDrawDepthFormat() const { return m_mainTarget->depthImage().format(); }
+        [[nodiscard]] vk::Device device() const { return m_device->device(); }
+        [[nodiscard]] vk::PhysicalDevice physicalDevice() const { return m_device->physicalDevice(); }
+        [[nodiscard]] vk::Instance instance() const { return m_context->instance(); }
+
+        [[nodiscard]] vk::Queue graphicsQueue() const { return m_device->graphicsQueue(); }
+        [[nodiscard]] uint32_t graphicsQueueFamilyIndex() const { return m_device->graphicsQueueFamily(); }
+
+        [[nodiscard]] vk::CommandPool commandPool() const {
+            return m_commandBuffer->commandPool();
+        }
+        // You already added this one, keep it:
+        [[nodiscard]] vk::Format getSwapchainColorFormat() const { return m_swapchain->imageFormat(); }
+
+        void bindPipeline(vk::CommandBuffer cmd, const ComputePipeline& pipeline);
+        void dispatch(vk::CommandBuffer cmd, uint32_t groupX, uint32_t groupY, uint32_t groupZ);
+
+
+        using PostProcessCallback = std::function<void(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, const vk::Extent2D& extent)>;
+        void setPostProcessCallback(PostProcessCallback callback) { m_postProcessCallback = callback; }
+
+        [[nodiscard]] vk::ImageView getSwapchainImageView(uint32_t index) const { return m_swapchain->imageViews()[index]; }
+        [[nodiscard]] uint32_t getSwapchainImageCount() const { return static_cast<uint32_t>(m_swapchain->images().size()); }
+
+        [[nodiscard]] const VulkanImage& getOffscreenTexture() const { return m_mainTarget->colorImage(); }
+
     private:
         platform::Window& m_window;
         std::unique_ptr<VulkanContext> m_context;
@@ -135,6 +160,7 @@ namespace pnkr::renderer
         std::vector<std::unique_ptr<VulkanImage>> m_textures;
         std::vector<vk::DescriptorSet> m_textureDescriptors;
         vk::DescriptorSetLayout m_textureSetLayout{};
+        PostProcessCallback m_postProcessCallback = nullptr;
 
 
         std::vector<std::unique_ptr<VulkanPipeline>> m_pipelines;

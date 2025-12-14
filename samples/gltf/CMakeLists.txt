@@ -38,6 +38,7 @@ file(MAKE_DIRECTORY "${GLTF_ASSETS_OUT_DIR}")
 set(GLTF_SHADERS
         "${GLTF_SHADER_DIR}/gltf.vert"
         "${GLTF_SHADER_DIR}/gltf.frag"
+        "${GLTF_SHADER_DIR}/tonemap.comp"
 )
 
 set(GLTF_SPV_OUTPUTS "")

@@ -6,6 +6,7 @@
  */
 
 #include <SDL3/SDL.h>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -51,8 +52,12 @@ public:
     return m_window.get();
   }
 
+  using EventCallback = std::function<void(const SDL_Event&)>;
+
   // Event handling
-  void processEvents(Input* input = nullptr) noexcept;
+  // Added optional callback for generic event processing (e.g. ImGui)
+  void processEvents(Input* input = nullptr, const EventCallback& callback = nullptr) noexcept;
+  
   [[nodiscard]] bool isRunning() const noexcept { return m_running; }
 
   // Properties

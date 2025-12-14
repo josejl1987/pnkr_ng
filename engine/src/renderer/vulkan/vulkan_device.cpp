@@ -224,11 +224,17 @@ void VulkanDevice::createLogicalDevice(vk::SurfaceKHR /*surface*/) {
     queueInfos.push_back(qci);
   }
 
+  // Core features
+  vk::PhysicalDeviceFeatures featuresCore{};
+  featuresCore.samplerAnisotropy = VK_TRUE;
+  featuresCore.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+
   vk::PhysicalDeviceVulkan13Features features13{};
   features13.dynamicRendering = VK_TRUE;
   features13.synchronization2 = VK_TRUE;
   vk::DeviceCreateInfo dci{};
   vk::PhysicalDeviceFeatures2 features2{};
+  features2.features = featuresCore;
   features2.pNext = &features13;
   dci.pNext = &features2;
   dci.pEnabledFeatures = nullptr;

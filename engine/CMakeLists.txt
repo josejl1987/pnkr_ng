@@ -31,7 +31,11 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/vulkan/vulkan_render_target.h
         src/renderer/vulkan/vulkan_render_target.cpp
         include/pnkr/renderer/vulkan/pipeline/PipelineBuilder.h
-        src/renderer/vulkan/pipeline/pipeline_builder.cpp)
+        src/renderer/vulkan/pipeline/pipeline_builder.cpp
+        include/pnkr/ui/imgui_layer.hpp
+        src/renderer/ui/imgui_layer.cpp
+        include/pnkr/renderer/vulkan/pipeline/compute_pipeline.hpp
+        src/renderer/vulkan/pipeline/compute_pipeline.cpp)
 
 target_sources(pnkr_engine
   PRIVATE
@@ -140,6 +144,9 @@ target_link_libraries(pnkr_engine
         PUBLIC
         GPUOpen::VulkanMemoryAllocator
 )
+find_package(imgui CONFIG REQUIRED)
+
+target_link_libraries(pnkr_engine PRIVATE imgui::imgui)
 target_include_directories(pnkr_engine PUBLIC "${VMA_INCLUDE_DIR}")
 target_compile_definitions(pnkr_engine PUBLIC VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=0)
 

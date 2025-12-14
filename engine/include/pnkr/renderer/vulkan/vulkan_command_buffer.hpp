@@ -34,7 +34,7 @@ public:
   [[nodiscard]] vk::CommandBuffer cmd(uint32_t frame) const {
     return m_cmd[frame];
   }
-
+  [[nodiscard]] vk::CommandPool commandPool() const { return m_pool; }
 private:
   void createPool(uint32_t graphicsQueueFamilyIndex);
   void allocateBuffers();

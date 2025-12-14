@@ -127,10 +127,9 @@ void VulkanSwapchain::createSwapchain(vk::PhysicalDevice physicalDevice,
   sci.imageColorSpace = surfaceFormat.colorSpace;
   sci.imageExtent = extent;
   sci.imageArrayLayers = 1;
-  sci.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
-
-  // If you later want post-processing / screenshots, add:
-  // sci.imageUsage |= vk::ImageUsageFlagBits::eTransferDst;
+  sci.imageUsage = vk::ImageUsageFlagBits::eColorAttachment |
+                   vk::ImageUsageFlagBits::eTransferDst |
+                   vk::ImageUsageFlagBits::eStorage; // Compute writes tonemap results
 
   uint32_t queueFamilyIndices[2] = {graphicsQueueFamily, presentQueueFamily};
 
@@ -206,15 +205,23 @@ void VulkanSwapchain::createImageViews(vk::Device device) {
 
 vk::SurfaceFormatKHR VulkanSwapchain::chooseSurfaceFormat(
     const std::vector<vk::SurfaceFormatKHR> &formats) {
-  // Prefer SRGB swapchain on Windows.
+  // Prefer R8G8B8A8_UNORM to match rgba8 storage image in compute shader.
   for (const auto &f : formats) {
-    if (f.format == vk::Format::eB8G8R8A8Srgb &&
+    if (f.format == vk::Format::eR8G8B8A8Unorm &&
         f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
       return f;
     }
   }
 
-  // Next: any SRGB format with SRGB nonlinear colorspace.
+  // Next: common B8G8R8A8_UNORM path on Windows.
+  for (const auto &f : formats) {
+    if (f.format == vk::Format::eB8G8R8A8Unorm &&
+        f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
+      return f;
+    }
+  }
+
+  // Next: SRGB formats if UNORM is unavailable.
   for (const auto &f : formats) {
     if (f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
       if (f.format == vk::Format::eR8G8B8A8Srgb ||

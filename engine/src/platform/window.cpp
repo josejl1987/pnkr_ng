@@ -31,15 +31,23 @@ namespace pnkr::platform
 
     Window::~Window() { SDL_Quit(); }
 
-    void Window::processEvents(Input* input) noexcept
+    void Window::processEvents(Input* input, const EventCallback& callback) noexcept
     {
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
+            // 1. Pass to optional generic callback (e.g., ImGui)
+            if (callback) {
+                callback(event);
+            }
+
+            // 2. Pass to Input system
             if (input)
             {
                 input->processEvent(event);
             }
+
+            // 3. Handle Window lifecycle
             switch (event.type)
             {
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
