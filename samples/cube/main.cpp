@@ -14,8 +14,10 @@
 #include <iostream>
 #include <pnkr/engine.hpp>
 
+#include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/transform.hpp"
 #include "pnkr/renderer/vulkan/PushConstants.h"
-#include "pnkr/renderer/vulkan/geometry/Mesh.h"
+#include "pnkr/renderer/vulkan/geometry/mesh.h"
 #include "pnkr/renderer/vulkan/geometry/Vertex.h"
 
 int main(int argc, char **argv) {
@@ -117,37 +119,34 @@ int main(int argc, char **argv) {
 
     PipelineHandle cubePipe = renderer.createPipeline(cubeCfg);
 
-    renderer.setRecordFunc([&](const pnkr::renderer::RenderFrameContext &ctx) {
-      static float timeVal = 0.0F;
-      timeVal += deltaTime; // however you track time
+    pnkr::renderer::scene::Camera cam;
+    cam.lookAt({1.5f, 1.2f, 1.5f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
 
-      PushConstants pushConsts{};
-      pushConsts.m_model =
-          glm::rotate(glm::mat4(1.0F), timeVal, glm::vec3(0, 1, 0));
+    vk::Extent2D lastExtent{0,0};
 
-      constexpr glm::vec3 eye(1.5F, 1.2F, 1.5F);
-      constexpr glm::vec3 center(0.0F, 0.0F, 0.0F);
-      constexpr glm::vec3 upDir(0.0F, 1.0F, 0.0F);
+    renderer.setRecordFunc([&](const pnkr::renderer::RenderFrameContext& ctx) {
+      if (ctx.m_extent.width != lastExtent.width || ctx.m_extent.height != lastExtent.height) {
+        lastExtent = ctx.m_extent;
+        const float aspect = float(lastExtent.width) / float(lastExtent.height);
+        cam.setPerspective(glm::radians(60.0f), aspect, 0.1f, 10.0f);
+      }
 
-      const glm::mat4 view = glm::lookAt(eye, center, upDir);
+      static float timeVal = 0.0f;
+      timeVal += ctx.m_deltaTime;
 
-      const float aspect = static_cast<float>(ctx.m_extent.width) /
-                           static_cast<float>(ctx.m_extent.height);
-      glm::mat4 proj =
-          glm::perspective(glm::radians(60.0F), aspect, 0.1F, 10.0F);
+      pnkr::renderer::scene::Transform xform;
+      xform.m_rotation.y = timeVal;
 
-      // Vulkan clip space has inverted Y compared to GLM's default conventions:
-      proj[1][1] *= -1.0F;
+      PushConstants pc{};
+      pc.m_model = xform.mat4();
+      pc.m_viewProj = cam.viewProj();
 
-      pushConsts.m_viewProj = proj * view;
-
-      ctx.m_cmd.pushConstants(renderer.pipelineLayout(cubePipe),
-                              vk::ShaderStageFlagBits::eVertex, 0,
-                              sizeof(PushConstants), &pushConsts);
+      renderer.pushConstants(ctx.m_cmd, cubePipe, vk::ShaderStageFlagBits::eVertex, pc);
       renderer.bindPipeline(ctx.m_cmd, cubePipe);
       renderer.bindMesh(ctx.m_cmd, cube);
       renderer.drawMesh(ctx.m_cmd, cube);
     });
+
     int frameCount = 0;
 
 
@@ -165,7 +164,7 @@ int main(int argc, char **argv) {
         if (deltaTime > 0.05f) deltaTime = 0.05f;
 
 
-        renderer.beginFrame();
+        renderer.beginFrame(TODO);
         renderer.drawFrame();
         renderer.endFrame();
 

@@ -11,10 +11,11 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/vulkan/geometry/VertexInputDescription.h
         include/pnkr/renderer/vulkan/pipeline/PipelineConfig.h
         include/pnkr/renderer/pipeline/Pipeline.h
-        include/pnkr/renderer/vulkan/geometry/Mesh.h
-        src/renderer/vulkan/geometry/Mesh.cpp
+        include/pnkr/renderer/vulkan/geometry/mesh.h
+        src/renderer/vulkan/geometry/mesh.cpp
         include/pnkr/core/Handle.h
-        include/pnkr/renderer/vulkan/PushConstants.h)
+        include/pnkr/renderer/vulkan/PushConstants.h
+        include/pnkr/renderer/scene/camera.hpp)
 
 target_sources(pnkr_engine
   PRIVATE

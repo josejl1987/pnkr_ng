@@ -2,7 +2,7 @@
 // Created by Jose on 12/13/2025.
 //
 
-#include "pnkr/renderer/vulkan/geometry/Mesh.h"
+#include "pnkr/renderer/vulkan/geometry/mesh.h"
 
 #include "pnkr/renderer/vulkan/geometry/Vertex.h"
 #include "pnkr/renderer/vulkan/vulkan_buffer.hpp"

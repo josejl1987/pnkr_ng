@@ -106,12 +106,12 @@ Renderer::~Renderer() {
   }
 }
 
-void Renderer::beginFrame() {
+void Renderer::beginFrame(float deltaTime) {
   if (m_frameInProgress)
     return;
 
   const uint32_t frame = m_commandBuffer->currentFrame();
-
+  m_deltaTime = deltaTime;
   m_sync->waitForFrame(frame);
 
   const vk::Result acq = m_swapchain->acquireNextImage(
@@ -228,10 +228,9 @@ void Renderer::drawFrame() const {
   cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, m_pipeline->pipeline());
 
   if (m_recordCallback) {
-    RenderFrameContext ctx{cmd, frame, ext};
+    RenderFrameContext ctx{cmd, frame ,m_imageIndex, ext, m_deltaTime};
     m_recordCallback(ctx);
   } else {
-    // Stage 1 fallback if no callback is provided
     cmd.draw(3, 1, 0, 0);
   }
   cmd.endRendering();

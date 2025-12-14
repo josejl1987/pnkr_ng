@@ -1,6 +1,7 @@
 # Simply include all sample subdirectories
 add_subdirectory(triangle)
 add_subdirectory(cube)
+add_subdirectory(multidraw)
 
 # Add more samples here later:
 # add_subdirectory(quad)

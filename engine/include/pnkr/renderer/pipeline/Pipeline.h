@@ -15,9 +15,10 @@ constexpr PipelineHandle INVALID_PIPELINE_HANDLE = UINT32_MAX;
 struct RenderFrameContext {
   vk::CommandBuffer m_cmd{};
   uint32_t m_frameIndex{};
+  uint32_t m_imageIndex{};
   vk::Extent2D m_extent{};
+  float m_deltaTime{};         // seconds
 
-  // Bind a pipeline directly (no renderer dependency)
   void bindPipeline(vk::Pipeline pipeline) const {
     m_cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
   }

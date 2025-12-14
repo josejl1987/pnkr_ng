@@ -56,7 +56,7 @@ int main(int argc, char **argv) {
       try {
         window.processEvents();
 
-        renderer.beginFrame();
+        renderer.beginFrame(TODO);
         renderer.drawFrame();
         renderer.endFrame();
 
