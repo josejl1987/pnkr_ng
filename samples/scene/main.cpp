@@ -15,7 +15,9 @@
 #include <iostream>
 #include <pnkr/engine.hpp>
 
+#include "pnkr/core/Timer.h"
 #include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/Scene.hpp"
 #include "pnkr/renderer/scene/transform.hpp"
 #include "pnkr/renderer/vulkan/PushConstants.h"
 #include "pnkr/renderer/vulkan/geometry/mesh.h"
@@ -125,7 +127,7 @@ int main(int argc, char** argv)
         uint64_t last = SDL_GetPerformanceCounter();
 
         float deltaTime = 0.0f;
-        pnkr::Window window("PNKR - Cube", kWindowWidth, kWindowHeight);
+        pnkr::Window window("PNKR - Camera scene", kWindowWidth, kWindowHeight);
         pnkr::Log::info("Window created: {}x{}", window.width(), window.height());
 
         pnkr::renderer::Renderer renderer(window);
@@ -144,49 +146,23 @@ int main(int argc, char** argv)
         PipelineHandle planePipe = renderer.createPipeline(planeCfg);
 
 
-        pnkr::renderer::scene::Camera cam;
-        cam.lookAt({1.5f, 1.2f, 1.5f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f,});
+        pnkr::renderer::scene::Scene scene;
+        scene.camera().lookAt({1.5f, 1.2f, 1.5f}, {0, 0, 0}, {0, 1, 0});
 
-        vk::Extent2D lastExtent{0,0};
-        pnkr::renderer::scene::Transform cubeXform;
-        cubeXform.m_translation = {0.f, 0.f, 0.f};
-        cubeXform.m_rotation = {0.f, 0.f, 0.f};   // radians (your Transform::mat4() convention)
-        cubeXform.m_scale    = {1.f, 1.f, 1.f};
+        scene.objects().push_back({.xform = {}, .mesh = cube, .pipe = cubePipe});
+        scene.objects().push_back({.xform = {}, .mesh = plane, .pipe = planePipe});
 
-        pnkr::renderer::scene::Transform planeXform;
-        planeXform.m_translation = {0.f, -0.75f, 0.f};
-        planeXform.m_rotation = {0.f, 0.f, 0.f};
-        planeXform.m_scale    = {4.f, 1.f, 4.f};  // make it big
+        scene.objects()[1].xform.m_translation = {0.f, -0.75f, 0.f};
+        scene.objects()[1].xform.m_scale = {4.f, 1.f, 4.f};
 
-        renderer.setRecordFunc([&](const pnkr::renderer::RenderFrameContext& ctx) {
-          if (ctx.m_extent.width != lastExtent.width || ctx.m_extent.height != lastExtent.height) {
-            lastExtent = ctx.m_extent;
-            float aspect = float(lastExtent.width) / float(lastExtent.height);
-            cam.setPerspective(glm::radians(60.0f), aspect, 0.1f, 50.0f);
-          }
-
-          // optional: sort draw order by pipeline later
-          // draw cube
-          {
-            PushConstants pc{};
-            pc.m_model = cubeXform.mat4();
-            pc.m_viewProj = cam.viewProj();
-            renderer.pushConstants(ctx.m_cmd, cubePipe, vk::ShaderStageFlagBits::eVertex, pc);
-            renderer.bindPipeline(ctx.m_cmd, cubePipe);
-            renderer.bindMesh(ctx.m_cmd, cube);
-            renderer.drawMesh(ctx.m_cmd, cube);
-          }
-
-          // draw plane
-          {
-            PushConstants pc{};
-            pc.m_model = planeXform.mat4();
-            pc.m_viewProj = cam.viewProj();
-            renderer.pushConstants(ctx.m_cmd, planePipe, vk::ShaderStageFlagBits::eVertex, pc);
-            renderer.bindPipeline(ctx.m_cmd, planePipe);
-            renderer.bindMesh(ctx.m_cmd, plane);
-            renderer.drawMesh(ctx.m_cmd, plane);
-          }
+        pnkr::Timer timer;
+        pnkr::Input input;
+        scene.cameraController().setPosition({3.0f, 2.0f, 3.0f});
+        // Set render callback
+        renderer.setRecordFunc([&](const pnkr::renderer::RenderFrameContext& ctx)
+        {
+            scene.update(ctx.m_deltaTime, ctx.m_extent, input);
+            scene.record(ctx, renderer);
         });
 
         int frameCount = 0;
@@ -196,11 +172,8 @@ int main(int argc, char** argv)
         {
             try
             {
-                window.processEvents();
-
-                uint64_t now = SDL_GetPerformanceCounter();
-                deltaTime = float(now - last) / float(freq);
-                last = now;
+                window.processEvents(&input);
+                deltaTime = timer.deltaTime();
 
                 // avoid crazy jumps when resizing / breakpoints
                 if (deltaTime > 0.05f) deltaTime = 0.05f;

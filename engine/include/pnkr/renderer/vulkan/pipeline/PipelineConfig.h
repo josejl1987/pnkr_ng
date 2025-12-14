@@ -8,8 +8,8 @@
 namespace pnkr::renderer {
 
   struct DepthConfig {
-    bool testEnable = false;
-    bool writeEnable = false;
+    bool testEnable = true;
+    bool writeEnable = true;
     vk::CompareOp compareOp = vk::CompareOp::eLess;
   };
 

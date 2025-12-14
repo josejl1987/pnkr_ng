@@ -15,7 +15,9 @@ add_library(pnkr_engine STATIC
         src/renderer/vulkan/geometry/mesh.cpp
         include/pnkr/core/Handle.h
         include/pnkr/renderer/vulkan/PushConstants.h
-        include/pnkr/renderer/scene/camera.hpp)
+        include/pnkr/renderer/scene/camera.hpp
+        src/renderer/scene.cpp
+        include/pnkr/core/Timer.h)
 
 target_sources(pnkr_engine
   PRIVATE

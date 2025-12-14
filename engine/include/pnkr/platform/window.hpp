@@ -9,6 +9,8 @@
 #include <memory>
 #include <string>
 
+#include "Input.hpp"
+
 namespace pnkr::platform {
 
 /**
@@ -50,7 +52,7 @@ public:
   }
 
   // Event handling
-  void processEvents() noexcept;
+  void processEvents(Input* input = nullptr) noexcept;
   [[nodiscard]] bool isRunning() const noexcept { return m_running; }
 
   // Properties
@@ -58,6 +60,14 @@ public:
   [[nodiscard]] int width() const noexcept;
   [[nodiscard]] int height() const noexcept;
 
+  // Mouse control
+  void setRelativeMouseMode(bool enabled) const {
+    SDL_SetWindowRelativeMouseMode(m_window.get(), enabled);
+  }
+
+  [[nodiscard]] bool getRelativeMouseMode() const {
+    return SDL_GetWindowRelativeMouseMode(m_window.get());
+  }
 private:
   // Custom deleter for SDL_Window
   struct SDLWindowDeleter {
