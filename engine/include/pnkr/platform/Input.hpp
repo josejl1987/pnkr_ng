@@ -10,13 +10,11 @@ class Input {
 public:
   Input() = default;
 
-  // Call once per frame before processing events
   void beginFrame() {
     m_mouseDelta = {0.0f, 0.0f};
     m_mouseWheel = 0.0f;
   }
 
-  // Call for each SDL event
   void processEvent(const SDL_Event& event) {
     switch (event.type) {
       case SDL_EVENT_KEY_DOWN:
@@ -57,7 +55,6 @@ public:
     }
   }
 
-  // Keyboard queries
   [[nodiscard]] bool isKeyDown(SDL_Scancode key) const {
     return key < m_keys.size() && m_keys[key];
   }
@@ -66,7 +63,6 @@ public:
     return !isKeyDown(key);
   }
 
-  // Mouse queries
   [[nodiscard]] bool isMouseButtonDown(uint8_t button) const {
     return button < m_mouseButtons.size() && m_mouseButtons[button];
   }
@@ -74,8 +70,6 @@ public:
   [[nodiscard]] glm::vec2 mousePosition() const { return m_mousePos; }
   [[nodiscard]] glm::vec2 mouseDelta() const { return m_mouseDelta; }
   [[nodiscard]] float mouseWheel() const { return m_mouseWheel; }
-
-
 
 private:
   std::array<bool, SDL_SCANCODE_COUNT> m_keys{};
@@ -85,4 +79,4 @@ private:
   float m_mouseWheel{0.0f};
 };
 
-} // namespace pnkr::platform
+}

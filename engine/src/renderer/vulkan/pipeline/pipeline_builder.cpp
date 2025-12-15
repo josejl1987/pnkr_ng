@@ -27,6 +27,12 @@ namespace pnkr::renderer
         return *this;
     }
 
+    PipelineBuilder& PipelineBuilder::useBindless()
+    {
+        m_useBindless = true;
+        return *this;
+    }
+
     PipelineBuilder& PipelineBuilder::setShaders(const std::filesystem::path& vertSpv,
                                                  const std::filesystem::path& fragSpv)
     {
@@ -116,17 +122,31 @@ namespace pnkr::renderer
         return *this;
     }
 
+    PipelineBuilder& PipelineBuilder::setVertexInput(const VertexInputDescription& description) {
+        m_vertexInput = description;
+        return *this;
+    }
+
+
     PipelineHandle PipelineBuilder::build()
     {
-        // Convert Builder state to the Config struct the Renderer expects
 
         PipelineConfig cfg{};
         cfg.m_vertSpvPath = m_vertPath;
         cfg.m_fragSpvPath = m_fragPath;
 
-        // Hardcoded vertex input for now (standard mesh), or expose setter
-        cfg.m_vertexInput = VertexInputDescription::VertexInputCube();
+        // Descriptor set layouts
+        cfg.m_descriptorSetLayouts = m_descriptorLayouts;
 
+        if (m_useBindless) {
+            auto bindlessLayout = m_renderer.getBindlessLayout();
+            if (bindlessLayout) {
+                cfg.m_descriptorSetLayouts.push_back(bindlessLayout);
+            }
+        }
+
+
+        cfg.m_vertexInput = m_vertexInput;
         cfg.m_cullMode = m_cullMode;
         cfg.m_frontFace = m_frontFace;
 
@@ -136,7 +156,6 @@ namespace pnkr::renderer
         cfg.m_depth.testEnable = m_depthState.testEnable;
         cfg.m_depth.writeEnable = m_depthState.writeEnable;
         cfg.m_depth.compareOp = m_depthState.compareOp;
-        cfg.m_descriptorSetLayouts = m_descriptorLayouts;
 
         cfg.m_pushConstantSize = m_pushConstantSize; // Add this to Config too
         cfg.m_pushConstantStages = m_pushConstantStages;

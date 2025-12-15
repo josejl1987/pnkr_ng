@@ -1,6 +1,4 @@
-//
-// Created by Jose on 12/14/2025.
-//
+
 
 #ifndef PNKR_COMPUTE_PIPELINE_HPP
 #define PNKR_COMPUTE_PIPELINE_HPP
@@ -47,4 +45,4 @@ namespace pnkr::renderer {
     };
 
 }
-#endif //PNKR_COMPUTE_PIPELINE_HPP
+#endif

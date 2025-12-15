@@ -43,4 +43,4 @@ namespace pnkr::renderer::scene {
         vk::Extent2D m_lastExtent{0, 0};
     };
 
-} // namespace pnkr::renderer::scene
+}

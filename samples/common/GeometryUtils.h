@@ -1,0 +1,89 @@
+#pragma once
+
+#include <vector>
+#include "pnkr/renderer/vulkan/geometry/Vertex.h"
+
+namespace pnkr::samples {
+
+struct MeshData {
+    std::vector<renderer::Vertex> vertices;
+    std::vector<uint32_t> indices;
+};
+
+struct GeometryUtils {
+    static MeshData getCube(float halfSize = 0.5F);
+    static MeshData getPlane(float halfExtent = 1.0F, float y = 0.0F);
+};
+
+inline MeshData GeometryUtils::getCube(float halfSize) {
+    const float h = halfSize;
+
+    MeshData data{};
+    // Vertex format: {Position}, {Color}, {Normal}, {UV}
+    data.vertices = {
+        // +X (right) - Normal (1,0,0)
+        {{+h, -h, -h}, {1,0,0}, {1,0,0}, {0, 0}},
+        {{+h, +h, -h}, {1,0,0}, {1,0,0}, {1, 0}},
+        {{+h, +h, +h}, {1,0,0}, {1,0,0}, {1, 1}},
+        {{+h, -h, +h}, {1,0,0}, {1,0,0}, {0, 1}},
+
+        // -X (left) - Normal (-1,0,0)
+        {{-h, -h, +h}, {0,1,0}, {-1,0,0}, {0, 0}},
+        {{-h, +h, +h}, {0,1,0}, {-1,0,0}, {1, 0}},
+        {{-h, +h, -h}, {0,1,0}, {-1,0,0}, {1, 1}},
+        {{-h, -h, -h}, {0,1,0}, {-1,0,0}, {0, 1}},
+
+        // +Y (top) - Normal (0,1,0)
+        {{-h, +h, -h}, {0,0,1}, {0,1,0}, {0, 0}},
+        {{-h, +h, +h}, {0,0,1}, {0,1,0}, {1, 0}},
+        {{+h, +h, +h}, {0,0,1}, {0,1,0}, {1, 1}},
+        {{+h, +h, -h}, {0,0,1}, {0,1,0}, {0, 1}},
+
+        // -Y (bottom) - Normal (0,-1,0)
+        {{-h, -h, +h}, {1,1,0}, {0,-1,0}, {0, 0}},
+        {{-h, -h, -h}, {1,1,0}, {0,-1,0}, {1, 0}},
+        {{+h, -h, -h}, {1,1,0}, {0,-1,0}, {1, 1}},
+        {{+h, -h, +h}, {1,1,0}, {0,-1,0}, {0, 1}},
+
+        // +Z (front) - Normal (0,0,1)
+        {{-h, -h, +h}, {1,0,1}, {0,0,1}, {0, 0}},
+        {{+h, -h, +h}, {1,0,1}, {0,0,1}, {1, 0}},
+        {{+h, +h, +h}, {1,0,1}, {0,0,1}, {1, 1}},
+        {{-h, +h, +h}, {1,0,1}, {0,0,1}, {0, 1}},
+
+        // -Z (back) - Normal (0,0,-1)
+        {{+h, -h, -h}, {0,1,1}, {0,0,-1}, {0, 0}},
+        {{-h, -h, -h}, {0,1,1}, {0,0,-1}, {1, 0}},
+        {{-h, +h, -h}, {0,1,1}, {0,0,-1}, {1, 1}},
+        {{+h, +h, -h}, {0,1,1}, {0,0,-1}, {0, 1}},
+    };
+
+    data.indices = {
+        0, 1, 2, 0, 2, 3,       // +X
+        4, 5, 6, 4, 6, 7,       // -X
+        8, 9, 10, 8, 10, 11,    // +Y
+        12, 13, 14, 12, 14, 15, // -Y
+        16, 17, 18, 16, 18, 19, // +Z
+        20, 21, 22, 20, 22, 23  // -Z
+    };
+
+    return data;
+}
+
+inline MeshData GeometryUtils::getPlane(float halfExtent, float y) {
+    const float h = halfExtent;
+    MeshData data{};
+    // Vertex format: {Position}, {Color}, {Normal}, {UV}
+    // Normal is Up (0, 1, 0)
+    data.vertices = {
+        {{-h, y, -h}, {1,1,1}, {0,1,0}, {0, 0}},
+        {{+h, y, -h}, {1,1,1}, {0,1,0}, {1, 0}},
+        {{+h, y, +h}, {1,1,1}, {0,1,0}, {1, 1}},
+        {{-h, y, +h}, {1,1,1}, {0,1,0}, {0, 1}},
+    };
+
+    data.indices = {0, 2, 1, 2, 0, 3};
+    return data;
+}
+
+} // namespace pnkr::samples

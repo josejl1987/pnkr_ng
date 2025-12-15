@@ -19,13 +19,11 @@ public:
     updateVectors();
   }
 
-  // Update camera based on input
   void update(const platform::Input& input, float deltaTime) {
-    // Movement speed
+
     const float moveSpeed = m_moveSpeed * deltaTime;
     const float sensitivity = m_mouseSensitivity;
 
-    // WASD movement
     if (input.isKeyDown(SDL_SCANCODE_W)) {
       m_position += m_front * moveSpeed;
     }
@@ -39,7 +37,6 @@ public:
       m_position += m_right * moveSpeed;
     }
 
-    // Q/E for up/down
     if (input.isKeyDown(SDL_SCANCODE_E)) {
       m_position += m_up * moveSpeed;
     }
@@ -47,7 +44,6 @@ public:
       m_position -= m_up * moveSpeed;
     }
 
-    // Speed modifier with Shift
     if (input.isKeyDown(SDL_SCANCODE_LSHIFT)) {
       m_moveSpeed = 5.0f;
     } else {
@@ -59,9 +55,8 @@ public:
       glm::vec2 delta = input.mouseDelta();
 
       m_yaw += delta.x * sensitivity;
-      m_pitch -= delta.y * sensitivity; // Inverted Y
+      m_pitch -= delta.y * sensitivity;
 
-      // Constrain pitch
       if (m_pitch > 89.0f) m_pitch = 89.0f;
       if (m_pitch < -89.0f) m_pitch = -89.0f;
 
@@ -69,7 +64,6 @@ public:
     }
   }
 
-  // Apply controller state to camera
   void applyToCamera(Camera& camera) const {
     camera.lookAt(m_position, m_position + m_front, m_worldUp);
   }

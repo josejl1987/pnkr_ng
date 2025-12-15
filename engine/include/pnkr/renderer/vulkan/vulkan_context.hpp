@@ -45,4 +45,4 @@ private:
 #endif
 };
 
-} // namespace pnkr::renderer
+}

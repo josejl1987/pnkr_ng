@@ -35,7 +35,7 @@ void ImGuiLayer::init(pnkr::renderer::Renderer& renderer, pnkr::platform::Window
 
     vk::DescriptorPoolCreateInfo pool_info = {};
     pool_info.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-    pool_info.maxSets = 1000 * 11;
+    pool_info.maxSets = 1000 * 2;
     pool_info.poolSizeCount = (uint32_t)std::size(pool_sizes);
     pool_info.pPoolSizes = pool_sizes;
 

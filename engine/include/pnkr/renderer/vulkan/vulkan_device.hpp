@@ -70,4 +70,4 @@ private:
   VulkanContext &m_context;
 };
 
-} // namespace pnkr::renderer
+}

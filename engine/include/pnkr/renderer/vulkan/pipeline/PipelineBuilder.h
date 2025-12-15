@@ -11,6 +11,7 @@
 #include <string>
 #include <filesystem>
 #include <vector>
+#include "pnkr/renderer/vulkan/geometry/VertexInputDescription.h"
 
 namespace pnkr::renderer {
 
@@ -50,13 +51,13 @@ public:
     // Ideally, we'd have .addVertexAttribute(...) methods, but let's stick to the struct for now.
     // Forward declare VertexInputDescription if possible or include header.
 
-    // -- Push Constants --
     PipelineBuilder& setPushConstantSize(uint32_t size);
     PipelineBuilder& addDescriptorSetLayout(vk::DescriptorSetLayout layout);
+    PipelineBuilder& setVertexInput(const VertexInputDescription& description);
     PipelineBuilder& setRenderingFormats(vk::Format color, vk::Format depth);
     PipelineBuilder& setPushConstantsShaderFlags(vk::ShaderStageFlags pushConstantsShaderStages);
+    PipelineBuilder& useBindless();
 
-    // -- Build --
     [[nodiscard]] PipelineHandle build();
 
 private:
@@ -92,9 +93,11 @@ private:
         vk::BlendOp alphaOp = vk::BlendOp::eAdd;
     } m_blendState;
 
+    VertexInputDescription m_vertexInput;
     uint32_t m_pushConstantSize = 0;
     std::vector<vk::DescriptorSetLayout> m_descriptorLayouts;
     vk::ShaderStageFlags m_pushConstantStages;
+    bool m_useBindless;
 };
 
 } // namespace pnkr::renderer

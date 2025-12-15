@@ -20,7 +20,7 @@ public:
   [[nodiscard]] uint32_t framesInFlight() const { return m_frames; }
   [[nodiscard]] uint32_t currentFrame() const { return m_frameIndex; }
 
-  void advanceFrame(); // (frameIndex = (frameIndex+1)%frames)
+  void advanceFrame();
 
   vk::CommandBuffer begin(uint32_t frame);
   void end(uint32_t frame);
@@ -30,7 +30,6 @@ public:
               vk::Semaphore renderFinishedSemaphore, vk::Fence signalFence,
               vk::PipelineStageFlags waitStage) const;
 
-  // Accessors (typical usage: swapchain acquire uses imageAvailable semaphore)
   [[nodiscard]] vk::CommandBuffer cmd(uint32_t frame) const {
     return m_cmd[frame];
   }
@@ -48,4 +47,4 @@ private:
 
   std::vector<vk::CommandBuffer> m_cmd;
 };
-} // namespace pnkr::renderer
+}

@@ -35,7 +35,9 @@ add_library(pnkr_engine STATIC
         include/pnkr/ui/imgui_layer.hpp
         src/renderer/ui/imgui_layer.cpp
         include/pnkr/renderer/vulkan/pipeline/compute_pipeline.hpp
-        src/renderer/vulkan/pipeline/compute_pipeline.cpp)
+        src/renderer/vulkan/pipeline/compute_pipeline.cpp
+        include/pnkr/renderer/vulkan/bindless/bindless_manager.hpp
+        src/renderer/vulkan/bindless/bindless_manager.cpp)
 
 target_sources(pnkr_engine
   PRIVATE
@@ -55,6 +57,7 @@ target_sources(pnkr_engine
     FILES
       include/pnkr/engine.hpp
       include/pnkr/core/logger.hpp
+      include/pnkr/core/profiler.hpp
       include/pnkr/core/common.hpp
       include/pnkr/platform/window.hpp
       include/pnkr/renderer/renderer_config.hpp
@@ -89,6 +92,7 @@ target_compile_definitions(pnkr_engine
     GLM_FORCE_RADIANS
     GLM_FORCE_DEPTH_ZERO_TO_ONE
     GLM_ENABLE_EXPERIMENTAL
+    TRACY_ENABLE=1
     PRIVATE
     VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
 
@@ -150,7 +154,26 @@ target_link_libraries(pnkr_engine PRIVATE imgui::imgui)
 target_include_directories(pnkr_engine PUBLIC "${VMA_INCLUDE_DIR}")
 target_compile_definitions(pnkr_engine PUBLIC VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=0)
 
+set(TRACY_ENABLE ON CACHE BOOL "Enable Tracy Profiler")
 
+if(TRACY_ENABLE)
+  CPMAddPackage(
+          NAME tracy
+          GITHUB_REPOSITORY wolfpld/tracy
+          GIT_TAG v0.13.1
+          OPTIONS
+          "TRACY_ENABLE ON"
+          "TRACY_ON_DEMAND ON"      # Starts profiling only when server connects
+          "TRACY_NO_BROADCAST OFF"
+          "TRACY_NO_SYSTEM_VULKAN OFF" # Rely on the Vulkan SDK found by CMake
+  )
+endif()
+
+find_package(tracy CONFIG REQUIRED)
+target_link_libraries(pnkr_engine
+  PUBLIC
+        Tracy::TracyClient
+)
 
 
 # ============================================================================

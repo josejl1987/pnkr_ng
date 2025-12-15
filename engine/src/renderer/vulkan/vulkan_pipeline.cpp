@@ -152,8 +152,6 @@ namespace pnkr::renderer
         vk::PushConstantRange pushConstantRange{};
         if (m_config.m_pushConstantSize > 0)
         {
-            // NEW: Use stages from config if present, or default to Vert|Frag
-            // Assuming we added m_pushConstantStages to config or using default
             pushConstantRange.stageFlags = m_config.m_pushConstantStages;
             pushConstantRange.offset = 0;
             pushConstantRange.size = m_config.m_pushConstantSize;
@@ -189,7 +187,6 @@ namespace pnkr::renderer
 
         // Input Assembly
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-        // NEW: Use topology from config
         inputAssembly.topology = config.m_topology;
         inputAssembly.primitiveRestartEnable = VK_FALSE;
 
@@ -220,7 +217,6 @@ namespace pnkr::renderer
         msaa.rasterizationSamples = vk::SampleCountFlagBits::e1;
         msaa.sampleShadingEnable = VK_FALSE;
 
-        // NEW: Blending Logic
         vk::PipelineColorBlendAttachmentState blendAttach{};
         blendAttach.colorWriteMask =
             vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
@@ -255,20 +251,14 @@ namespace pnkr::renderer
         vk::PipelineDepthStencilStateCreateInfo depth{};
 
         // Vertex Input
-        vk::PipelineVertexInputStateCreateInfo vertexInput{};
-        vertexInput.vertexBindingDescriptionCount =
-            static_cast<uint32_t>(m_vertexInput.bindings.size());
-        vertexInput.pVertexBindingDescriptions =
-            m_vertexInput.bindings.empty() ? nullptr : m_vertexInput.bindings.data();
 
-        vertexInput.vertexAttributeDescriptionCount =
-            static_cast<uint32_t>(m_vertexInput.attributes.size());
-        vertexInput.pVertexAttributeDescriptions =
-            m_vertexInput.attributes.empty()
-                ? nullptr
-                : m_vertexInput.attributes.data();
+        vk::PipelineVertexInputStateCreateInfo vertexInputInfo = {};
+        vertexInputInfo.pVertexBindingDescriptions = m_vertexInput.m_bindings.data();
+        vertexInputInfo.vertexBindingDescriptionCount = (uint32_t)m_vertexInput.m_bindings.size();
+        vertexInputInfo.pVertexAttributeDescriptions = m_vertexInput.m_attributes.data();
+        vertexInputInfo.vertexAttributeDescriptionCount = (uint32_t)m_vertexInput.m_attributes.size();
 
-        gpci.pVertexInputState = &vertexInput;
+        gpci.pVertexInputState = &vertexInputInfo;
 
         gpci.pNext = &renderingInfo; // critical for dynamic rendering
         gpci.stageCount = 2;
@@ -281,6 +271,7 @@ namespace pnkr::renderer
         gpci.pDynamicState = &dynamicState;
         gpci.layout = m_layout;
         gpci.subpass = 0;
+
 
         if (haveDepthFormat)
         {
@@ -295,8 +286,6 @@ namespace pnkr::renderer
         {
             gpci.pDepthStencilState = nullptr;
         }
-
-
         try
         {
             auto result = m_device.createGraphicsPipeline(nullptr, gpci);

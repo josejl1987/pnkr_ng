@@ -20,6 +20,7 @@ namespace pnkr::renderer
     Renderer::Renderer(platform::Window& window,
                        [[maybe_unused]] const RendererConfig& config)
         : m_window(window)
+          , m_useBindlessForCurrentFrame(config.m_useBindless)
     {
         m_context = std::make_unique<VulkanContext>(window);
         m_device = std::make_unique<VulkanDevice>(*m_context);
@@ -31,6 +32,37 @@ namespace pnkr::renderer
 
         m_commandBuffer = std::make_unique<VulkanCommandBuffer>(*m_device);
 
+        // Tracy GPU context calibration using a one-time command buffer
+        {
+            vk::CommandBufferAllocateInfo allocInfo{};
+            allocInfo.commandPool = m_commandBuffer->commandPool();
+            allocInfo.level = vk::CommandBufferLevel::ePrimary;
+            allocInfo.commandBufferCount = 1;
+
+            vk::CommandBuffer tmpCmd = m_device->device().allocateCommandBuffers(allocInfo)[0];
+
+            vk::CommandBufferBeginInfo beginInfo{vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
+            tmpCmd.begin(beginInfo);
+
+            m_tracyCtx = PNKR_PROFILE_GPU_CONTEXT(
+                static_cast<VkPhysicalDevice>(m_device->physicalDevice()),
+                static_cast<VkDevice>(m_device->device()),
+                static_cast<VkQueue>(m_device->graphicsQueue()),
+                static_cast<VkCommandBuffer>(tmpCmd)
+            );
+
+            tmpCmd.end();
+
+            vk::SubmitInfo submitInfo{};
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &tmpCmd;
+
+            m_device->graphicsQueue().submit(submitInfo, nullptr);
+            m_device->device().waitIdle();
+
+            m_device->device().freeCommandBuffers(m_commandBuffer->commandPool(), tmpCmd);
+        }
+
         m_mainTarget = std::make_unique<VulkanRenderTarget>(
             m_device->allocator(),
             m_device->device(),
@@ -39,6 +71,17 @@ namespace pnkr::renderer
             vk::Format::eR16G16B16A16Sfloat, // HDR Color
             vk::Format::eD32Sfloat // High precision depth
         );
+
+
+        if (config.m_enableBindless) {
+            m_bindless = std::make_unique<BindlessManager>(
+                m_device->device(),
+                m_device->physicalDevice()
+            );
+            core::Logger::info("[Renderer] Bindless support AVAILABLE (toggle at runtime)");
+        } else {
+            core::Logger::info("[Renderer] Bindless support DISABLED (set config.enableBindless=true to enable)");
+        }
 
         m_sync = std::make_unique<VulkanSyncManager>(
             m_device->device(), m_device->framesInFlight(),
@@ -114,7 +157,10 @@ namespace pnkr::renderer
         auto texture = std::make_unique<VulkanImage>(
             VulkanImage::createFromMemory(*m_device, srcData, width, height, srgb)
         );
-
+        BindlessIndex bindlessIndex = m_bindless->registerSampledImage(
+            texture->view(),
+            m_defaultSampler->sampler()
+        );
         // 4. Create Descriptor
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.sampler = m_defaultSampler->sampler();
@@ -130,16 +176,38 @@ namespace pnkr::renderer
         TextureHandle handle{static_cast<uint32_t>(m_textures.size())};
         m_textures.push_back(std::move(texture));
         m_textureDescriptors.push_back(descriptorSet);
+        m_textureBindlessIndices.push_back(bindlessIndex);
 
         return handle;
     }
 
+    uint32_t Renderer::getTextureBindlessIndex(TextureHandle handle) const
+    {
+        if (false) {
+            // Return 0 as dummy - caller should check isBindlessEnabled()
+            return 0;
+        }
+
+        if (!handle || handle.id >= m_textureBindlessIndices.size()) {
+            // Fallback to white texture
+            return m_textureBindlessIndices[m_whiteTexture.id].raw();
+        }
+
+        return m_textureBindlessIndices[handle.id].raw();
+    }
 
     TextureHandle Renderer::loadTexture(const std::filesystem::path& filepath, bool srgb)
     {
         auto texture = std::make_unique<VulkanImage>(
             VulkanImage::createFromFile(*m_device, filepath, srgb)
         );
+
+
+        BindlessIndex bindlessIndex = m_bindless->registerSampledImage(
+            texture->view(),
+            m_defaultSampler->sampler()
+        );
+
 
         // Create descriptor set for this texture
         vk::DescriptorImageInfo imageInfo{};
@@ -156,7 +224,7 @@ namespace pnkr::renderer
         TextureHandle handle{static_cast<uint32_t>(m_textures.size())};
         m_textures.push_back(std::move(texture));
         m_textureDescriptors.push_back(descriptorSet);
-
+        m_textureBindlessIndices.push_back(bindlessIndex); // NEW
         core::Logger::info("Loaded texture: {} (handle={})", filepath.string(), handle.id);
         return handle;
     }
@@ -274,6 +342,12 @@ namespace pnkr::renderer
             m_device->device().waitIdle();
         }
 
+        if (m_tracyCtx)
+        {
+            PNKR_PROFILE_GPU_DESTROY(m_tracyCtx);
+            m_tracyCtx = nullptr;
+        }
+
         // 1) Pipelines first (they may reference descriptor set layouts)
         m_pipelines.clear();
 
@@ -306,6 +380,8 @@ namespace pnkr::renderer
 
     void Renderer::beginFrame(float deltaTime)
     {
+        PNKR_PROFILE_FUNCTION();
+
         if (m_frameInProgress)
             return;
         if (!m_recordCallback)
@@ -337,6 +413,10 @@ namespace pnkr::renderer
         m_sync->resetFrame(frame);
 
         (void)m_commandBuffer->begin(frame);
+
+        vk::CommandBuffer cmd = m_commandBuffer->cmd(frame);
+        PNKR_PROFILE_GPU_COLLECT(m_tracyCtx, static_cast<VkCommandBuffer>(cmd));
+
         m_frameInProgress = true;
     }
 
@@ -353,31 +433,37 @@ namespace pnkr::renderer
 
     void Renderer::drawFrame()
     {
+        PNKR_PROFILE_FUNCTION();
+
         if (!m_frameInProgress)
             return;
 
         const uint32_t frameIndex = m_commandBuffer->currentFrame();
         vk::CommandBuffer cmd = m_commandBuffer->cmd(frameIndex);
 
-        // Render scene into HDR target
-        m_mainTarget->transitionToAttachment(cmd);
-
-        vk::ClearValue colorClear{vk::ClearColorValue{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}}};
-        vk::ClearValue depthClear{vk::ClearDepthStencilValue{1.0f, 0}};
-        m_mainTarget->beginRendering(cmd, colorClear, depthClear);
-
-        if (m_recordCallback)
         {
-            RenderFrameContext ctx{};
-            ctx.m_cmd = cmd;
-            ctx.m_frameIndex = frameIndex;
-            ctx.m_imageIndex = m_imageIndex;
-            ctx.m_extent = m_swapchain->extent();
-            ctx.m_deltaTime = m_deltaTime;
-            m_recordCallback(ctx);
-        }
+            PNKR_PROFILE_GPU_ZONE(m_tracyCtx, static_cast<VkCommandBuffer>(cmd), "Main Render Pass");
 
-        m_mainTarget->endRendering(cmd);
+            // Render scene into HDR target
+            m_mainTarget->transitionToAttachment(cmd);
+
+            vk::ClearValue colorClear{vk::ClearColorValue{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}}};
+            vk::ClearValue depthClear{vk::ClearDepthStencilValue{1.0f, 0}};
+            m_mainTarget->beginRendering(cmd, colorClear, depthClear);
+
+            if (m_recordCallback)
+            {
+                RenderFrameContext ctx{};
+                ctx.m_cmd = cmd;
+                ctx.m_frameIndex = frameIndex;
+                ctx.m_imageIndex = m_imageIndex;
+                ctx.m_extent = m_swapchain->extent();
+                ctx.m_deltaTime = m_deltaTime;
+                m_recordCallback(ctx);
+            }
+
+            m_mainTarget->endRendering(cmd);
+        }
 
         const vk::Image hdrImage = m_mainTarget->colorImage().image();
         const vk::Image swapImage = m_swapchain->images()[m_imageIndex];
@@ -404,8 +490,8 @@ namespace pnkr::renderer
                                               ? vk::PipelineStageFlagBits2::eTopOfPipe
                                               : vk::PipelineStageFlagBits2::eAllCommands;
             preBarriers[1].srcAccessMask = (oldSwapLayout == vk::ImageLayout::eUndefined)
-                                              ? vk::AccessFlagBits2::eNone
-                                              : vk::AccessFlagBits2::eMemoryRead;
+                                               ? vk::AccessFlagBits2::eNone
+                                               : vk::AccessFlagBits2::eMemoryRead;
             preBarriers[1].dstStageMask = vk::PipelineStageFlagBits2::eComputeShader;
             preBarriers[1].dstAccessMask = vk::AccessFlagBits2::eShaderStorageWrite;
             preBarriers[1].oldLayout = oldSwapLayout;
@@ -430,7 +516,7 @@ namespace pnkr::renderer
             postBarriers[0].srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite;
             postBarriers[0].dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
             postBarriers[0].dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite |
-                                            vk::AccessFlagBits2::eColorAttachmentRead;
+                vk::AccessFlagBits2::eColorAttachmentRead;
             postBarriers[0].oldLayout = vk::ImageLayout::eGeneral;
             postBarriers[0].newLayout = vk::ImageLayout::eColorAttachmentOptimal;
             postBarriers[0].image = swapImage;
@@ -473,8 +559,8 @@ namespace pnkr::renderer
                                            ? vk::PipelineStageFlagBits2::eTopOfPipe
                                            : vk::PipelineStageFlagBits2::eAllCommands;
             barriers[1].srcAccessMask = (oldSwapLayout == vk::ImageLayout::eUndefined)
-                                           ? vk::AccessFlagBits2::eNone
-                                           : vk::AccessFlagBits2::eMemoryRead;
+                                            ? vk::AccessFlagBits2::eNone
+                                            : vk::AccessFlagBits2::eMemoryRead;
             barriers[1].dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
             barriers[1].dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
             barriers[1].oldLayout = oldSwapLayout;

@@ -1,6 +1,4 @@
-//
-// Created by Jose on 12/14/2025.
-//
+
 
 #ifndef PNKR_VULKANIMAGE_H
 #define PNKR_VULKANIMAGE_H
@@ -41,7 +39,6 @@ namespace pnkr::renderer {
                                             int height,
                                             bool srgb);
 
-        // Transition image layout
         void transitionLayout(vk::CommandBuffer cmd,
                               vk::ImageLayout oldLayout,
                               vk::ImageLayout newLayout,
@@ -69,6 +66,6 @@ namespace pnkr::renderer {
         vk::Device m_device{};
     };
 
-} // namespace pnkr::renderer
+}
 
-#endif //PNKR_VULKANIMAGE_H
+#endif

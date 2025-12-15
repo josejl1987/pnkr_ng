@@ -10,7 +10,7 @@ namespace pnkr::renderer::scene {
 
 struct MeshPrimitive {
     MeshHandle mesh;
-    uint32_t materialIndex; // Index into the model's material list
+    uint32_t materialIndex;
 };
 
 struct Node {
@@ -21,9 +21,9 @@ struct Node {
     
     // A node can hold a mesh (which may have multiple primitives)
     std::optional<std::vector<MeshPrimitive>> meshPrimitives;
-    
+
     std::string name;
 };
 
-} // namespace pnkr::renderer::scene
+}
 

@@ -2,22 +2,40 @@
 #include <vector>
 #include <vulkan/vulkan.hpp>
 
-#include "Vertex.h"
+namespace pnkr::renderer
+{
+    struct VertexInputDescription {
+        std::vector<vk::VertexInputBindingDescription> m_bindings;
+        std::vector<vk::VertexInputAttributeDescription> m_attributes;
+    };
 
-struct VertexInputDescription {
-    std::vector<vk::VertexInputBindingDescription> bindings;
-    std::vector<vk::VertexInputAttributeDescription> attributes;
 
-    static VertexInputDescription VertexInputCube() {
-        VertexInputDescription vi{};
-        vi.bindings.push_back(
-            {0, sizeof(pnkr::renderer::Vertex), vk::VertexInputRate::eVertex});
-        vi.attributes.push_back({0, 0, vk::Format::eR32G32B32Sfloat,
-                                 offsetof(pnkr::renderer::Vertex, m_position)});
-        vi.attributes.push_back({1, 0, vk::Format::eR32G32B32Sfloat,
-                                 offsetof(pnkr::renderer::Vertex, m_color)});
-        vi.attributes.push_back({2, 0, vk::Format::eR32G32Sfloat,
-                                 offsetof(pnkr::renderer::Vertex, m_texCoord)});  // ADD THIS
-        return vi;
-    }
-};
+    class VertexInputBuilder {
+    public:
+        VertexInputBuilder& addBinding(uint32_t binding, uint32_t stride, vk::VertexInputRate rate = vk::VertexInputRate::eVertex) {
+            vk::VertexInputBindingDescription desc;
+            desc.binding = binding;
+            desc.stride = stride;
+            desc.inputRate = rate;
+            m_description.m_bindings.push_back(desc);
+            return *this;
+        }
+
+        VertexInputBuilder& addAttribute(uint32_t location, uint32_t binding, vk::Format format, uint32_t offset) {
+            vk::VertexInputAttributeDescription desc;
+            desc.location = location;
+            desc.binding = binding;
+            desc.format = format;
+            desc.offset = offset;
+            m_description.m_attributes.push_back(desc);
+            return *this;
+        }
+
+        [[nodiscard]] VertexInputDescription build() const {
+            return m_description;
+        }
+
+    private:
+        VertexInputDescription m_description;
+    };
+}

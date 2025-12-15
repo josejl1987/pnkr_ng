@@ -17,22 +17,19 @@ class Model {
 public:
     static std::unique_ptr<Model> load(Renderer& renderer, const std::filesystem::path& path);
 
-    // Getters
     const std::vector<Node>& nodes() const { return m_nodes; }
     const std::vector<MaterialData>& materials() const { return m_materials; }
     const std::vector<TextureHandle>& textures() const { return m_textures; }
-    
-    // Helper to calculate world transforms for the whole graph
+
     void updateTransforms();
 
 private:
     std::vector<Node> m_nodes;
     std::vector<MaterialData> m_materials;
     std::vector<TextureHandle> m_textures;
-    
-    // Root nodes of the scene
+
     std::vector<int> m_rootNodes;
 };
 
-} // namespace pnkr::renderer::scene
+}
 

@@ -16,7 +16,7 @@ public:
 
   vk::DescriptorSet allocate(vk::DescriptorSetLayout layout);
   void reset();
-  [[nodiscard]] vk::Device device() const noexcept { return m_device; }  // ADD THIS
+  [[nodiscard]] vk::Device device() const noexcept { return m_device; }
 private:
   vk::DescriptorPool createPool();
 
@@ -82,4 +82,4 @@ private:
   VulkanDescriptorAllocator* m_allocator{nullptr};
 };
 
-} // namespace pnkr::renderer
+}

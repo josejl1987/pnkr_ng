@@ -229,6 +229,12 @@ void VulkanDevice::createLogicalDevice(vk::SurfaceKHR /*surface*/) {
   featuresCore.samplerAnisotropy = VK_TRUE;
   featuresCore.shaderStorageImageWriteWithoutFormat = VK_TRUE;
 
+  vk::PhysicalDeviceVulkan12Features features12{};
+  features12.runtimeDescriptorArray = true;
+  features12.shaderSampledImageArrayNonUniformIndexing = true;
+  features12.descriptorBindingPartiallyBound = true; // Often needed for bindless
+  features12.descriptorBindingVariableDescriptorCount = true;
+
   vk::PhysicalDeviceVulkan13Features features13{};
   features13.dynamicRendering = VK_TRUE;
   features13.synchronization2 = VK_TRUE;
@@ -236,6 +242,7 @@ void VulkanDevice::createLogicalDevice(vk::SurfaceKHR /*surface*/) {
   vk::PhysicalDeviceFeatures2 features2{};
   features2.features = featuresCore;
   features2.pNext = &features13;
+  features13.pNext = &features12;
   dci.pNext = &features2;
   dci.pEnabledFeatures = nullptr;
   dci.queueCreateInfoCount = static_cast<uint32_t>(queueInfos.size());

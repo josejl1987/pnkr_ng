@@ -9,14 +9,12 @@
 #define PNKR_VERSION_MINOR 1
 #define PNKR_VERSION_PATCH 0
 
-// Core subsystems
 #include "core/Timer.h"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/platform/window.hpp"
 #include "pnkr/renderer/renderer.hpp"
 #include "pnkr/renderer/renderer_config.hpp"
 
-// Convenience namespace
 namespace pnkr
 {
     using Log = core::Logger;
@@ -25,4 +23,4 @@ namespace pnkr
     using RendererConfig = renderer::RendererConfig;
     using Timer = core::Timer;
     using Input = platform::Input;
-} // namespace pnkr
+}

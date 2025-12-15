@@ -18,8 +18,6 @@ namespace pnkr::ui
         // Start a new ImGui frame
         void beginFrame();
 
-        // End ImGui frame and prepare draw data (calls ImGui::Render)
-        // Note: Does NOT record Vulkan commands. Renderer::drawFrame handles that.
         void endFrame();
 
     private:

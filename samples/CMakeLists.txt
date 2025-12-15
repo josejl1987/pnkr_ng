@@ -4,6 +4,7 @@ add_subdirectory(cube)
 add_subdirectory(multidraw)
 add_subdirectory(scene)
 add_subdirectory(gltf)
+add_subdirectory(gltf_bindless)
 
 # Add more samples here later:
 # add_subdirectory(quad)

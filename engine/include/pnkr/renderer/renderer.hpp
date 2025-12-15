@@ -1,10 +1,5 @@
 #pragma once
 
-/**
- * @file renderer.hpp
- * @brief Public rendering facade for PNKR applications
- */
-
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -12,6 +7,7 @@
 
 #include "pipeline/Pipeline.h"
 #include "pnkr/core/Handle.h"
+#include "pnkr/core/profiler.hpp"
 #include "pnkr/renderer/renderer_config.hpp"
 #include "pnkr/renderer/vulkan/vulkan_command_buffer.hpp"
 #include "pnkr/renderer/vulkan/vulkan_context.hpp"
@@ -26,7 +22,10 @@
 #include "vulkan/image/vulkan_image.hpp"
 #include "vulkan/image/vulkan_sampler.hpp"
 #include "pnkr/renderer/vulkan/pipeline/compute_pipeline.hpp"
-namespace pnkr::renderer {
+#include "vulkan/bindless/bindless_manager.hpp"
+
+namespace pnkr::renderer
+{
     class VulkanCommandBuffer;
     class VulkanContext;
     class VulkanDevice;
@@ -40,15 +39,10 @@ namespace pnkr::renderer {
     class VulkanSampler;
 }
 
-
 namespace pnkr::renderer
 {
     using RecordFunc = std::function<void(const RenderFrameContext&)>;
-    /**
-     * @brief High-level renderer entry point exposed to applications
-     *
-     * Internals are owned via unique_ptr to keep Vulkan details private.
-     */
+
     class Renderer
     {
     public:
@@ -60,6 +54,7 @@ namespace pnkr::renderer
                                               int height,
                                               int channels,
                                               bool srgb = true);
+        uint32_t getTextureBindlessIndex(TextureHandle handle) const;
 
         explicit Renderer(platform::Window& window)
             : Renderer(window, RendererConfig{})
@@ -108,7 +103,6 @@ namespace pnkr::renderer
                               &data);
         }
 
-        // Optional non-template overload (useful later if you pack bytes dynamically)
         void pushConstantsRaw(vk::CommandBuffer cmd,
                               PipelineHandle pipe,
                               vk::ShaderStageFlags stages,
@@ -118,6 +112,7 @@ namespace pnkr::renderer
         {
             cmd.pushConstants(pipelineLayout(pipe), stages, offset, size, data);
         }
+
         [[nodiscard]] vk::Format getDrawColorFormat() const { return m_mainTarget->colorImage().format(); }
         [[nodiscard]] vk::Format getDrawDepthFormat() const { return m_mainTarget->depthImage().format(); }
         [[nodiscard]] vk::Device device() const { return m_device->device(); }
@@ -127,23 +122,87 @@ namespace pnkr::renderer
         [[nodiscard]] vk::Queue graphicsQueue() const { return m_device->graphicsQueue(); }
         [[nodiscard]] uint32_t graphicsQueueFamilyIndex() const { return m_device->graphicsQueueFamily(); }
 
-        [[nodiscard]] vk::CommandPool commandPool() const {
+        [[nodiscard]] vk::CommandPool commandPool() const
+        {
             return m_commandBuffer->commandPool();
         }
-        // You already added this one, keep it:
+
         [[nodiscard]] vk::Format getSwapchainColorFormat() const { return m_swapchain->imageFormat(); }
 
         void bindPipeline(vk::CommandBuffer cmd, const ComputePipeline& pipeline);
         void dispatch(vk::CommandBuffer cmd, uint32_t groupX, uint32_t groupY, uint32_t groupZ);
 
-
-        using PostProcessCallback = std::function<void(vk::CommandBuffer cmd, uint32_t swapchainImageIndex, const vk::Extent2D& extent)>;
+        using PostProcessCallback = std::function<void(vk::CommandBuffer cmd, uint32_t swapchainImageIndex,
+                                                       const vk::Extent2D& extent)>;
         void setPostProcessCallback(PostProcessCallback callback) { m_postProcessCallback = callback; }
 
-        [[nodiscard]] vk::ImageView getSwapchainImageView(uint32_t index) const { return m_swapchain->imageViews()[index]; }
-        [[nodiscard]] uint32_t getSwapchainImageCount() const { return static_cast<uint32_t>(m_swapchain->images().size()); }
+        [[nodiscard]] vk::ImageView getSwapchainImageView(uint32_t index) const
+        {
+            return m_swapchain->imageViews()[index];
+        }
+
+        [[nodiscard]] uint32_t getSwapchainImageCount() const
+        {
+            return static_cast<uint32_t>(m_swapchain->images().size());
+        }
 
         [[nodiscard]] const VulkanImage& getOffscreenTexture() const { return m_mainTarget->colorImage(); }
+
+        [[nodiscard]] BindlessIndex registerBindlessStorageBuffer(vk::Buffer buffer,
+                                                                  vk::DeviceSize offset,
+                                                                  vk::DeviceSize range) const
+        {
+            if (!m_bindless) {
+                core::Logger::error("Bindless not initialized");
+                return INVALID_BINDLESS_INDEX;
+            }
+            return m_bindless->registerStorageBuffer(buffer, offset, range);
+        }
+
+        // Overload for common case where offset = 0
+        [[nodiscard]] BindlessIndex registerBindlessStorageBuffer(vk::Buffer buffer,
+                                                                  vk::DeviceSize range) const
+        {
+            return registerBindlessStorageBuffer(buffer, 0, range);
+        }
+
+        [[nodiscard]] BindlessIndex registerBindlessSampledImage(vk::ImageView view, vk::Sampler sampler) const
+        {
+            return m_bindless->registerSampledImage(view, sampler);
+        }
+
+        [[nodiscard]] BindlessIndex registerBindlessStorageImage(vk::ImageView view) const
+        {
+            return m_bindless->registerStorageImage(view);
+        }
+
+        [[nodiscard]] vk::DescriptorSetLayout getBindlessLayout() const
+        {
+            return m_bindless->getLayout();
+        }
+
+        [[nodiscard]] vk::DescriptorSet getBindlessDescriptorSet() const
+        {
+            return m_bindless->getDescriptorSet();
+        }
+
+        void setBindlessEnabled(bool enabled) {
+            if (enabled && !m_bindless) {
+                core::Logger::warn("Cannot enable bindless: not initialized at startup");
+                return;
+            }
+            m_useBindlessForCurrentFrame = enabled;
+            core::Logger::info("Bindless rendering: {}", enabled ? "ENABLED" : "DISABLED");
+        }
+
+        [[nodiscard]] bool isBindlessEnabled() const noexcept {
+            return m_useBindlessForCurrentFrame;
+        }
+
+        [[nodiscard]] bool hasBindlessSupport() const noexcept {
+            return m_bindless != nullptr;
+        }
+
 
     private:
         platform::Window& m_window;
@@ -152,6 +211,7 @@ namespace pnkr::renderer
         std::unique_ptr<VulkanSwapchain> m_swapchain;
         std::unique_ptr<VulkanCommandBuffer> m_commandBuffer;
         std::unique_ptr<VulkanSyncManager> m_sync;
+        TracyContext m_tracyCtx{nullptr};
         std::vector<std::unique_ptr<Mesh>> m_meshes;
         std::unique_ptr<VulkanRenderTarget> m_mainTarget;
         std::unique_ptr<VulkanDescriptorAllocator> m_descriptorAllocator;
@@ -161,16 +221,16 @@ namespace pnkr::renderer
         std::vector<vk::DescriptorSet> m_textureDescriptors;
         vk::DescriptorSetLayout m_textureSetLayout{};
         PostProcessCallback m_postProcessCallback = nullptr;
-
-
+        std::unique_ptr<BindlessManager> m_bindless;
+        bool m_useBindlessForCurrentFrame = false;
         std::vector<std::unique_ptr<VulkanPipeline>> m_pipelines;
+        std::vector<BindlessIndex> m_textureBindlessIndices;
         const VulkanPipeline& pipeline(PipelineHandle handle) const;
-        RecordFunc m_recordCallback; // must be set by app
+        RecordFunc m_recordCallback;
 
-        // State
         uint32_t m_imageIndex = 0;
         bool m_frameInProgress = false;
         float m_deltaTime = 0.0f;
         TextureHandle m_whiteTexture{INVALID_TEXTURE_HANDLE};
     };
-} // namespace pnkr::renderer
+}

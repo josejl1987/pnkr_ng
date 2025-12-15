@@ -1,10 +1,5 @@
 #pragma once
 
-/**
- * @file window.hpp
- * @brief RAII wrapper for SDL3 window
- */
-
 #include <SDL3/SDL.h>
 #include <functional>
 #include <memory>
@@ -14,36 +9,20 @@
 
 namespace pnkr::platform {
 
-/**
- * @brief Manages SDL_Window with RAII semantics
- *
- * Key features:
- * - Automatic cleanup via unique_ptr deleter
- * - C++20 compliant with move semantics
- * - No manual SDL_DestroyWindow() calls
- * - Exception-safe initialization
- */
 class Window {
 public:
-  /**
-   * @brief Create a new SDL window
-   * @throw std::runtime_error if window creation fails
-   */
+
   explicit Window(const std::string &title = "PNKR", int width = 800,
                   int height = 600, SDL_WindowFlags flags = 0);
 
-  // RAII: Automatic cleanup
   ~Window();
 
-  // Non-copyable
   Window(const Window &) = delete;
   Window &operator=(const Window &) = delete;
 
-  // Moveable (unique_ptr handles this)
   Window(Window &&) = default;
   Window &operator=(Window &&) = default;
 
-  // Accessors
   [[nodiscard]] SDL_Window *get() const noexcept { return m_window.get(); }
   [[nodiscard]] SDL_Window *operator->() const noexcept {
     return m_window.get();
@@ -54,18 +33,14 @@ public:
 
   using EventCallback = std::function<void(const SDL_Event&)>;
 
-  // Event handling
-  // Added optional callback for generic event processing (e.g. ImGui)
   void processEvents(Input* input = nullptr, const EventCallback& callback = nullptr) noexcept;
-  
+
   [[nodiscard]] bool isRunning() const noexcept { return m_running; }
 
-  // Properties
   void setTitle(const std::string &title) const;
   [[nodiscard]] int width() const noexcept;
   [[nodiscard]] int height() const noexcept;
 
-  // Mouse control
   void setRelativeMouseMode(bool enabled) const {
     SDL_SetWindowRelativeMouseMode(m_window.get(), enabled);
   }
@@ -74,7 +49,7 @@ public:
     return SDL_GetWindowRelativeMouseMode(m_window.get());
   }
 private:
-  // Custom deleter for SDL_Window
+
   struct SDLWindowDeleter {
     void operator()(SDL_Window *window) const noexcept {
       if (window) {
@@ -87,4 +62,4 @@ private:
   bool m_running = true;
 };
 
-} // namespace pnkr::platform
+}

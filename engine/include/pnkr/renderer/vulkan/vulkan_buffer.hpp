@@ -43,4 +43,4 @@ private:
   void *m_mapped{nullptr};
 };
 
-} // namespace pnkr::renderer
+}

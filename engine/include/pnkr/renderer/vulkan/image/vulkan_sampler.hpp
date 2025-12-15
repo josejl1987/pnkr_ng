@@ -1,6 +1,4 @@
-//
-// Created by Jose on 12/14/2025.
-//
+
 
 #ifndef PNKR_VULKAN_SAMPLER_HPP
 #define PNKR_VULKAN_SAMPLER_HPP
@@ -34,6 +32,6 @@ namespace pnkr::renderer {
         vk::Sampler m_sampler{};
     };
 
-} // namespace pnkr::renderer
+}
 
-#endif //PNKR_VULKAN_SAMPLER_HPP
+#endif

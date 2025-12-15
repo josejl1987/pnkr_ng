@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <vulkan/vulkan.hpp>
 
+#include "PipelineBuilder.h"
 #include "pnkr/renderer/vulkan/geometry/VertexInputDescription.h"
 
 namespace pnkr::renderer {
@@ -39,6 +40,7 @@ namespace pnkr::renderer {
     } m_blend;
 
     vk::PrimitiveTopology m_topology = vk::PrimitiveTopology::eTriangleList;
+    bool m_useBindless;
   };
 
 } // namespace pnkr::renderer

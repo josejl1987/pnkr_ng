@@ -44,4 +44,4 @@ private:
   VertexInputDescription m_vertexInput;
 };
 
-} // namespace pnkr::renderer
+}

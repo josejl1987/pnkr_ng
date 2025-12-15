@@ -1,183 +1,67 @@
-/**
- * @file main.cpp
- * @brief Triangle sample - Basic window and event loop
- *
- * Stage 0: No rendering yet, just event handling
- * Stage 1: Vulkan triangle rendering
- */
+#include "../common/GeometryUtils.h"
+#include "../common/SampleApp.h"
 
-#include <filesystem>
-#include <cstdint>
-#include <glm/common.hpp>
-#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/trigonometric.hpp>
-#include <iostream>
-#include <pnkr/engine.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/transform.hpp"
 #include "pnkr/renderer/vulkan/PushConstants.h"
-#include "pnkr/renderer/vulkan/geometry/mesh.h"
-#include "pnkr/renderer/vulkan/geometry/Vertex.h"
+#include "pnkr/renderer/vulkan/geometry/VertexInputDescription.h"
 
-int main(int argc, char **argv) {
-  namespace fs = std::filesystem;
-  constexpr int kLogFps = 60;
-  constexpr float kSize = 0.5F;
+using namespace pnkr;
+using namespace pnkr::samples;
 
-  std::vector<pnkr::renderer::Vertex> cubeVertices = {
-      // +X (right) - red
-      {.m_position = {+kSize, -kSize, -kSize}, .m_color = {1, 0, 0}},
-      {.m_position = {+kSize, +kSize, -kSize}, .m_color = {1, 0, 0}},
-      {.m_position = {+kSize, +kSize, +kSize}, .m_color = {1, 0, 0}},
-      {.m_position = {+kSize, -kSize, +kSize}, .m_color = {1, 0, 0}},
+class CubeSample : public SampleApp {
+    MeshHandle m_cubeMesh;
+    PipelineHandle m_cubePipe;
+    renderer::scene::Camera m_camera;
+    vk::Extent2D m_lastExtent{0, 0};
 
-      // -X (left) - green
-      {.m_position = {-kSize, -kSize, +kSize}, .m_color = {0, 1, 0}},
-      {.m_position = {-kSize, +kSize, +kSize}, .m_color = {0, 1, 0}},
-      {.m_position = {-kSize, +kSize, -kSize}, .m_color = {0, 1, 0}},
-      {.m_position = {-kSize, -kSize, -kSize}, .m_color = {0, 1, 0}},
+public:
+    CubeSample() : SampleApp({"PNKR - Cube", 800, 600}) {}
 
-      // +Y (top) - blue
-      {.m_position = {-kSize, +kSize, -kSize}, .m_color = {0, 0, 1}},
-      {.m_position = {-kSize, +kSize, +kSize}, .m_color = {0, 0, 1}},
-      {.m_position = {+kSize, +kSize, +kSize}, .m_color = {0, 0, 1}},
-      {.m_position = {+kSize, +kSize, -kSize}, .m_color = {0, 0, 1}},
+    void onInit() override {
+        auto cubeData = GeometryUtils::getCube();
+        m_cubeMesh = m_renderer.createMesh(cubeData.vertices, cubeData.indices);
 
-      // -Y (bottom) - yellow
-      {.m_position = {-kSize, -kSize, +kSize}, .m_color = {1, 1, 0}},
-      {.m_position = {-kSize, -kSize, -kSize}, .m_color = {1, 1, 0}},
-      {.m_position = {+kSize, -kSize, -kSize}, .m_color = {1, 1, 0}},
-      {.m_position = {+kSize, -kSize, +kSize}, .m_color = {1, 1, 0}},
+        renderer::VulkanPipeline::Config cfg{};
+        cfg.m_vertSpvPath = getShaderPath("cube.vert.spv");
+        cfg.m_fragSpvPath = getShaderPath("cube.frag.spv");
+        cfg.m_vertexInput = renderer::Vertex::getLayout();
+        cfg.m_pushConstantSize = sizeof(PushConstants);
+        cfg.m_pushConstantStages = vk::ShaderStageFlagBits::eVertex;
+        cfg.m_depth.testEnable = true;
+        cfg.m_depth.writeEnable = true;
+        m_cubePipe = m_renderer.createPipeline(cfg);
 
-      // +Z (front) - magenta
-      {.m_position = {-kSize, -kSize, +kSize}, .m_color = {1, 0, 1}},
-      {.m_position = {+kSize, -kSize, +kSize}, .m_color = {1, 0, 1}},
-      {.m_position = {+kSize, +kSize, +kSize}, .m_color = {1, 0, 1}},
-      {.m_position = {-kSize, +kSize, +kSize}, .m_color = {1, 0, 1}},
-
-      // -Z (back) - cyan
-      {.m_position = {+kSize, -kSize, -kSize}, .m_color = {0, 1, 1}},
-      {.m_position = {-kSize, -kSize, -kSize}, .m_color = {0, 1, 1}},
-      {.m_position = {-kSize, +kSize, -kSize}, .m_color = {0, 1, 1}},
-      {.m_position = {+kSize, +kSize, -kSize}, .m_color = {0, 1, 1}},
-  };
-
-  static const std::vector<std::uint32_t> cubeIndices = {
-      0,  1,  2,  0,  2,  3,  // +X
-      4,  5,  6,  4,  6,  7,  // -X
-      8,  9,  10, 8,  10, 11, // +Y
-      12, 13, 14, 12, 14, 15, // -Y
-      16, 17, 18, 16, 18, 19, // +Z
-      20, 21, 22, 20, 22, 23  // -Z
-  };
-
-  try {
-    constexpr int kWindowHeight = 600;
-    constexpr int kWindowWidth = 800;
-    pnkr::Log::init("[%H:%M:%S] [%-8l] %v");
-    pnkr::Log::info("PNKR Engine v{}.{}.{}", PNKR_VERSION_MAJOR,
-                    PNKR_VERSION_MINOR, PNKR_VERSION_PATCH);
-
-    const fs::path exePath =
-        (argc > 0 && argv != nullptr) ? fs::path(argv[0]) : fs::current_path();
-    const fs::path shaderDir = exePath.parent_path() / "shaders";
-
-    if (!fs::exists(shaderDir)) {
-      pnkr::Log::error("Shader directory not found: {}", shaderDir.string());
-      return 1;
+        m_camera.lookAt({1.5f, 1.2f, 1.5f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
     }
 
-    const fs::path cubeVert = shaderDir / "cube.vert.spv";
-    const fs::path cubeFrag = shaderDir / "cube.frag.spv";
-
-    if (!fs::exists(cubeVert)) {
-      pnkr::Log::error("Vertex shader not found: {}", cubeVert.string());
-      return 1;
-    }
-    if (!fs::exists(cubeFrag)) {
-      pnkr::Log::error("Fragment shader not found: {}", cubeFrag.string());
-      return 1;
-    }
-    uint64_t freq = SDL_GetPerformanceFrequency();
-    uint64_t last = SDL_GetPerformanceCounter();
-
-    float deltaTime = 0.0f;
-    pnkr::Window window("PNKR - Cube", kWindowWidth, kWindowHeight);
-    pnkr::Log::info("Window created: {}x{}", window.width(), window.height());
-
-    pnkr::renderer::Renderer renderer(window);
-    MeshHandle cube = renderer.createMesh(cubeVertices, cubeIndices);
-    pnkr::renderer::VulkanPipeline::Config cubeCfg{};
-    cubeCfg.m_vertSpvPath = cubeVert;
-    cubeCfg.m_fragSpvPath = cubeFrag;
-    cubeCfg.m_vertexInput = VertexInputDescription::VertexInputCube();
-
-    PipelineHandle cubePipe = renderer.createPipeline(cubeCfg);
-
-    pnkr::renderer::scene::Camera cam;
-    cam.lookAt({1.5f, 1.2f, 1.5f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
-
-    vk::Extent2D lastExtent{0,0};
-
-    renderer.setRecordFunc([&](const pnkr::renderer::RenderFrameContext& ctx) {
-      if (ctx.m_extent.width != lastExtent.width || ctx.m_extent.height != lastExtent.height) {
-        lastExtent = ctx.m_extent;
-        const float aspect = float(lastExtent.width) / float(lastExtent.height);
-        cam.setPerspective(glm::radians(60.0f), aspect, 0.1f, 10.0f);
-      }
-
-      static float timeVal = 0.0f;
-      timeVal += ctx.m_deltaTime;
-
-      pnkr::renderer::scene::Transform xform;
-      xform.m_rotation.y = timeVal;
-
-      PushConstants pc{};
-      pc.m_model = xform.mat4();
-      pc.m_viewProj = cam.viewProj();
-
-      renderer.pushConstants(ctx.m_cmd, cubePipe, vk::ShaderStageFlagBits::eVertex, pc);
-      renderer.bindPipeline(ctx.m_cmd, cubePipe);
-      renderer.bindMesh(ctx.m_cmd, cube);
-      renderer.drawMesh(ctx.m_cmd, cube);
-    });
-
-    int frameCount = 0;
-
-
-
-
-    while (window.isRunning()) {
-      try {
-        window.processEvents();
-
-        uint64_t now = SDL_GetPerformanceCounter();
-        deltaTime = float(now - last) / float(freq);
-        last = now;
-
-        // avoid crazy jumps when resizing / breakpoints
-        if (deltaTime > 0.05f) deltaTime = 0.05f;
-
-
-        renderer.beginFrame(deltaTime);
-        renderer.drawFrame();
-        renderer.endFrame();
-
-        if (++frameCount % kLogFps == 0) {
-          pnkr::Log::debug("Running... (frames: {})", frameCount);
+    void onRender(const renderer::RenderFrameContext& ctx) override {
+        if (ctx.m_extent.width != m_lastExtent.width || ctx.m_extent.height != m_lastExtent.height) {
+            m_lastExtent = ctx.m_extent;
+            const float aspect = float(m_lastExtent.width) / float(m_lastExtent.height);
+            m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 10.0f);
         }
-      } catch (const std::exception &e) {
-        pnkr::Log::error("Frame error: {}", e.what());
-        break;
-      }
-    }
 
-    pnkr::Log::info("Engine shutdown (rendered {} frames)", frameCount);
-    return 0;
-  } catch (const std::exception &e) {
-    std::cerr << "FATAL ERROR: " << e.what() << '\n';
-    return 1;
-  }
+        static float timeVal = 0.0f;
+        timeVal += ctx.m_deltaTime;
+
+        renderer::scene::Transform xform;
+        xform.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0f, 1.0f, 0.0f});
+
+        PushConstants pc{xform.mat4(), m_camera.viewProj()};
+        m_renderer.pushConstants(ctx.m_cmd, m_cubePipe, vk::ShaderStageFlagBits::eVertex, pc);
+        m_renderer.bindPipeline(ctx.m_cmd, m_cubePipe);
+        m_renderer.bindMesh(ctx.m_cmd, m_cubeMesh);
+        m_renderer.drawMesh(ctx.m_cmd, m_cubeMesh);
+    }
+};
+
+int main(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
+    CubeSample app;
+    return app.run();
 }

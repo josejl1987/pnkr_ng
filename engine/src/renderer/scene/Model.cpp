@@ -128,10 +128,6 @@ std::unique_ptr<Model> Model::load(Renderer& renderer, const std::filesystem::pa
                 // tinygltf usually decodes to RGBA 8-bit
                 // width = img.width, height = img.height, components = img.component
 
-                // We need a new function in Renderer: createTextureFromMemory
-                // But for now, let's look at how we can reuse loadTexture or add a new method.
-
-                // OPTION A: Add createTextureFromPixels to Renderer (CLEANEST)
                 TextureHandle hTex = renderer.createTextureFromPixels(
                     img.image.data(),
                     img.width,
@@ -209,6 +205,8 @@ std::unique_ptr<Model> Model::load(Renderer& renderer, const std::filesystem::pa
 
                 // --- Vertex Extraction (same logic as before) ---
                 const float* posBuffer = nullptr;
+                const float* normalBuffer = nullptr;
+                const float* colorBuffer = nullptr;
                 const float* uvBuffer = nullptr;
                 size_t vCount = 0;
 
@@ -226,12 +224,44 @@ std::unique_ptr<Model> Model::load(Renderer& renderer, const std::filesystem::pa
                     uvBuffer = reinterpret_cast<const float*>(getBufferData(gltfModel, itUV->second));
                 }
 
+                // Position
+                auto itColor = gPrim.attributes.find("COLOR");
+                if (itColor != gPrim.attributes.end()) {
+                    const auto& acc = gltfModel.accessors[itPos->second];
+                    vCount = acc.count;
+                    colorBuffer = reinterpret_cast<const float*>(getBufferData(gltfModel, itPos->second));
+                }
+
+                auto itNormal = gPrim.attributes.find("NORMAL");
+                if (itNormal != gPrim.attributes.end()) {
+                    const auto& acc = gltfModel.accessors[itPos->second];
+                    vCount = acc.count;
+                    normalBuffer = reinterpret_cast<const float*>(getBufferData(gltfModel, itPos->second));
+                }
+
+
+
                 if (vCount == 0 || posBuffer == nullptr) continue;
 
                 vertices.resize(vCount);
                 for(size_t k=0; k<vCount; ++k) {
                     vertices[k].m_position = glm::vec3(posBuffer[k*3+0], posBuffer[k*3+1], posBuffer[k*3+2]);
-                    vertices[k].m_color = glm::vec3(1.0f); // Default white
+                    if (colorBuffer)
+                    {
+                        vertices[k].m_color = glm::vec3(colorBuffer[k]);
+                    }
+                    else
+                    {
+                        vertices[k].m_color = glm::vec3(1.0f); // Default white
+                    }
+                    if (normalBuffer)
+                    {
+                        vertices[k].m_normal = glm::vec3(normalBuffer[k]);
+                    }
+                    else
+                    {
+                        vertices[k].m_normal = glm::vec3(0.0f, 1.0f, 0.0f);
+                    }
                     if (uvBuffer) {
                         vertices[k].m_texCoord = glm::vec2(uvBuffer[k*2+0], uvBuffer[k*2+1]);
                     } else {
