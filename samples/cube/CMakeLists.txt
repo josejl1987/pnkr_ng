@@ -1,4 +1,5 @@
-add_executable(pnkr_cube main.cpp)
+add_executable(pnkr_cube main.cpp
+        ../common/RhiSampleApp.hpp)
 
 target_compile_features(pnkr_cube PRIVATE cxx_std_20)
 

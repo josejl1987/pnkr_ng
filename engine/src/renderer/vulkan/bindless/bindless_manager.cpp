@@ -22,10 +22,13 @@ BindlessManager::BindlessManager(vk::Device device, vk::PhysicalDevice physicalD
     m_maxStorageImages =
         std::min(m_maxStorageImages,
                  indexingProps.maxDescriptorSetUpdateAfterBindStorageImages);
+    m_maxCubemaps =
+        std::min(m_maxCubemaps,
+                 indexingProps.maxDescriptorSetUpdateAfterBindSampledImages);
 
     core::Logger::info("BindlessManager created with limits: "
-              "StorageBuffers={}, SampledImages={}, StorageImages={}",
-              m_maxStorageBuffers, m_maxSampledImages, m_maxStorageImages);
+              "StorageBuffers={}, SampledImages={}, StorageImages={}, Cubemaps={}",
+              m_maxStorageBuffers, m_maxSampledImages, m_maxStorageImages, m_maxCubemaps);
 
     createDescriptorPool();
     createDescriptorLayout();
@@ -43,7 +46,7 @@ BindlessManager::~BindlessManager()
 
 void BindlessManager::createDescriptorPool()
 {
-    vk::DescriptorPoolSize poolSizes[3];
+    vk::DescriptorPoolSize poolSizes[4];
     poolSizes[0].type = vk::DescriptorType::eStorageBuffer;
     poolSizes[0].descriptorCount = m_maxStorageBuffers;
 
@@ -53,9 +56,12 @@ void BindlessManager::createDescriptorPool()
     poolSizes[2].type = vk::DescriptorType::eStorageImage;
     poolSizes[2].descriptorCount = m_maxStorageImages;
 
+    poolSizes[3].type = vk::DescriptorType::eCombinedImageSampler;
+    poolSizes[3].descriptorCount = m_maxCubemaps;
+
     vk::DescriptorPoolCreateInfo poolInfo{};
-    poolInfo.poolSizeCount = 3;
-    poolInfo.pPoolSizes = poolSizes;  // FIX: Already a pointer
+    poolInfo.poolSizeCount = 4;
+    poolInfo.pPoolSizes = poolSizes;
     poolInfo.maxSets = 1;
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eUpdateAfterBind;
 
@@ -64,8 +70,8 @@ void BindlessManager::createDescriptorPool()
 
 void BindlessManager::createDescriptorLayout()
 {
-    // FIX: Array of bindings, not initializer list
-    vk::DescriptorSetLayoutBinding bindings[3];
+    // Array of bindings
+    vk::DescriptorSetLayoutBinding bindings[4];
 
     // Storage buffers
     bindings[0].binding = 0;
@@ -88,19 +94,26 @@ void BindlessManager::createDescriptorLayout()
     bindings[2].stageFlags = vk::ShaderStageFlagBits::eAll;
     bindings[2].pImmutableSamplers = nullptr;
 
+    // Cubemaps (Binding 3)
+    bindings[3].binding = 3;
+    bindings[3].descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    bindings[3].descriptorCount = m_maxCubemaps;
+    bindings[3].stageFlags = vk::ShaderStageFlagBits::eAll;
+    bindings[3].pImmutableSamplers = nullptr;
+
     // Enable update-after-bind for dynamic updates
     vk::DescriptorBindingFlags flags =
         vk::DescriptorBindingFlagBits::eUpdateAfterBind |
         vk::DescriptorBindingFlagBits::ePartiallyBound;
 
-    vk::DescriptorBindingFlags bindingFlagsList[3] = {flags, flags, flags};
+    vk::DescriptorBindingFlags bindingFlagsList[4] = {flags, flags, flags, flags};
 
     vk::DescriptorSetLayoutBindingFlagsCreateInfo bindingFlags{};
-    bindingFlags.bindingCount = 3;
+    bindingFlags.bindingCount = 4;
     bindingFlags.pBindingFlags = bindingFlagsList;
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.bindingCount = 3;
+    layoutInfo.bindingCount = 4;
     layoutInfo.pBindings = bindings;
     layoutInfo.pNext = &bindingFlags;
     layoutInfo.flags = vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool;
@@ -200,12 +213,40 @@ BindlessIndex BindlessManager::registerStorageImage(vk::ImageView view)
     return BindlessIndex{index};
 }
 
+BindlessIndex BindlessManager::registerCubemap(vk::ImageView view, vk::Sampler sampler)
+{
+    if (m_cubemapCount >= m_maxCubemaps) {
+        core::Logger::error("BindlessManager: Cubemap limit exceeded!");
+        return INVALID_BINDLESS_INDEX;
+    }
+
+    uint32_t index = m_cubemapCount++;
+
+    vk::DescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    imageInfo.imageView = view;
+    imageInfo.sampler = sampler;
+
+    vk::WriteDescriptorSet write{};
+    write.dstSet = m_descriptorSet;
+    write.dstBinding = 3;  // Cubemap binding
+    write.dstArrayElement = index;
+    write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    write.descriptorCount = 1;
+    write.pImageInfo = &imageInfo;
+
+    m_device.updateDescriptorSets(write, nullptr);
+
+    return BindlessIndex{index};
+}
+
 void BindlessManager::logStats() const
 {
     core::Logger::info("BindlessManager Stats:");
     core::Logger::info("  Storage Buffers: {}/{}", m_storageBufferCount, m_maxStorageBuffers);
     core::Logger::info("  Sampled Images:  {}/{}", m_sampledImageCount, m_maxSampledImages);
     core::Logger::info("  Storage Images:  {}/{}", m_storageImageCount, m_maxStorageImages);
+    core::Logger::info("  Cubemaps:         {}/{}", m_cubemapCount, m_maxCubemaps);
 }
 
 } // namespace pnkr::renderer

@@ -1,7 +1,7 @@
 #pragma once
 #include <vulkan/vulkan.hpp>
 
-#include "geometry/VertexInputDescription.h"
+#include "pnkr/renderer/geometry/VertexInputDescription.h"
 #include "pipeline/PipelineConfig.h"
 
 namespace pnkr::renderer {

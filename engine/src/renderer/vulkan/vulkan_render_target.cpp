@@ -32,17 +32,17 @@ vk::Rect2D VulkanRenderTarget::scissor() const {
 void VulkanRenderTarget::transitionToAttachment(vk::CommandBuffer cmd) {
     // Transition Color: Undefined -> ColorAttachment
     m_colorImage.transitionLayout(cmd, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal,
-                                  vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eColorAttachmentOutput);
+                                  vk::PipelineStageFlagBits2::eNone, vk::PipelineStageFlagBits2::eColorAttachmentOutput);
 
     // Transition Depth: Undefined -> DepthAttachment
     m_depthImage.transitionLayout(cmd, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthAttachmentOptimal,
-                                  vk::PipelineStageFlagBits::eEarlyFragmentTests, vk::PipelineStageFlagBits::eEarlyFragmentTests);
+                                  vk::PipelineStageFlagBits2::eEarlyFragmentTests, vk::PipelineStageFlagBits2::eEarlyFragmentTests);
 }
 
 void VulkanRenderTarget::transitionToRead(vk::CommandBuffer cmd) {
     // Transition Color: ColorAttachment -> TransferSrc (for blitting)
     m_colorImage.transitionLayout(cmd, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eTransferSrcOptimal,
-                                  vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eTransfer);
+                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::PipelineStageFlagBits2::eTransfer);
 }
 
 void VulkanRenderTarget::beginRendering(vk::CommandBuffer cmd, vk::ClearValue colorClear, vk::ClearValue depthClear) {

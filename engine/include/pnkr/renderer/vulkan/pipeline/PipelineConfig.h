@@ -4,7 +4,7 @@
 #include <vulkan/vulkan.hpp>
 
 #include "PipelineBuilder.h"
-#include "pnkr/renderer/vulkan/geometry/VertexInputDescription.h"
+#include "pnkr/renderer/geometry/VertexInputDescription.h"
 
 namespace pnkr::renderer {
 

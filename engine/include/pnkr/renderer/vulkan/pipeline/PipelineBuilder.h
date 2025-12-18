@@ -11,7 +11,7 @@
 #include <string>
 #include <filesystem>
 #include <vector>
-#include "pnkr/renderer/vulkan/geometry/VertexInputDescription.h"
+#include "pnkr/renderer/geometry/VertexInputDescription.h"
 
 namespace pnkr::renderer {
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "pnkr/rhi/rhi_device.hpp"
 
 namespace pnkr::renderer {
 

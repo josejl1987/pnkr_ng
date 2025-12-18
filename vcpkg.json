@@ -6,8 +6,11 @@
     "vulkan-memory-allocator",
     "vulkan-headers",
     "stb",
-    "tinygltf",
+    "fastgltf",
     "spdlog",
+    {
+      "name": "spirv-cross"
+    },
     {
       "name": "imgui",
       "features": [

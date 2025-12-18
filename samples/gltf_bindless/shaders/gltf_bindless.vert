@@ -16,12 +16,15 @@ layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec3 inColor;
 layout(location = 3) in vec2 inTexCoord;
+layout(location = 4) in vec4 inTangent;
 
 layout(location = 0) out VS_OUT {
     vec3 normal;
     vec2 texCoord;
     vec3 worldPos;
     vec3 color;
+    vec3 tangent;
+    float bitangentSign;
     flat uint materialIndex;
 } vsOut;
 
@@ -34,4 +37,8 @@ void main() {
     vsOut.texCoord = inTexCoord;
     vsOut.materialIndex = pc.materialIndex;
     vsOut.color = inColor;
+
+    // Transform tangent to world space
+    vsOut.tangent = mat3(pc.model) * inTangent.xyz;
+    vsOut.bitangentSign = inTangent.w; // Handedness bit for bitangent calculation
 }

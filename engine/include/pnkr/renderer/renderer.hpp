@@ -13,16 +13,16 @@
 #include "pnkr/renderer/vulkan/vulkan_context.hpp"
 #include "pnkr/renderer/vulkan/vulkan_device.hpp"
 #include "pnkr/renderer/vulkan/vulkan_pipeline.hpp"
+#include "pnkr/renderer/vulkan/vulkan_render_target.h"
 #include "pnkr/renderer/vulkan/vulkan_swapchain.hpp"
 #include "pnkr/renderer/vulkan/vulkan_sync_manager.h"
-#include "pnkr/renderer/vulkan/vulkan_render_target.h"
 
-#include "vulkan/geometry/mesh.h"
-#include "vulkan/geometry/Vertex.h"
+#include "geometry/mesh.h"
+#include "pnkr/renderer/vulkan/pipeline/compute_pipeline.hpp"
+#include "geometry/Vertex.h"
+#include "vulkan/bindless/bindless_manager.hpp"
 #include "vulkan/image/vulkan_image.hpp"
 #include "vulkan/image/vulkan_sampler.hpp"
-#include "pnkr/renderer/vulkan/pipeline/compute_pipeline.hpp"
-#include "vulkan/bindless/bindless_manager.hpp"
 
 namespace pnkr::renderer
 {

@@ -66,6 +66,7 @@ include(FetchContent)
 set(CPM_USE_LOCAL_PACKAGES ON)
 
 add_subdirectory(third-party)
+add_subdirectory(tools)
 
 # ============================================================================
 # Dependencies
@@ -120,7 +121,7 @@ endif()
 # ============================================================================
 # Code Quality & Style
 # ============================================================================
-
+include(cmake/ShaderTools.cmake)
 
 
 # 2. Formatting (Clang-Format)

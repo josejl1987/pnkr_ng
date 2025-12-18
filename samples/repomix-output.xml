@@ -1,0 +1,3374 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: **/*.obj
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+CMakeLists.txt
+common/GeometryUtils.h
+common/RhiSampleApp.hpp
+common/SampleApp.h
+cube/CMakeLists.txt
+cube/main.cpp
+cube/shaders/cube.frag
+cube/shaders/cube.vert
+gltf_bindless/assets/basicmesh.glb
+gltf_bindless/assets/copyright.txt
+gltf_bindless/assets/Duck.glb
+gltf_bindless/assets/house.glb
+gltf_bindless/assets/house2.glb
+gltf_bindless/assets/lost_empire-Alpha.png
+gltf_bindless/assets/lost_empire-RGB.png
+gltf_bindless/assets/lost_empire-RGBA.png
+gltf_bindless/assets/lost_empire.mtl
+gltf_bindless/assets/monkey_flat.mtl
+gltf_bindless/assets/monkey_smooth.mtl
+gltf_bindless/assets/monkey.glb
+gltf_bindless/assets/monkey2.glb
+gltf_bindless/assets/monkeyHD.glb
+gltf_bindless/assets/Shared/T_Bevel_N_FlipY.png
+gltf_bindless/assets/Shared/T_Bevel_N.png
+gltf_bindless/assets/Shared/T_Bumpy_N_FlipY.png
+gltf_bindless/assets/Shared/T_Bumpy_N.png
+gltf_bindless/assets/Shared/T_InletBorder_AO.png
+gltf_bindless/assets/Shared/T_InletBorder_N_FlipY.png
+gltf_bindless/assets/Shared/T_InletBorder_N.png
+gltf_bindless/assets/Shared/T_InletCenter_AO.png
+gltf_bindless/assets/Shared/T_InletCenter_N_FlipY.png
+gltf_bindless/assets/Shared/T_InletCenter_N.png
+gltf_bindless/assets/Shared/T_Stud_N_FlipY.png
+gltf_bindless/assets/Shared/T_Stud_N.png
+gltf_bindless/assets/structure_mat.glb
+gltf_bindless/assets/structure.glb
+gltf_bindless/CMakeLists.txt
+gltf_bindless/main.cpp
+gltf_bindless/shaders/bindless.glsl
+gltf_bindless/shaders/gltf_bindless.frag
+gltf_bindless/shaders/gltf_bindless.vert
+gltf_bindless/shaders/gltf.frag
+gltf_bindless/shaders/gltf.vert
+gltf_bindless/shaders/tonemap.comp
+gltf_bindless/textures/blini.png
+multidraw/CMakeLists.txt
+multidraw/main.cpp
+multidraw/shaders/cube.frag
+multidraw/shaders/cube.vert
+multidraw/shaders/plane_tint.frag
+rhiCube/CMakeLists.txt
+rhiCube/main.cpp
+rhiCube/shaders/cube.frag
+rhiCube/shaders/cube.vert
+rhiCube/shaders/triangle.frag
+rhiCube/shaders/triangle.vert
+rhiGltfBindless/assets/Duck.glb
+rhiGltfBindless/CMakeLists.txt
+rhiGltfBindless/main.cpp
+rhiGltfBindless/shaders/bindless.glsl
+rhiGltfBindless/shaders/gltf_bindless.frag
+rhiGltfBindless/shaders/gltf_bindless.vert
+rhiMultidraw/CMakeLists.txt
+rhiMultidraw/main.cpp
+rhiMultidraw/shaders/cube.frag
+rhiMultidraw/shaders/cube.vert
+rhiMultidraw/shaders/triangle.frag
+rhiMultidraw/shaders/triangle.vert
+rhiTriangle/CMakeLists.txt
+rhiTriangle/main.cpp
+rhiTriangle/shaders/triangle.frag
+rhiTriangle/shaders/triangle.vert
+triangle/CMakeLists.txt
+triangle/main.cpp
+triangle/shaders/triangle.frag
+triangle/shaders/triangle.vert
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="CMakeLists.txt">
+# Ensure the cmake directory is in the module path so we can include ShaderTools
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+
+# Include the tools
+include(ShaderTools)
+
+# Include sample subdirectories
+add_subdirectory(rhiTriangle)
+add_subdirectory(rhiCube)
+add_subdirectory(rhiMultidraw)
+add_subdirectory(rhiGltfBindless)
+</file>
+
+<file path="common/GeometryUtils.h">
+#pragma once
+
+#include <vector>
+#include "pnkr/renderer/geometry/Vertex.h"
+
+namespace pnkr::samples {
+
+struct MeshData {
+    std::vector<renderer::Vertex> vertices;
+    std::vector<uint32_t> indices;
+};
+
+struct GeometryUtils {
+    static MeshData getCube(float halfSize = 0.5F);
+    static MeshData getPlane(float halfExtent = 1.0F, float y = 0.0F);
+};
+
+inline MeshData GeometryUtils::getCube(float halfSize) {
+    const float h = halfSize;
+
+    MeshData data{};
+    // Vertex format: {Position}, {Color}, {Normal}, {UV}
+    data.vertices = {
+        // +X (right) - Normal (1,0,0)
+        {{+h, -h, -h}, {1,0,0}, {1,0,0}, {0, 0}},
+        {{+h, +h, -h}, {1,0,0}, {1,0,0}, {1, 0}},
+        {{+h, +h, +h}, {1,0,0}, {1,0,0}, {1, 1}},
+        {{+h, -h, +h}, {1,0,0}, {1,0,0}, {0, 1}},
+
+        // -X (left) - Normal (-1,0,0)
+        {{-h, -h, +h}, {0,1,0}, {-1,0,0}, {0, 0}},
+        {{-h, +h, +h}, {0,1,0}, {-1,0,0}, {1, 0}},
+        {{-h, +h, -h}, {0,1,0}, {-1,0,0}, {1, 1}},
+        {{-h, -h, -h}, {0,1,0}, {-1,0,0}, {0, 1}},
+
+        // +Y (top) - Normal (0,1,0)
+        {{-h, +h, -h}, {0,0,1}, {0,1,0}, {0, 0}},
+        {{-h, +h, +h}, {0,0,1}, {0,1,0}, {1, 0}},
+        {{+h, +h, +h}, {0,0,1}, {0,1,0}, {1, 1}},
+        {{+h, +h, -h}, {0,0,1}, {0,1,0}, {0, 1}},
+
+        // -Y (bottom) - Normal (0,-1,0)
+        {{-h, -h, +h}, {1,1,0}, {0,-1,0}, {0, 0}},
+        {{-h, -h, -h}, {1,1,0}, {0,-1,0}, {1, 0}},
+        {{+h, -h, -h}, {1,1,0}, {0,-1,0}, {1, 1}},
+        {{+h, -h, +h}, {1,1,0}, {0,-1,0}, {0, 1}},
+
+        // +Z (front) - Normal (0,0,1)
+        {{-h, -h, +h}, {1,0,1}, {0,0,1}, {0, 0}},
+        {{+h, -h, +h}, {1,0,1}, {0,0,1}, {1, 0}},
+        {{+h, +h, +h}, {1,0,1}, {0,0,1}, {1, 1}},
+        {{-h, +h, +h}, {1,0,1}, {0,0,1}, {0, 1}},
+
+        // -Z (back) - Normal (0,0,-1)
+        {{+h, -h, -h}, {0,1,1}, {0,0,-1}, {0, 0}},
+        {{-h, -h, -h}, {0,1,1}, {0,0,-1}, {1, 0}},
+        {{-h, +h, -h}, {0,1,1}, {0,0,-1}, {1, 1}},
+        {{+h, +h, -h}, {0,1,1}, {0,0,-1}, {0, 1}},
+    };
+
+    data.indices = {
+        0, 1, 2, 0, 2, 3,       // +X
+        4, 5, 6, 4, 6, 7,       // -X
+        8, 9, 10, 8, 10, 11,    // +Y
+        12, 13, 14, 12, 14, 15, // -Y
+        16, 17, 18, 16, 18, 19, // +Z
+        20, 21, 22, 20, 22, 23  // -Z
+    };
+
+    return data;
+}
+
+inline MeshData GeometryUtils::getPlane(float halfExtent, float y) {
+    const float h = halfExtent;
+    MeshData data{};
+    // Vertex format: {Position}, {Color}, {Normal}, {UV}
+    // Normal is Up (0, 1, 0)
+    data.vertices = {
+        {{-h, y, -h}, {1,1,1}, {0,1,0}, {0, 0}},
+        {{+h, y, -h}, {1,1,1}, {0,1,0}, {1, 0}},
+        {{+h, y, +h}, {1,1,1}, {0,1,0}, {1, 1}},
+        {{-h, y, +h}, {1,1,1}, {0,1,0}, {0, 1}},
+    };
+
+    data.indices = {0, 2, 1, 2, 0, 3};
+    return data;
+}
+
+} // namespace pnkr::samples
+</file>
+
+<file path="common/RhiSampleApp.hpp">
+#pragma once
+
+#include <algorithm>
+#include <filesystem>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <memory>
+
+#include <SDL3/SDL.h>
+#include <pnkr/engine.hpp>
+#include <pnkr/core/profiler.hpp>
+
+namespace pnkr::samples
+{
+    struct RhiSampleConfig
+    {
+        std::string title{"PNKR Sample"};
+        int width{800};
+        int height{600};
+        SDL_WindowFlags windowFlags{SDL_WINDOW_RESIZABLE};
+        bool createRenderer{true}; // New flag
+    };
+
+    class RhiSampleApp
+    {
+    public:
+        explicit RhiSampleApp(RhiSampleConfig cfg);
+        virtual ~RhiSampleApp() = default;
+
+
+        int run();
+
+    protected:
+        virtual void onInit()
+        {
+        }
+
+        virtual void onUpdate(float dt)
+        {
+        }
+
+        virtual void onEvent(const SDL_Event& event)
+        {
+        }
+
+
+        // Default implementation uses m_renderer. Override for RHI/Custom rendering.
+        virtual void onRenderFrame(float deltaTime);
+
+        // Only used by default onRenderFrame
+        virtual void onRecord(const renderer::RenderFrameContext& ctx)
+        {
+        }
+
+        virtual void onShutdown()
+        {
+        }
+
+        [[nodiscard]] std::filesystem::path getShaderPath(const std::filesystem::path& filename) const;
+        [[nodiscard]] const std::filesystem::path& baseDir() const { return m_baseDir; }
+
+        static std::filesystem::path resolveBasePath();
+
+        RhiSampleConfig m_config;
+
+    protected:
+        platform::Window m_window;
+        std::unique_ptr<renderer::Renderer> m_renderer; // Changed to pointer
+
+    private:
+        std::filesystem::path m_baseDir;
+        std::filesystem::path m_shaderDir;
+        core::Timer m_timer;
+
+    protected:
+        platform::Input m_input;
+    };
+
+    inline std::filesystem::path RhiSampleApp::resolveBasePath()
+    {
+        const char* base = SDL_GetBasePath();
+        if (base)
+        {
+            std::filesystem::path path(base);
+            SDL_free((void*)base);
+            return path;
+        }
+        return std::filesystem::current_path();
+    }
+
+    inline RhiSampleApp::RhiSampleApp(RhiSampleConfig cfg)
+        : m_config(std::move(cfg)),
+          m_window(m_config.title, m_config.width, m_config.height, m_config.windowFlags),
+          m_baseDir(resolveBasePath()),
+          m_shaderDir(m_baseDir / "shaders")
+    {
+        if (m_config.createRenderer)
+        {
+            m_renderer = std::make_unique<renderer::Renderer>(m_window);
+            m_renderer->setRecordFunc(
+                [this](const renderer::RenderFrameContext& ctx) { onRecord(ctx); });
+        }
+    }
+
+    inline void RhiSampleApp::onRenderFrame(float deltaTime)
+    {
+        if (m_renderer)
+        {
+            m_renderer->beginFrame(deltaTime);
+            m_renderer->drawFrame();
+            m_renderer->endFrame();
+        }
+    }
+
+    inline int RhiSampleApp::run()
+    {
+        try
+        {
+            pnkr::Log::init("[%H:%M:%S] [%-8l] %v");
+            pnkr::Log::info("PNKR Engine v{}.{}.{}", PNKR_VERSION_MAJOR,
+                            PNKR_VERSION_MINOR, PNKR_VERSION_PATCH);
+
+            onInit();
+
+            while (m_window.isRunning())
+            {
+                PNKR_PROFILE_FRAME("Main Loop");
+
+                m_input.beginFrame();
+                m_window.processEvents(&m_input, [this](const SDL_Event& e) { onEvent(e); });
+
+                float deltaTime = std::min(m_timer.deltaTime(), 0.05f);
+
+                {
+                    PNKR_PROFILE_SCOPE("Update");
+                    onUpdate(deltaTime);
+                }
+
+                {
+                    PNKR_PROFILE_SCOPE("Render");
+                    onRenderFrame(deltaTime);
+                }
+            }
+
+            onShutdown();
+            return 0;
+        }
+        catch (const std::exception& e)
+        {
+            pnkr::Log::error("Sample error: {}", e.what());
+            return 1;
+        }
+    }
+
+    inline std::filesystem::path RhiSampleApp::getShaderPath(
+        const std::filesystem::path& filename) const
+    {
+        const std::filesystem::path fullPath =
+            filename.is_absolute() ? filename : m_shaderDir / filename;
+        if (!std::filesystem::exists(fullPath))
+        {
+            throw std::runtime_error("Shader not found: " + fullPath.string());
+        }
+        return fullPath;
+    }
+} // namespace pnkr::samples
+</file>
+
+<file path="common/SampleApp.h">
+#pragma once
+
+#include <algorithm>
+#include <filesystem>
+#include <stdexcept>
+#include <string>
+#include <utility>
+
+#include <SDL3/SDL.h>
+#include <pnkr/engine.hpp>
+#include <pnkr/core/profiler.hpp>
+
+namespace pnkr::samples {
+
+struct RhiSampleConfig {
+    std::string title{"PNKR Sample"};
+    int width{800};
+    int height{600};
+    SDL_WindowFlags windowFlags{SDL_WINDOW_RESIZABLE};
+};
+
+class RhiSampleApp {
+public:
+    explicit RhiSampleApp(RhiSampleConfig cfg);
+    virtual ~RhiSampleApp() = default;
+
+    int run();
+
+protected:
+    virtual void onInit() {}
+    virtual void onUpdate(float /*dt*/) {}
+    virtual void onEvent(const SDL_Event& /*event*/) {}
+    virtual void onRender(const renderer::RenderFrameContext& ctx) = 0;
+    virtual void onShutdown() {}
+
+    [[nodiscard]] std::filesystem::path getShaderPath(const std::filesystem::path& filename) const;
+    [[nodiscard]] const std::filesystem::path& baseDir() const { return m_baseDir; }
+
+    static std::filesystem::path resolveBasePath();
+
+    RhiSampleConfig m_config;
+
+protected:
+    platform::Window m_window;
+    renderer::Renderer m_renderer;
+
+private:
+    std::filesystem::path m_baseDir;
+    std::filesystem::path m_shaderDir;
+    core::Timer m_timer;
+
+protected:
+    platform::Input m_input;
+};
+
+inline std::filesystem::path RhiSampleApp::resolveBasePath() {
+    const char* base = SDL_GetBasePath();
+    if (base) {
+        std::filesystem::path path(base);
+        SDL_free((void*)base);
+        return path;
+    }
+    return std::filesystem::current_path();
+}
+
+inline RhiSampleApp::RhiSampleApp(RhiSampleConfig cfg)
+    : m_config(std::move(cfg)),
+      m_window(m_config.title, m_config.width, m_config.height, m_config.windowFlags),
+      m_renderer(m_window),
+      m_baseDir(resolveBasePath()),
+      m_shaderDir(m_baseDir / "shaders") {
+    m_renderer.setRecordFunc(
+        [this](const renderer::RenderFrameContext& ctx) { onRender(ctx); });
+}
+
+inline int RhiSampleApp::run() {
+    try {
+        pnkr::Log::init("[%H:%M:%S] [%-8l] %v");
+        pnkr::Log::info("PNKR Engine v{}.{}.{}", PNKR_VERSION_MAJOR,
+                        PNKR_VERSION_MINOR, PNKR_VERSION_PATCH);
+
+        onInit();
+
+        while (m_window.isRunning()) {
+            PNKR_PROFILE_FRAME("Main Loop");
+
+            m_input.beginFrame();
+            m_window.processEvents(&m_input, [this](const SDL_Event& e) { onEvent(e); });
+
+            float deltaTime = std::min(m_timer.deltaTime(), 0.05f); // clamp to avoid huge spikes
+
+            {
+                PNKR_PROFILE_SCOPE("Update");
+                onUpdate(deltaTime);
+            }
+
+            {
+                PNKR_PROFILE_SCOPE("Render");
+                m_renderer.beginFrame(deltaTime);
+                m_renderer.drawFrame();
+                m_renderer.endFrame();
+            }
+        }
+
+        onShutdown();
+        return 0;
+    } catch (const std::exception& e) {
+        pnkr::Log::error("Sample error: {}", e.what());
+        return 1;
+    }
+}
+
+inline std::filesystem::path RhiSampleApp::getShaderPath(
+    const std::filesystem::path& filename) const {
+    const std::filesystem::path fullPath =
+        filename.is_absolute() ? filename : m_shaderDir / filename;
+    if (!std::filesystem::exists(fullPath)) {
+        throw std::runtime_error("Shader not found: " + fullPath.string());
+    }
+    return fullPath;
+}
+
+} // namespace pnkr::samples
+</file>
+
+<file path="cube/CMakeLists.txt">
+add_executable(pnkr_cube main.cpp
+        ../common/RhiSampleApp.hpp)
+
+target_compile_features(pnkr_cube PRIVATE cxx_std_20)
+
+target_link_libraries(pnkr_cube PRIVATE pnkr_engine)
+
+if(MSVC)
+  target_compile_options(pnkr_cube PRIVATE /W4)
+else()
+  target_compile_options(pnkr_cube PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+set_target_properties(pnkr_cube PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+
+find_program(GLSLC_EXECUTABLE glslc HINTS
+        "$ENV{VULKAN_SDK}/Bin"
+        "$ENV{VULKAN_SDK}/Bin32"
+)
+if (NOT GLSLC_EXECUTABLE)
+  message(FATAL_ERROR "glslc not found. Install Vulkan SDK and ensure VULKAN_SDK is set.")
+endif()
+
+
+set(CUBE_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+set(CUBE_SHADER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+
+file(MAKE_DIRECTORY "${CUBE_SHADER_OUT_DIR}")
+
+set(CUBE_SHADERS
+        "${CUBE_SHADER_DIR}/cube.vert"
+        "${CUBE_SHADER_DIR}/cube.frag"
+)
+
+set(CUBE_SPV_OUTPUTS "")
+foreach(SHADER ${CUBE_SHADERS})
+  get_filename_component(FILE ${SHADER} NAME)
+  set(OUT_SPV "${CUBE_SHADER_OUT_DIR}/${FILE}.spv")
+
+  add_custom_command(
+          OUTPUT "${OUT_SPV}"
+          COMMAND "${GLSLC_EXECUTABLE}" -o "${OUT_SPV}" "${SHADER}"
+          DEPENDS "${SHADER}"
+          COMMENT "Compiling shader ${FILE} -> ${FILE}.spv"
+          VERBATIM
+  )
+
+  list(APPEND CUBE_SPV_OUTPUTS "${OUT_SPV}")
+endforeach()
+
+add_custom_target(cube_shaders ALL DEPENDS ${CUBE_SPV_OUTPUTS})
+add_dependencies(pnkr_cube cube_shaders)
+
+add_custom_command(TARGET pnkr_cube POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_cube>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CUBE_SHADER_OUT_DIR}"
+        "$<TARGET_FILE_DIR:pnkr_cube>/shaders"
+        COMMENT "Copying SPIR-V shaders to runtime output directory"
+)
+</file>
+
+<file path="cube/main.cpp">
+#include "../common/GeometryUtils.h"
+#include "../common/SampleApp.h"
+
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/quaternion.hpp>
+
+#include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/transform.hpp"
+#include "pnkr/renderer/vulkan/PushConstants.h"
+#include "pnkr/renderer/geometry/VertexInputDescription.h"
+
+using namespace pnkr;
+using namespace pnkr::samples;
+
+class CubeSample : public RhiSampleApp {
+    MeshHandle m_cubeMesh;
+    PipelineHandle m_cubePipe;
+    renderer::scene::Camera m_camera;
+    vk::Extent2D m_lastExtent{0, 0};
+
+public:
+    CubeSample() : RhiSampleApp({"PNKR - Cube", 800, 600}) {}
+
+    void onInit() override {
+        auto cubeData = GeometryUtils::getCube();
+        m_cubeMesh = m_renderer.createMesh(cubeData.vertices, cubeData.indices);
+
+        renderer::VulkanPipeline::Config cfg{};
+        cfg.m_vertSpvPath = getShaderPath("cube.vert.spv");
+        cfg.m_fragSpvPath = getShaderPath("cube.frag.spv");
+        cfg.m_pushConstantSize = sizeof(PushConstants);
+        cfg.m_pushConstantStages = vk::ShaderStageFlagBits::eVertex;
+        cfg.m_depth.testEnable = true;
+        cfg.m_depth.writeEnable = true;
+        m_cubePipe = m_renderer.createPipeline(cfg);
+
+        m_camera.lookAt({1.5f, 1.2f, 1.5f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
+    }
+
+    void onRender(const renderer::RenderFrameContext& ctx) override {
+        if (ctx.m_extent.width != m_lastExtent.width || ctx.m_extent.height != m_lastExtent.height) {
+            m_lastExtent = ctx.m_extent;
+            const float aspect = float(m_lastExtent.width) / float(m_lastExtent.height);
+            m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 10.0f);
+        }
+
+        static float timeVal = 0.0f;
+        timeVal += ctx.m_deltaTime;
+
+        renderer::scene::Transform xform;
+        xform.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0f, 1.0f, 0.0f});
+
+        PushConstants pc{xform.mat4(), m_camera.viewProj()};
+        m_renderer.pushConstants(ctx.m_cmd, m_cubePipe, vk::ShaderStageFlagBits::eVertex, pc);
+        m_renderer.bindPipeline(ctx.m_cmd, m_cubePipe);
+        m_renderer.bindMesh(ctx.m_cmd, m_cubeMesh);
+        m_renderer.drawMesh(ctx.m_cmd, m_cubeMesh);
+    }
+};
+
+int main(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
+    CubeSample app;
+    return app.run();
+}
+</file>
+
+<file path="cube/shaders/cube.frag">
+#version 450
+
+layout(location = 0) in vec3 vColor;
+
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+    outColor = vec4(vColor, 1.0);
+}
+</file>
+
+<file path="cube/shaders/cube.vert">
+#version 450
+
+layout(push_constant) uniform PushConstants {
+  mat4 model;
+  mat4 viewProj;
+} pc;
+
+layout(location = 0) in vec3 inPosition;
+layout(location = 1) in vec3 inColor;
+
+layout(location = 0) out vec3 vColor;
+
+void main()
+{
+  gl_Position = pc.viewProj * pc.model * vec4(inPosition, 1.0);
+  vColor = inColor;
+}
+</file>
+
+<file path="gltf_bindless/assets/copyright.txt">
+Underground city in the 
+"Lost Empire" area from the Vokselia Minecraft world
+http://vokselia.com
+CC BY 3.0 License http://creativecommons.org/licenses/by/3.0/
+
+224,998 faces
+449,992 vertices 
+after loading and welding colocated vertices
+
+------------------
+Converted to OBJ by Morgan McGuire using Mineways (http://mineways.com)
+</file>
+
+<file path="gltf_bindless/assets/lost_empire.mtl">
+Wavefront OBJ material file
+# Contains 45 materials
+
+newmtl Stone
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Grass_Block
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Dirt
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Cobblestone
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Oak_Planks
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Stationary_Water
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0.03 0.03 0.03
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 4
+# d 0.535
+# Tr 0.465
+# Tf 0.465 0.465 0.465
+
+newmtl Stationary_Lava
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+Ke 1 1 1
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+map_Ke lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Sand
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Gravel
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Iron_Ore
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Coal_Ore
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Oak_Log
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Oak_Leaves
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Bed
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Powered_Rail
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Detector_Rail
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Sticky_Piston
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Wool
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Dandelion
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Poppy
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Brown_Mushroom
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Double_Stone_Slab
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Stone_Slab
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Obsidian
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Torch
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+Ke 1 1 1
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+map_Ke lost_empire-RGBA.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Oak_Stairs
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Chest
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Redstone_Wire
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Block_of_Diamond
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Crafting_Table
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Furnace
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Standing_Sign
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Ladder
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Rail
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Cobblestone_Stairs
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Wall_Sign
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Lever
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Iron_Door
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Redstone_Torch_(inactive)
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Redstone_Torch_(active)
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+Ke 1 1 1
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+map_Ke lost_empire-RGBA.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Stone_Button
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Fence
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Nether_Portal
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0.03 0.03 0.03
+Ke 1 1 1
+# map_Ka lost_empire-RGBA.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGBA.png
+map_d lost_empire-Alpha.png
+map_Ke lost_empire-RGBA.png
+# illum 4
+# d 0.8
+# Tr 0.2
+# Tf 0.2 0.2 0.2
+
+newmtl Redstone_Repeater_(inactive)
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+
+newmtl Redstone_Repeater_(active)
+# Ns 0
+# Ka 0.2 0.2 0.2
+Kd 1 1 1
+Ks 0 0 0
+# map_Ka lost_empire-RGB.png
+# for G3D, to make textures look blocky:
+interpolateMode NEAREST_MAGNIFICATION_TRILINEAR_MIPMAP_MINIFICATION
+map_Kd lost_empire-RGB.png
+# illum 2
+# d 1
+# Tr 0
+</file>
+
+<file path="gltf_bindless/assets/monkey_flat.mtl">
+# Blender MTL File: 'None'
+# Material Count: 1
+
+newmtl None
+Ns 500
+Ka 0.8 0.8 0.8
+Kd 0.8 0.8 0.8
+Ks 0.8 0.8 0.8
+d 1
+illum 2
+</file>
+
+<file path="gltf_bindless/assets/monkey_smooth.mtl">
+# Blender MTL File: 'None'
+# Material Count: 1
+
+newmtl None
+Ns 500
+Ka 0.8 0.8 0.8
+Kd 0.8 0.8 0.8
+Ks 0.8 0.8 0.8
+d 1
+illum 2
+</file>
+
+<file path="gltf_bindless/CMakeLists.txt">
+add_executable(pnkr_gltf_bindless main.cpp)
+
+target_compile_features(pnkr_gltf_bindless PRIVATE cxx_std_20)
+
+target_link_libraries(pnkr_gltf_bindless PRIVATE pnkr_engine)
+
+if(MSVC)
+  target_compile_options(pnkr_gltf_bindless PRIVATE /W4)
+else()
+  target_compile_options(pnkr_gltf_bindless PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+set_target_properties(pnkr_gltf_bindless PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+
+find_program(GLSLC_EXECUTABLE glslc HINTS
+        "$ENV{VULKAN_SDK}/Bin"
+        "$ENV{VULKAN_SDK}/Bin32"
+)
+if (NOT GLSLC_EXECUTABLE)
+  message(FATAL_ERROR "glslc not found. Install Vulkan SDK and ensure VULKAN_SDK is set.")
+endif()
+
+
+set(GLTF_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+set(GLTF_SHADER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+set(GLTF_TEXTURE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/textures")
+set(GLTF_TEXTURE_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+set(GLTF_ASSETS_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/assets")
+set(GLTF_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+
+file(MAKE_DIRECTORY "${GLTF_SHADER_OUT_DIR}")
+file(MAKE_DIRECTORY "${GLTF_TEXTURE_OUT_DIR}")
+file(MAKE_DIRECTORY "${GLTF_ASSETS_OUT_DIR}")
+
+set(gltf_bindless_shaders
+        "${GLTF_SHADER_DIR}/gltf.vert"
+        "${GLTF_SHADER_DIR}/gltf.frag"
+        "${GLTF_SHADER_DIR}/gltf_bindless.vert"
+        "${GLTF_SHADER_DIR}/gltf_bindless.frag"
+        "${GLTF_SHADER_DIR}/tonemap.comp"
+)
+
+set(GLTF_SPV_OUTPUTS "")
+foreach(SHADER ${gltf_bindless_shaders})
+  get_filename_component(FILE ${SHADER} NAME)
+  set(OUT_SPV "${GLTF_SHADER_OUT_DIR}/${FILE}.spv")
+
+  add_custom_command(
+          OUTPUT "${OUT_SPV}"
+          COMMAND "${GLSLC_EXECUTABLE}" -o "${OUT_SPV}" "${SHADER}"
+          DEPENDS "${SHADER}"
+          COMMENT "Compiling shader ${FILE} -> ${FILE}.spv"
+          VERBATIM
+  )
+
+  list(APPEND GLTF_SPV_OUTPUTS "${OUT_SPV}")
+endforeach()
+
+add_custom_target(gltf_bindless_shaders ALL DEPENDS ${GLTF_SPV_OUTPUTS})
+add_dependencies(pnkr_gltf_bindless gltf_bindless_shaders)
+
+
+add_custom_command(TARGET pnkr_gltf_bindless POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_gltf_bindless>/textures"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${GLTF_TEXTURE_OUT_DIR}"
+        "$<TARGET_FILE_DIR:pnkr_gltf_bindless>/textures"
+        COMMENT "Copying textures to runtime output directory"
+)
+
+add_custom_command(TARGET pnkr_gltf_bindless POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_gltf_bindless>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${GLTF_SHADER_OUT_DIR}"
+        "$<TARGET_FILE_DIR:pnkr_gltf_bindless>/shaders"
+        COMMENT "Copying SPIR-V shaders to runtime output directory"
+)
+
+add_custom_command(TARGET pnkr_gltf_bindless POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_gltf_bindless>/assets"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${GLTF_ASSETS_DIR}"
+        "$<TARGET_FILE_DIR:pnkr_gltf_bindless>/assets"
+        COMMENT "Copying SPIR-V shaders to runtime output directory"
+)
+</file>
+
+<file path="gltf_bindless/main.cpp">
+#include "pnkr/engine.hpp"
+#include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/renderer/geometry/Vertex.h"
+#include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/transform.hpp"
+#include "pnkr/renderer/scene/Model.hpp"
+#include "pnkr/renderer/vulkan/pipeline/PipelineBuilder.h"
+#include "pnkr/rhi/rhi_pipeline_builder.hpp"
+#include "pnkr/rhi/rhi_shader.hpp"
+
+// Bypass broken generated header for now
+namespace ShaderGen {
+    struct MaterialData {
+        glm::vec4 baseColorFactor;
+        uint32_t baseColorTexture;
+        uint32_t _pad0;
+        uint32_t _pad1;
+        uint32_t _pad2;
+    };
+    struct PushConstants {
+        glm::mat4 model;
+        glm::mat4 viewProj;
+        uint32_t materialIndex;
+    };
+}
+
+#include "../common/RhiSampleApp.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <iostream>
+#include <variant>
+
+using namespace pnkr;
+
+class RHIGltfBindlessApp : public samples::RhiSampleApp {
+public:
+    RHIGltfBindlessApp()
+        : samples::RhiSampleApp({"RHI Bindless GLTF", 1280, 720, SDL_WINDOW_RESIZABLE, false}) {}
+
+    renderer::scene::Camera m_camera;
+    std::unique_ptr<renderer::scene::Model> m_model;
+    std::unique_ptr<renderer::RHIRenderer> m_renderer;
+    PipelineHandle m_pipeline;
+    std::unique_ptr<renderer::rhi::RHIBuffer> m_materialBuffer;
+
+    void onInit() override {
+        renderer::RendererConfig config;
+        config.m_enableBindless = true;
+        m_renderer = std::make_unique<renderer::RHIRenderer>(m_window, config);
+
+        m_camera.lookAt({2.0f, 2.0f, 2.0f}, {0.f, 0.5f, 0.f}, {0.f, 1.f, 0.f});
+
+        // Pass RHIRenderer directly. Model::load now expects RHIRenderer&.
+        m_model = renderer::scene::Model::load(*m_renderer, baseDir() / "assets" / "Duck.glb");
+
+        if (!m_model) throw std::runtime_error("Failed to load model");
+
+        uploadMaterials();
+        createPipeline();
+
+        m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx) {
+            recordFrame(ctx);
+        });
+    }
+
+    void uploadMaterials() {
+        const auto& modelMaterials = m_model->materials();
+        std::vector<ShaderGen::MaterialData> gpuMaterials;
+
+        for (const auto& mat : modelMaterials) {
+            ShaderGen::MaterialData m{};
+            m.baseColorFactor = mat.baseColorFactor;
+            if (mat.baseColorTexture != INVALID_TEXTURE_HANDLE) {
+                m.baseColorTexture = m_renderer->getTextureBindlessIndex(mat.baseColorTexture);
+            } else {
+                m.baseColorTexture = 0xFFFFFFFF;
+            }
+            gpuMaterials.push_back(m);
+        }
+
+        if (gpuMaterials.empty()) gpuMaterials.push_back({});
+
+        size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
+        m_materialBuffer = m_renderer->device()->createBuffer(
+            size,
+            renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst,
+            renderer::rhi::MemoryUsage::GPUOnly
+        );
+
+        auto staging = m_renderer->device()->createBuffer(size, renderer::rhi::BufferUsage::TransferSrc, renderer::rhi::MemoryUsage::CPUToGPU);
+        staging->uploadData(gpuMaterials.data(), size);
+
+        auto cmd = m_renderer->device()->createCommandBuffer();
+        cmd->begin();
+        cmd->copyBuffer(staging.get(), m_materialBuffer.get(), 0, 0, size);
+        cmd->end();
+        m_renderer->device()->submitCommands(cmd.get());
+        m_renderer->device()->waitIdle();
+    }
+
+    void createPipeline() {
+        // Use renderer::rhi::Shader
+        auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex, getShaderPath("gltf_bindless.vert.spv"));
+        auto fs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Fragment, getShaderPath("gltf_bindless.frag.spv"));
+
+        auto builder = renderer::rhi::RHIPipelineBuilder()
+            .setShaders(vs.get(), fs.get())
+            .useVertexType<renderer::Vertex>()
+            .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
+            .setCullMode(renderer::rhi::CullMode::Back)
+            .enableDepthTest()
+            .setColorFormat(m_renderer->getDrawColorFormat())
+            .setDepthFormat(m_renderer->getDrawDepthFormat())
+            .setName("GltfBindless");
+
+        m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+    }
+
+    void recordFrame(const renderer::RHIFrameContext& ctx) {
+        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
+
+        float aspect = (float)m_window.width() / m_window.height();
+        m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+
+        std::function<void(int)> drawNode = [&](int nodeIdx) {
+            const auto& node = m_model->nodes()[nodeIdx];
+
+            for (const auto& prim : node.meshPrimitives) {
+                ShaderGen::PushConstants pc{};
+                pc.model = node.worldTransform.mat4();
+                pc.viewProj = m_camera.viewProj();
+                pc.materialIndex = prim.materialIndex;
+
+                m_renderer->pushConstants(ctx.commandBuffer, m_pipeline,
+                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment,
+                    pc);
+
+                m_renderer->bindMesh(ctx.commandBuffer, prim.mesh);
+                m_renderer->drawMesh(ctx.commandBuffer, prim.mesh);
+            }
+
+            for (int child : node.children) {
+                drawNode(child);
+            }
+        };
+
+        for (int root : m_model->rootNodes()) {
+            drawNode(root);
+        }
+    }
+};
+
+int main(int argc, char** argv) {
+    RHIGltfBindlessApp app;
+    return app.run();
+}
+</file>
+
+<file path="gltf_bindless/shaders/bindless.glsl">
+#ifndef BINDLESS_GLSL
+#define BINDLESS_GLSL
+
+// === BINDLESS DESCRIPTOR SET (Set 1) ===
+
+// Binding 0: Storage buffers for material data
+layout(set = 1, binding = 0, std430) readonly buffer MaterialBuffer {
+// Material data layout (64 bytes per material)
+// vec4[0]: baseColorTexture (uint), normalTexture (uint), metallicRoughnessTexture (uint), emissiveTexture (uint)
+// vec4[1]: baseColorFactor
+// vec4[2]: emissiveFactor
+// vec4[3]: metallicFactor (float), roughnessFactor (float), _pad0, _pad1
+    vec4 data[];
+} materialBuffer;
+
+// Binding 1: All textures in one array
+layout(set = 1, binding = 1) uniform sampler2D bindlessTextures[];
+
+// Binding 2: Storage images for compute shaders
+layout(set = 1, binding = 2, rgba8) uniform image2D bindlessStorageImages[];
+
+// === MATERIAL STRUCTURES ===
+
+struct Material {
+    uint baseColorTexture;
+    uint normalTexture;
+    uint metallicRoughnessTexture;
+    uint emissiveTexture;
+
+    vec4 baseColorFactor;
+    vec4 emissiveFactor;
+    float metallicFactor;
+    float roughnessFactor;
+};
+
+// Load material from storage buffer
+Material loadMaterial(uint materialIndex) {
+    Material mat;
+
+    // Each material occupies 4 vec4s (64 bytes)
+    uint baseOffset = materialIndex * 4u;
+
+    // Load texture indices from first vec4
+    vec4 texIndices = materialBuffer.data[baseOffset + 0u];
+    mat.baseColorTexture = floatBitsToUint(texIndices.x);
+    mat.normalTexture = floatBitsToUint(texIndices.y);
+    mat.metallicRoughnessTexture = floatBitsToUint(texIndices.z);
+    mat.emissiveTexture = floatBitsToUint(texIndices.w);
+
+    // Load factors
+    mat.baseColorFactor = materialBuffer.data[baseOffset + 1u];
+    mat.emissiveFactor = materialBuffer.data[baseOffset + 2u];
+
+    vec4 metallicRoughness = materialBuffer.data[baseOffset + 3u];
+    mat.metallicFactor = metallicRoughness.x;
+    mat.roughnessFactor = metallicRoughness.y;
+
+    return mat;
+}
+
+// Helper: Sample texture from bindless array safely
+vec4 sampleBindlessTexture(uint textureIndex, vec2 uv) {
+    if (textureIndex == 0xFFFFFFFFu) {
+        // Invalid texture - return magenta for debugging
+        return vec4(1.0, 0.0, 1.0, 1.0);
+    }
+    return texture(bindlessTextures[nonuniformEXT(textureIndex)], uv);
+}
+
+#endif // BINDLESS_GLSL
+</file>
+
+<file path="gltf_bindless/shaders/gltf_bindless.frag">
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+
+
+layout(set = 0, binding = 1) uniform sampler2D bindlessTextures[];
+
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    mat4 viewProj;
+    uint materialIndex;
+    uint meshIndex;
+} pc;
+
+layout(location = 0) in VS_OUT {
+    vec3 normal;
+    vec2 texCoord;
+    vec3 worldPos;
+    vec3 color;
+    flat uint materialIndex;
+} fsIn;
+
+layout(location = 0) out vec4 outColor;
+
+void main() {
+    vec4 baseColor;
+
+    baseColor = texture(bindlessTextures[nonuniformEXT(pc.materialIndex)], fsIn.texCoord);
+
+    vec3 N = normalize(fsIn.normal);
+    vec3 L = normalize(vec3(1.0, 1.0, 1.0));
+    float ndotl = max(dot(N, L), 0.0);
+    vec3 color = baseColor.rgb * (0.3 + 0.7 * ndotl);
+
+    outColor = vec4(color, baseColor.a);
+}
+</file>
+
+<file path="gltf_bindless/shaders/gltf_bindless.vert">
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "bindless.glsl"
+
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    mat4 viewProj;
+    uint materialIndex;
+    uint meshIndex;
+} pc;
+
+// Input: Vertex attributes (now from buffer binding)
+layout(location = 0) in vec3 inPosition;
+layout(location = 1) in vec3 inNormal;
+layout(location = 2) in vec3 inColor;
+layout(location = 3) in vec2 inTexCoord;
+
+layout(location = 0) out VS_OUT {
+    vec3 normal;
+    vec2 texCoord;
+    vec3 worldPos;
+    vec3 color;
+    flat uint materialIndex;
+} vsOut;
+
+void main() {
+    vec3 worldPos = vec3(pc.model * vec4(inPosition, 1.0));
+    gl_Position = pc.viewProj * vec4(worldPos, 1.0);
+
+    vsOut.worldPos = worldPos;
+    vsOut.normal = mat3(pc.model) * inNormal;
+    vsOut.texCoord = inTexCoord;
+    vsOut.materialIndex = pc.materialIndex;
+    vsOut.color = inColor;
+}
+</file>
+
+<file path="gltf_bindless/shaders/gltf.frag">
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+
+// Set 0: Traditional single texture descriptor
+layout(set = 0, binding = 0) uniform sampler2D traditionalTexture;
+
+// Set 1: Bindless texture array
+layout(set = 1, binding = 1) uniform sampler2D bindlessTextures[];
+
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    mat4 viewProj;
+    uint materialIndex;
+    uint meshIndex;
+} pc;
+
+// FIX: Match the Vertex Shader's output block exactly!
+layout(location = 0) in VS_OUT {
+    vec3 normal;
+    vec2 texCoord;
+    vec3 worldPos;
+    vec3 color;
+    flat uint materialIndex;
+} fsIn;
+
+layout(location = 0) out vec4 outColor;
+
+void main() {
+    vec4 baseColor;
+
+    // Access inputs via fsIn.texCoord, fsIn.materialIndex, etc.
+
+    // Runtime branch: check if using traditional or bindless
+    if (pc.materialIndex == 0xFFFFFFFFu) {
+        baseColor = texture(traditionalTexture, fsIn.texCoord);
+    } else {
+        baseColor = texture(bindlessTextures[nonuniformEXT(pc.materialIndex)], fsIn.texCoord);
+    }
+
+    vec3 N = normalize(fsIn.normal);
+    vec3 L = normalize(vec3(1.0, 1.0, 1.0));
+    float ndotl = max(dot(N, L), 0.0);
+    vec3 color = baseColor.rgb * (0.3 + 0.7 * ndotl);
+
+    outColor = vec4(color, baseColor.a);
+}
+</file>
+
+<file path="gltf_bindless/shaders/gltf.vert">
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "bindless.glsl"
+
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    mat4 viewProj;
+    uint materialIndex;
+    uint meshIndex;
+} pc;
+
+// Input: Vertex attributes (now from buffer binding)
+layout(location = 0) in vec3 inPosition;
+layout(location = 1) in vec3 inNormal;
+layout(location = 2) in vec3 inColor;
+layout(location = 3) in vec2 inTexCoord;
+
+layout(location = 0) out VS_OUT {
+    vec3 normal;
+    vec2 texCoord;
+    vec3 worldPos;
+    vec3 color;
+    flat uint materialIndex;
+} vsOut;
+
+void main() {
+    vec3 worldPos = vec3(pc.model * vec4(inPosition, 1.0));
+    gl_Position = pc.viewProj * vec4(worldPos, 1.0);
+
+    vsOut.worldPos = worldPos;
+    vsOut.normal = mat3(pc.model) * inNormal;
+    vsOut.texCoord = inTexCoord;
+    vsOut.materialIndex = pc.materialIndex;
+    vsOut.color = inColor;
+}
+</file>
+
+<file path="gltf_bindless/shaders/tonemap.comp">
+#version 460
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) uniform sampler2D inputHdr;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D outputLdr;
+
+void main() {
+    ivec2 storePos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(outputLdr);
+
+    if (storePos.x >= size.x || storePos.y >= size.y) return;
+
+    // 1. Read HDR Color
+    vec2 uv = (vec2(storePos) + 0.5) / vec2(size);
+    vec4 hdrColor = texture(inputHdr, uv);
+
+    // 2. ACES Tone Mapping (Approximate)
+    vec3 color = hdrColor.rgb;
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    color = clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
+
+    // 3. Gamma Correction (Linear -> sRGB)
+    color = pow(color, vec3(1.0/2.2));
+
+    // 4. Write to Swapchain
+    imageStore(outputLdr, storePos, vec4(color, 1.0));
+}
+</file>
+
+<file path="multidraw/CMakeLists.txt">
+add_executable(pnkr_multidraw main.cpp)
+
+target_compile_features(pnkr_multidraw PRIVATE cxx_std_20)
+
+target_link_libraries(pnkr_multidraw PRIVATE pnkr_engine)
+
+if(MSVC)
+  target_compile_options(pnkr_multidraw PRIVATE /W4)
+else()
+  target_compile_options(pnkr_multidraw PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+set_target_properties(pnkr_multidraw PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+
+find_program(GLSLC_EXECUTABLE glslc HINTS
+        "$ENV{VULKAN_SDK}/Bin"
+        "$ENV{VULKAN_SDK}/Bin32"
+)
+if (NOT GLSLC_EXECUTABLE)
+  message(FATAL_ERROR "glslc not found. Install Vulkan SDK and ensure VULKAN_SDK is set.")
+endif()
+
+
+set(MULTIDRAW_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+set(MULTIDRAW_SHADER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+
+file(MAKE_DIRECTORY "${MULTIDRAW_SHADER_OUT_DIR}")
+
+set(MULTIDRAW_SHADERS
+        "${MULTIDRAW_SHADER_DIR}/plane_tint.frag"
+        "${MULTIDRAW_SHADER_DIR}/cube.vert"
+        "${MULTIDRAW_SHADER_DIR}/cube.frag"
+)
+
+set(MULTIDRAW_SPV_OUTPUTS "")
+foreach(SHADER ${MULTIDRAW_SHADERS})
+  get_filename_component(FILE ${SHADER} NAME)
+  set(OUT_SPV "${MULTIDRAW_SHADER_OUT_DIR}/${FILE}.spv")
+
+  add_custom_command(
+          OUTPUT "${OUT_SPV}"
+          COMMAND "${GLSLC_EXECUTABLE}" -o "${OUT_SPV}" "${SHADER}"
+          DEPENDS "${SHADER}"
+          COMMENT "Compiling shader ${FILE} -> ${FILE}.spv"
+          VERBATIM
+  )
+
+  list(APPEND MULTIDRAW_SPV_OUTPUTS "${OUT_SPV}")
+endforeach()
+
+add_custom_target(multidraw_shaders ALL DEPENDS ${MULTIDRAW_SPV_OUTPUTS})
+add_dependencies(pnkr_multidraw multidraw_shaders)
+
+add_custom_command(TARGET pnkr_multidraw POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_multidraw>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${MULTIDRAW_SHADER_OUT_DIR}"
+        "$<TARGET_FILE_DIR:pnkr_multidraw>/shaders"
+        COMMENT "Copying SPIR-V shaders to runtime output directory"
+)
+</file>
+
+<file path="multidraw/main.cpp">
+#include "../common/GeometryUtils.h"
+#include "../common/SampleApp.h"
+
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/quaternion.hpp>
+
+#include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/transform.hpp"
+#include "pnkr/renderer/vulkan/PushConstants.h"
+#include "pnkr/renderer/geometry/VertexInputDescription.h"
+
+using namespace pnkr;
+using namespace pnkr::samples;
+
+class MultiDrawSample : public RhiSampleApp {
+    MeshHandle m_cube{};
+    MeshHandle m_plane{};
+    PipelineHandle m_cubePipe{};
+    PipelineHandle m_planePipe{};
+    renderer::scene::Camera m_camera;
+    vk::Extent2D m_lastExtent{0, 0};
+
+public:
+    MultiDrawSample() : RhiSampleApp({"PNKR - MultiDraw", 800, 600}) {}
+
+    void onInit() override {
+        const auto cubeData = GeometryUtils::getCube();
+        const auto planeData = GeometryUtils::getPlane(2.5f, -0.6f);
+
+        m_cube = m_renderer.createMesh(cubeData.vertices, cubeData.indices);
+        m_plane = m_renderer.createMesh(planeData.vertices, planeData.indices);
+
+        renderer::VulkanPipeline::Config cfg{};
+        cfg.m_vertSpvPath = getShaderPath("cube.vert.spv");
+        cfg.m_fragSpvPath = getShaderPath("cube.frag.spv");
+        cfg.m_pushConstantSize = sizeof(PushConstants);
+        cfg.m_pushConstantStages = vk::ShaderStageFlagBits::eVertex;
+        cfg.m_depth.testEnable = true;
+        cfg.m_depth.writeEnable = true;
+
+        m_cubePipe = m_renderer.createPipeline(cfg);
+
+        renderer::VulkanPipeline::Config planeCfg = cfg;
+        planeCfg.m_fragSpvPath = getShaderPath("plane_tint.frag.spv");
+        m_planePipe = m_renderer.createPipeline(planeCfg);
+
+        m_camera.lookAt({1.5f, 1.2f, 1.5f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
+    }
+
+    void onRender(const renderer::RenderFrameContext& ctx) override {
+        if (ctx.m_extent.width != m_lastExtent.width || ctx.m_extent.height != m_lastExtent.height) {
+            m_lastExtent = ctx.m_extent;
+            const float aspect = float(m_lastExtent.width) / float(m_lastExtent.height);
+            m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 10.0f);
+        }
+
+        static float timeVal = 0.0f;
+        timeVal += ctx.m_deltaTime;
+
+        renderer::scene::Transform cubeXf;
+        cubeXf.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0f, 1.0f, 0.0f});
+
+        PushConstants pc{cubeXf.mat4(), m_camera.viewProj()};
+        m_renderer.pushConstants(ctx.m_cmd, m_cubePipe, vk::ShaderStageFlagBits::eVertex, pc);
+        m_renderer.bindPipeline(ctx.m_cmd, m_cubePipe);
+        m_renderer.bindMesh(ctx.m_cmd, m_cube);
+        m_renderer.drawMesh(ctx.m_cmd, m_cube);
+
+        renderer::scene::Transform planeXf;
+        pc.m_model = planeXf.mat4();
+        m_renderer.pushConstants(ctx.m_cmd, m_planePipe, vk::ShaderStageFlagBits::eVertex, pc);
+        m_renderer.bindPipeline(ctx.m_cmd, m_planePipe);
+        m_renderer.bindMesh(ctx.m_cmd, m_plane);
+        m_renderer.drawMesh(ctx.m_cmd, m_plane);
+    }
+};
+
+int main(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
+    MultiDrawSample app;
+    return app.run();
+}
+</file>
+
+<file path="multidraw/shaders/cube.frag">
+#version 450
+
+layout(location = 0) in vec3 vColor;
+
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+    outColor = vec4(vColor, 1.0);
+}
+</file>
+
+<file path="multidraw/shaders/cube.vert">
+#version 450
+
+layout(push_constant) uniform PushConstants {
+  mat4 model;
+  mat4 viewProj;
+} pc;
+
+layout(location = 0) in vec3 inPosition;
+layout(location = 1) in vec3 inColor;
+
+layout(location = 0) out vec3 vColor;
+
+void main()
+{
+  gl_Position = pc.viewProj * pc.model * vec4(inPosition, 1.0);
+  vColor = inColor;
+}
+</file>
+
+<file path="multidraw/shaders/plane_tint.frag">
+#version 450
+
+layout(location = 0) in vec3 fragColor;
+layout(location = 0) out vec4 outColor;
+
+void main() {
+  outColor = vec4(0.1, 0.8, 0.2, 1.0); // constant tint
+}
+</file>
+
+<file path="rhiCube/CMakeLists.txt">
+add_executable(pnkr_rhi_cube main.cpp)
+
+target_compile_features(pnkr_rhi_cube PRIVATE cxx_std_20)
+
+target_link_libraries(pnkr_rhi_cube PRIVATE pnkr_engine)
+
+if(MSVC)
+  target_compile_options(pnkr_rhi_cube PRIVATE /W4)
+else()
+  target_compile_options(pnkr_rhi_cube PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+set_target_properties(pnkr_rhi_cube PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+# Compile Fragment Shader
+add_shader_target("shaders/cube.frag")
+add_dependencies(pnkr_rhi_cube ${LAST_GENERATED_TARGET})
+
+# Compile Vertex Shader
+add_shader_target("shaders/cube.vert")
+add_dependencies(pnkr_rhi_cube ${LAST_GENERATED_TARGET})
+
+target_include_directories(pnkr_rhi_cube PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
+# Ensure main.cpp rebuilds if the header changes
+set_source_files_properties(main.cpp PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/cube.vert.h"
+)
+
+add_custom_command(TARGET pnkr_rhi_cube POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_cube>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        "$<TARGET_FILE_DIR:pnkr_rhi_cube>/shaders"
+        COMMENT "Copying SPIR-V shaders to runtime output directory"
+)
+</file>
+
+<file path="rhiCube/main.cpp">
+#include "generated/cube.vert.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <fstream>
+#include <vector>
+
+// Assuming these exist in your common folder as per your snippet
+#include "../common/GeometryUtils.h"
+#include "../common/RhiSampleApp.hpp"
+#include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/transform.hpp"
+#include "pnkr/rhi/rhi_pipeline_builder.hpp"
+
+using namespace pnkr;
+
+class RHICubeApp : public samples::RhiSampleApp
+{
+public:
+    RHICubeApp()
+        : samples::RhiSampleApp({"RHI Cube", 800, 600, SDL_WINDOW_RESIZABLE, false})
+    {
+    }
+
+    renderer::scene::Camera m_camera;
+
+    void onInit() override
+    {
+        // 1. Init Renderer
+        m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
+
+        // 2. Setup Camera
+        m_camera.lookAt({0.0f, 2.0f, 4.0f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
+        float aspect = (float)m_window.width() / (float)m_window.height();
+        m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+
+        // 3. Create Geometry
+        auto cubeData = samples::GeometryUtils::getCube();
+        m_cubeMesh = m_renderer->createMesh(cubeData.vertices, cubeData.indices);
+
+        // 4. Create Pipeline
+        createPipeline();
+
+        // 5. Set Record Callback
+        m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx)
+        {
+            this->recordFrame(ctx);
+        });
+    }
+
+    void createPipeline()
+    {
+        // Define Vertex Input manually for RHI
+        std::vector<renderer::rhi::VertexInputBinding> bindings = {
+            { 0, sizeof(renderer::Vertex), renderer::rhi::VertexInputRate::Vertex }
+        };
+
+        std::vector<renderer::rhi::VertexInputAttribute> attribs = {
+            {0, 0, renderer::rhi::Format::R32G32B32_SFLOAT, offsetof(renderer::Vertex, m_position)},
+            {1, 0, renderer::rhi::Format::R32G32B32_SFLOAT, offsetof(renderer::Vertex, m_color)},
+            {2, 0, renderer::rhi::Format::R32G32B32_SFLOAT, offsetof(renderer::Vertex, m_normal)},
+            {3, 0, renderer::rhi::Format::R32G32_SFLOAT,    offsetof(renderer::Vertex, m_texCoord)}
+        };
+
+        auto vs = renderer::rhi::Shader::load(
+            renderer::rhi::ShaderStage::Vertex,
+            getShaderPath("cube.vert.spv")
+        );
+
+        auto fs = renderer::rhi::Shader::load(
+            renderer::rhi::ShaderStage::Fragment,
+            getShaderPath("cube.frag.spv")
+        );
+
+        // Builder merges reflection data automatically
+        auto desc = renderer::rhi::RHIPipelineBuilder()
+            .setName("CubePipeline")
+            .setShaders(vs.get(), fs.get())
+            .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
+            .setCullMode(renderer::rhi::CullMode::Back)
+            .useVertexType<renderer::Vertex>()
+            .enableDepthTest(true)
+            .setColorFormat(m_renderer->getDrawColorFormat())
+            .setDepthFormat(m_renderer->getDrawDepthFormat())
+            .buildGraphics();
+
+        // FIX: Validation Error 06055
+        // Explicitly add a blend attachment to match the color attachment count.
+        renderer::rhi::BlendAttachment blend{};
+        blend.blendEnable = false;
+        // Assuming default constructor sets valid write mask (e.g. RGBA), or 0 if omitted.
+        // Explicitly setting it would be safer if we knew the Enum, but default init is used in rhiTriangle.
+        desc.blend.attachments.push_back(blend);
+
+        m_pipeline = m_renderer->createGraphicsPipeline(desc);
+    }
+
+    void recordFrame(const renderer::RHIFrameContext& ctx)
+    {
+        static float timeVal = 0.0f;
+        timeVal += ctx.deltaTime;
+
+        // 1. Calculate Transform
+        renderer::scene::Transform xform;
+        xform.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0f, 1.0f, 0.0f});
+
+        // 2. Prepare Data
+        ShaderGen::PushConstants pc{};
+        pc.model = xform.mat4();
+        pc.viewProj = m_camera.viewProj();
+
+        // 3. Bind Pipeline
+        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
+
+        // 4. Push Constants
+        m_renderer->pushConstants(
+            ctx.commandBuffer,
+            m_pipeline,
+            renderer::rhi::ShaderStage::Vertex,
+            pc
+        );
+
+        // 5. Draw
+        m_renderer->bindMesh(ctx.commandBuffer, m_cubeMesh);
+        m_renderer->drawMesh(ctx.commandBuffer, m_cubeMesh);
+    }
+
+    void onRenderFrame(float deltaTime) override
+    {
+        m_renderer->beginFrame(deltaTime);
+        m_renderer->drawFrame();
+        m_renderer->endFrame();
+    }
+
+    void onEvent(const SDL_Event& event) override
+    {
+        if (event.type == SDL_EVENT_WINDOW_RESIZED)
+        {
+            m_renderer->resize(event.window.data1, event.window.data2);
+
+            if (event.window.data2 > 0) {
+                float aspect = (float)event.window.data1 / (float)event.window.data2;
+                m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+            }
+        }
+    }
+
+private:
+    std::unique_ptr<renderer::RHIRenderer> m_renderer;
+    MeshHandle m_cubeMesh;
+    PipelineHandle m_pipeline;
+
+    // Helper to load SPIR-V
+    std::vector<uint32_t> loadSpirv(const std::string& filename)
+    {
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Failed to open SPIR-V file: " + filename);
+        }
+        size_t fileSize = (size_t)file.tellg();
+        std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
+        file.seekg(0);
+        file.read((char*)buffer.data(), fileSize);
+        return buffer;
+    }
+};
+
+int main(int argc, char** argv)
+{
+    (void)argc; (void)argv;
+    RHICubeApp app;
+    return app.run();
+}
+</file>
+
+<file path="rhiCube/shaders/cube.frag">
+#version 450
+
+layout(location = 0) in vec3 vColor;
+
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+    outColor = vec4(vColor, 1.0);
+}
+</file>
+
+<file path="rhiCube/shaders/cube.vert">
+#version 450
+
+layout(push_constant) uniform PushConstants {
+  mat4 model;
+  mat4 viewProj;
+} pc;
+
+layout(location = 0) in vec3 inPosition;
+layout(location = 1) in vec3 inColor;
+
+layout(location = 0) out vec3 vColor;
+
+void main()
+{
+  gl_Position = pc.viewProj * pc.model * vec4(inPosition, 1.0);
+  vColor = inColor;
+}
+</file>
+
+<file path="rhiCube/shaders/triangle.frag">
+#version 450
+layout(location = 0) out vec4 outColor;
+void main() {
+  outColor = vec4(1.0, 0.2, 0.2, 1.0);
+}
+</file>
+
+<file path="rhiCube/shaders/triangle.vert">
+#version 450
+
+// Full-screen-ish triangle in NDC using gl_VertexIndex.
+vec2 positions[3] = vec2[](
+vec2( 0.0, -0.5),
+vec2( 0.5,  0.5),
+vec2(-0.5,  0.5)
+);
+
+void main() {
+gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+}
+</file>
+
+<file path="rhiGltfBindless/CMakeLists.txt">
+add_executable(pnkr_rhi_gltf_bindless main.cpp)
+
+target_compile_features(pnkr_rhi_gltf_bindless PRIVATE cxx_std_20)
+
+# Dependencies
+find_package(fastgltf CONFIG REQUIRED)
+target_link_libraries(pnkr_rhi_gltf_bindless PRIVATE pnkr_engine fastgltf::fastgltf)
+
+if(MSVC)
+  target_compile_options(pnkr_rhi_gltf_bindless PRIVATE /W4)
+else()
+  target_compile_options(pnkr_rhi_gltf_bindless PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+set_target_properties(pnkr_rhi_gltf_bindless PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+# --- Shaders ---
+# Uses ShaderTools.cmake to compile and generate C++ structs
+add_shader_target("shaders/gltf_bindless.vert")
+add_dependencies(pnkr_rhi_gltf_bindless ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/gltf_bindless.frag")
+add_dependencies(pnkr_rhi_gltf_bindless ${LAST_GENERATED_TARGET})
+
+# Include generated headers
+target_include_directories(pnkr_rhi_gltf_bindless PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
+# Rebuild if shader headers change
+set_source_files_properties(main.cpp PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/gltf_bindless.vert.h"
+)
+
+# --- Copy Assets ---
+add_custom_command(TARGET pnkr_rhi_gltf_bindless POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_gltf_bindless>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        "$<TARGET_FILE_DIR:pnkr_rhi_gltf_bindless>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_gltf_bindless>/assets"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:pnkr_rhi_gltf_bindless>/assets"
+        COMMENT "Copying assets and shaders"
+)
+</file>
+
+<file path="rhiGltfBindless/main.cpp">
+#include "pnkr/engine.hpp"
+#include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/renderer/geometry/Vertex.h"
+#include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/transform.hpp"
+#include "pnkr/renderer/scene/Model.hpp"
+#include "pnkr/renderer/vulkan/pipeline/PipelineBuilder.h"
+#include "pnkr/rhi/rhi_pipeline_builder.hpp"
+#include "pnkr/rhi/rhi_shader.hpp"
+
+// Disable the static assert in the generated file if you haven't fixed it manually yet
+// #include "generated/gltf_bindless.vert.h"
+// We manually define the structs if the header is broken to bypass the error for now:
+namespace ShaderGen {
+    struct MaterialData {
+        glm::vec4 baseColorFactor;
+        uint32_t baseColorTexture;
+        uint32_t _pad0;
+        uint32_t _pad1;
+        uint32_t _pad2;
+    };
+    struct MaterialBuffer {
+        MaterialData materials[1]; // Flexible array proxy
+    };
+    struct PushConstants {
+        glm::mat4 model;
+        glm::mat4 viewProj;
+        uint32_t materialIndex;
+    };
+}
+
+#include "../common/RhiSampleApp.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <iostream>
+#include <variant>
+
+using namespace pnkr;
+
+class RHIGltfBindlessApp : public samples::RhiSampleApp {
+public:
+    RHIGltfBindlessApp()
+        : samples::RhiSampleApp({"RHI Bindless GLTF", 1280, 720, SDL_WINDOW_RESIZABLE, false}) {}
+
+    renderer::scene::Camera m_camera;
+    std::unique_ptr<renderer::scene::Model> m_model;
+    std::unique_ptr<renderer::RHIRenderer> m_renderer;
+    PipelineHandle m_pipeline;
+    std::unique_ptr<renderer::rhi::RHIBuffer> m_materialBuffer;
+
+    void onInit() override {
+        renderer::RendererConfig config;
+        config.m_enableBindless = true;
+        m_renderer = std::make_unique<renderer::RHIRenderer>(m_window, config);
+
+        m_camera.lookAt({2.0f, 2.0f, 2.0f}, {0.f, 0.5f, 0.f}, {0.f, 1.f, 0.f});
+
+        // Fix: Explicitly cast unique_ptr. If this fails, RHIRenderer doesn't inherit Renderer publicly.
+        // But normally it should. The error "unrelated type" strongly suggests missing header info or private inheritance.
+        // Ensure "pnkr/renderer/rhi_renderer.hpp" defines RHIRenderer : public Renderer
+        std::unique_ptr<renderer::RHIRenderer>::pointer baseRenderer = m_renderer.get();
+        m_model = renderer::scene::Model::load(*baseRenderer, baseDir() / "assets" / "Duck.glb");
+
+        if (!m_model) throw std::runtime_error("Failed to load model");
+
+        uploadMaterials();
+        createPipeline();
+
+        m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx) {
+            recordFrame(ctx);
+        });
+    }
+    void onRenderFrame(float deltaTime) override
+    {
+        m_renderer->beginFrame(deltaTime);
+        m_renderer->drawFrame();
+        m_renderer->endFrame();
+    }
+    void uploadMaterials() {
+        // Fix: getMaterials() should now exist after you edit Model.hpp
+        const auto& modelMaterials = m_model->materials();
+        std::vector<ShaderGen::MaterialData> gpuMaterials;
+
+        for (const auto& mat : modelMaterials) {
+            ShaderGen::MaterialData m{};
+            m.baseColorFactor = mat.baseColorFactor;
+            if (mat.baseColorTexture != INVALID_TEXTURE_HANDLE) {
+                m.baseColorTexture = m_renderer->getTextureBindlessIndex(mat.baseColorTexture);
+            } else {
+                m.baseColorTexture = 0xFFFFFFFF;
+            }
+            gpuMaterials.push_back(m);
+        }
+
+        if (gpuMaterials.empty()) gpuMaterials.push_back({});
+
+        size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
+        m_materialBuffer = m_renderer->device()->createBuffer(
+            size,
+            renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst,
+            renderer::rhi::MemoryUsage::GPUOnly
+        );
+
+        auto staging = m_renderer->device()->createBuffer(size, renderer::rhi::BufferUsage::TransferSrc, renderer::rhi::MemoryUsage::CPUToGPU);
+        staging->uploadData(gpuMaterials.data(), size);
+
+        auto cmd = m_renderer->device()->createCommandBuffer();
+        cmd->begin();
+        cmd->copyBuffer(staging.get(), m_materialBuffer.get(), 0, 0, size);
+        cmd->end();
+        m_renderer->device()->submitCommands(cmd.get());
+        m_renderer->device()->waitIdle();
+    }
+
+    void createPipeline() {
+        // Fix: Use renderer::rhi::Shader and ShaderStage
+        auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex, getShaderPath("gltf_bindless.vert.spv"));
+        auto fs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Fragment, getShaderPath("gltf_bindless.frag.spv"));
+
+        // Fix: Pass *m_renderer to constructor
+        auto builder = renderer::rhi::RHIPipelineBuilder()
+            .setShaders(vs.get(), fs.get())
+            .useVertexType<renderer::Vertex>()
+            .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
+            .setCullMode(renderer::rhi::CullMode::Back)
+            .enableDepthTest()
+            .setColorFormat(m_renderer->getDrawColorFormat())
+            .setDepthFormat(m_renderer->getDrawDepthFormat())
+            .setName("GltfBindless");
+
+        m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+    }
+
+    void recordFrame(const renderer::RHIFrameContext& ctx) {
+        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
+
+        float aspect = (float)m_window.width() / m_window.height();
+        m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+
+        // Fix: getNodes() and getRootNodes() should now exist
+        std::function<void(int)> drawNode = [&](int nodeIdx) {
+            const auto& node = m_model->nodes()[nodeIdx];
+
+            for (const auto& prim : node.meshPrimitives) {
+                ShaderGen::PushConstants pc{};
+                pc.model = node.worldTransform.mat4();
+                pc.viewProj = m_camera.viewProj();
+                pc.materialIndex = prim.materialIndex;
+
+                m_renderer->pushConstants(ctx.commandBuffer, m_pipeline,
+                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment,
+                    pc);
+
+                m_renderer->bindMesh(ctx.commandBuffer, prim.mesh);
+                m_renderer->drawMesh(ctx.commandBuffer, prim.mesh);
+            }
+
+            for (int child : node.children) {
+                drawNode(child);
+            }
+        };
+
+        for (int root : m_model->rootNodes()) {
+            drawNode(root);
+        }
+    }
+};
+
+int main(int argc, char** argv) {
+    RHIGltfBindlessApp app;
+    return app.run();
+}
+</file>
+
+<file path="rhiGltfBindless/shaders/bindless.glsl">
+#ifndef BINDLESS_GLSL
+#define BINDLESS_GLSL
+
+#extension GL_EXT_nonuniform_qualifier : require
+
+struct MaterialData {
+    vec4 baseColorFactor;
+    vec4 emissiveFactor;
+
+// Texture indices (u32)
+    uint baseColorTexture;
+    uint normalTexture;
+    uint metallicRoughnessTexture;
+    uint emissiveTexture;
+
+    float metallicFactor;
+    float roughnessFactor;
+    float alphaCutoff;
+    float _pad0;
+};
+
+// Set 0: Material Data (Storage Buffer)
+layout(set = 0, binding = 0, std430) readonly buffer MaterialBuffer {
+    MaterialData materials[];
+} materialBuffer;
+
+// Set 1: Global Bindless Textures
+layout(set = 1, binding = 0) uniform sampler2D bindlessTextures[];
+
+MaterialData getMaterial(uint index) {
+    return materialBuffer.materials[index];
+}
+
+#endif
+</file>
+
+<file path="rhiGltfBindless/shaders/gltf_bindless.frag">
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "bindless.glsl"
+
+layout(location = 0) in VS_OUT {
+    vec3 normal;
+    vec2 texCoord;
+    vec3 worldPos;
+    vec3 color;
+    flat uint materialIndex;
+} fsIn;
+
+layout(location = 0) out vec4 outColor;
+
+void main() {
+    MaterialData mat = getMaterial(fsIn.materialIndex);
+
+    vec4 baseColor = mat.baseColorFactor;
+
+    // Sample texture if index is valid (using arbitrary sentinel > 100000)
+    if (mat.baseColorTexture < 100000) {
+        baseColor *= texture(bindlessTextures[nonuniformEXT(mat.baseColorTexture)], fsIn.texCoord);
+    }
+
+    baseColor *= vec4(fsIn.color, 1.0);
+
+    // Simple directional light
+    vec3 N = normalize(fsIn.normal);
+    vec3 L = normalize(vec3(0.5, 1.0, 0.5));
+    float ndotl = max(dot(N, L), 0.1);
+
+    vec3 finalColor = baseColor.rgb * ndotl;
+
+    outColor = vec4(finalColor, baseColor.a);
+}
+</file>
+
+<file path="rhiGltfBindless/shaders/gltf_bindless.vert">
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "bindless.glsl"
+
+// Push constants for per-draw data
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    mat4 viewProj;
+    uint materialIndex;
+} pc;
+
+layout(location = 0) in vec3 inPosition;
+layout(location = 1) in vec3 inColor;   // Matching Vertex struct layout
+layout(location = 2) in vec3 inNormal;
+layout(location = 3) in vec2 inTexCoord;
+
+layout(location = 0) out VS_OUT {
+    vec3 normal;
+    vec2 texCoord;
+    vec3 worldPos;
+    vec3 color;
+    flat uint materialIndex;
+} vsOut;
+
+void main() {
+    vec4 worldPos = pc.model * vec4(inPosition, 1.0);
+    gl_Position = pc.viewProj * worldPos;
+
+    vsOut.worldPos = worldPos.xyz;
+    // Simple normal transform (should use inverse transpose for non-uniform scale)
+    vsOut.normal = mat3(pc.model) * inNormal;
+    vsOut.texCoord = inTexCoord;
+    vsOut.materialIndex = pc.materialIndex;
+    vsOut.color = inColor;
+}
+</file>
+
+<file path="rhiMultidraw/CMakeLists.txt">
+add_executable(pnkr_rhi_multidraw main.cpp)
+
+target_compile_features(pnkr_rhi_multidraw PRIVATE cxx_std_20)
+
+target_link_libraries(pnkr_rhi_multidraw PRIVATE pnkr_engine)
+
+if(MSVC)
+  target_compile_options(pnkr_rhi_multidraw PRIVATE /W4)
+else()
+  target_compile_options(pnkr_rhi_multidraw PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+set_target_properties(pnkr_rhi_multidraw PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+# Compile Fragment Shader
+add_shader_target("shaders/cube.frag")
+add_dependencies(pnkr_rhi_multidraw ${LAST_GENERATED_TARGET})
+
+# Compile Vertex Shader
+add_shader_target("shaders/cube.vert")
+add_dependencies(pnkr_rhi_multidraw ${LAST_GENERATED_TARGET})
+
+# Compile Plane Tint Shader (referenced from multidraw folder)
+add_shader_target("../multidraw/shaders/plane_tint.frag")
+add_dependencies(pnkr_rhi_multidraw ${LAST_GENERATED_TARGET})
+
+target_include_directories(pnkr_rhi_multidraw PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
+set_source_files_properties(main.cpp PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/cube.vert.h"
+)
+
+add_custom_command(TARGET pnkr_rhi_multidraw POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_multidraw>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        "$<TARGET_FILE_DIR:pnkr_rhi_multidraw>/shaders"
+        COMMENT "Copying SPIR-V shaders to runtime output directory"
+)
+</file>
+
+<file path="rhiMultidraw/main.cpp">
+#include "pnkr/engine.hpp"
+#include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/renderer/geometry/Vertex.h"
+#include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/transform.hpp"
+
+// CRITICAL: Use the generated header
+#include "generated/cube.vert.h"
+// Common utilities
+#include "../common/GeometryUtils.h"
+#include "../common/RhiSampleApp.hpp"
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <fstream>
+#include <vector>
+
+using namespace pnkr;
+
+class RHIMultiDrawApp : public samples::RhiSampleApp
+{
+public:
+    RHIMultiDrawApp()
+        : samples::RhiSampleApp({"PNKR - RHI MultiDraw", 800, 600, SDL_WINDOW_RESIZABLE, false})
+    {
+    }
+
+    // Scene Data
+    renderer::scene::Camera m_camera;
+    std::unique_ptr<renderer::RHIRenderer> m_renderer;
+
+    // Resources
+    MeshHandle m_cubeMesh;
+    MeshHandle m_planeMesh;
+    PipelineHandle m_cubePipeline;
+    PipelineHandle m_planePipeline;
+
+    void onInit() override
+    {
+        // 1. Init Renderer
+        m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
+
+        // 2. Setup Camera
+        m_camera.lookAt({1.5f, 2.0f, 2.5f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
+        updatePerspective();
+
+        // 3. Create Geometry
+        auto cubeData = samples::GeometryUtils::getCube();
+        m_cubeMesh = m_renderer->createMesh(cubeData.vertices, cubeData.indices);
+
+        auto planeData = samples::GeometryUtils::getPlane(2.5f, -0.6f);
+        m_planeMesh = m_renderer->createMesh(planeData.vertices, planeData.indices);
+
+        // 4. Create Pipelines
+        createPipelines();
+
+        // 5. Set Record Callback
+        m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx)
+        {
+            this->recordFrame(ctx);
+        });
+    }
+
+    void createPipelines()
+    {
+        // Load Shaders
+        auto vertSpirv = loadSpirv(getShaderPath("cube.vert.spv").string());
+        auto fragCubeSpirv = loadSpirv(getShaderPath("cube.frag.spv").string());
+        auto fragPlaneSpirv = loadSpirv(getShaderPath("plane_tint.frag.spv").string());
+
+        // --- Base Descriptor (Shared Config) ---
+        renderer::rhi::GraphicsPipelineDescriptor desc{};
+        desc.debugName = "CubePipeline";
+
+        // Vertex Input
+        desc.vertexBindings.push_back({ 0, sizeof(renderer::Vertex), renderer::rhi::VertexInputRate::Vertex });
+        desc.vertexAttributes = {
+            {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_position)},
+            {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_color)},
+            {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_normal)},
+            {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT,    .offset=offsetof(renderer::Vertex, m_texCoord)}
+        };
+
+        // Standard State
+        desc.topology = renderer::rhi::PrimitiveTopology::TriangleList;
+        desc.rasterization.polygonMode = renderer::rhi::PolygonMode::Fill;
+        desc.rasterization.cullMode = renderer::rhi::CullMode::Back;
+        desc.rasterization.frontFaceCCW = true;
+        desc.depthStencil.depthTestEnable = true;
+        desc.depthStencil.depthWriteEnable = true;
+        desc.depthStencil.depthCompareOp = renderer::rhi::CompareOp::Less;
+
+        // Output Formats
+        desc.colorFormats.push_back(m_renderer->getDrawColorFormat());
+        desc.depthFormat = m_renderer->getDrawDepthFormat();
+
+        // FIX: Add Blend Attachment to match colorFormats[0]
+        renderer::rhi::BlendAttachment blend{};
+        blend.blendEnable = false;
+        desc.blend.attachments.push_back(blend);
+
+        // Push Constants
+        desc.pushConstants.push_back({
+            renderer::rhi::ShaderStage::Vertex,
+            0,
+            sizeof(ShaderGen::PushConstants)
+        });
+
+        // --- Pipeline 1: Cube ---
+        desc.shaders = {
+            { renderer::rhi::ShaderStage::Vertex, vertSpirv, "main" },
+            { renderer::rhi::ShaderStage::Fragment, fragCubeSpirv, "main" }
+        };
+        m_cubePipeline = m_renderer->createGraphicsPipeline(desc);
+
+        // --- Pipeline 2: Plane ---
+        desc.debugName = "PlanePipeline";
+        desc.shaders = {
+            { renderer::rhi::ShaderStage::Vertex, vertSpirv, "main" },
+            { renderer::rhi::ShaderStage::Fragment, fragPlaneSpirv, "main" }
+        };
+        m_planePipeline = m_renderer->createGraphicsPipeline(desc);
+    }
+
+    void recordFrame(const renderer::RHIFrameContext& ctx)
+    {
+        // Update Animation
+        m_timeAccumulator += ctx.deltaTime;
+
+        // Shared ViewProj
+        ShaderGen::PushConstants pc{};
+        pc.viewProj = m_camera.viewProj();
+
+        // --- Draw Cube ---
+        {
+            renderer::scene::Transform cubeXform;
+            cubeXform.m_rotation = glm::angleAxis(m_timeAccumulator, glm::vec3(0.0f, 1.0f, 0.0f));
+            pc.model = cubeXform.mat4();
+
+            m_renderer->bindPipeline(ctx.commandBuffer, m_cubePipeline);
+            m_renderer->pushConstants(ctx.commandBuffer, m_cubePipeline, renderer::rhi::ShaderStage::Vertex, pc);
+            m_renderer->bindMesh(ctx.commandBuffer, m_cubeMesh);
+            m_renderer->drawMesh(ctx.commandBuffer, m_cubeMesh);
+        }
+
+        // --- Draw Plane ---
+        {
+            renderer::scene::Transform planeXform;
+            pc.model = planeXform.mat4();
+
+            m_renderer->bindPipeline(ctx.commandBuffer, m_planePipeline);
+            m_renderer->pushConstants(ctx.commandBuffer, m_planePipeline, renderer::rhi::ShaderStage::Vertex, pc);
+            m_renderer->bindMesh(ctx.commandBuffer, m_planeMesh);
+            m_renderer->drawMesh(ctx.commandBuffer, m_planeMesh);
+        }
+    }
+
+    void onRenderFrame(float deltaTime) override
+    {
+        m_renderer->beginFrame(deltaTime);
+        m_renderer->drawFrame();
+        m_renderer->endFrame();
+    }
+
+    void onEvent(const SDL_Event& event) override
+    {
+        if (event.type == SDL_EVENT_WINDOW_RESIZED)
+        {
+            if (event.window.data2 > 0) {
+                m_renderer->resize(event.window.data1, event.window.data2);
+                updatePerspective();
+            }
+        }
+    }
+
+private:
+    float m_timeAccumulator = 0.0f;
+
+    void updatePerspective() {
+        if (m_window.height() > 0) {
+            float aspect = (float)m_window.width() / (float)m_window.height();
+            m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+        }
+    }
+
+    std::vector<uint32_t> loadSpirv(const std::string& filename)
+    {
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Failed to open SPIR-V file: " + filename);
+        }
+        size_t fileSize = (size_t)file.tellg();
+        std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
+        file.seekg(0);
+        file.read((char*)buffer.data(), fileSize);
+        return buffer;
+    }
+};
+
+int main(int argc, char** argv)
+{
+    (void)argc; (void)argv;
+    RHIMultiDrawApp app;
+    return app.run();
+}
+</file>
+
+<file path="rhiMultidraw/shaders/cube.frag">
+#version 450
+
+layout(location = 0) in vec3 vColor;
+
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+    outColor = vec4(vColor, 1.0);
+}
+</file>
+
+<file path="rhiMultidraw/shaders/cube.vert">
+#version 450
+
+layout(push_constant) uniform PushConstants {
+  mat4 model;
+  mat4 viewProj;
+} pc;
+
+layout(location = 0) in vec3 inPosition;
+layout(location = 1) in vec3 inColor;
+
+layout(location = 0) out vec3 vColor;
+
+void main()
+{
+  gl_Position = pc.viewProj * pc.model * vec4(inPosition, 1.0);
+  vColor = inColor;
+}
+</file>
+
+<file path="rhiMultidraw/shaders/triangle.frag">
+#version 450
+layout(location = 0) out vec4 outColor;
+void main() {
+  outColor = vec4(1.0, 0.2, 0.2, 1.0);
+}
+</file>
+
+<file path="rhiMultidraw/shaders/triangle.vert">
+#version 450
+
+// Full-screen-ish triangle in NDC using gl_VertexIndex.
+vec2 positions[3] = vec2[](
+vec2( 0.0, -0.5),
+vec2( 0.5,  0.5),
+vec2(-0.5,  0.5)
+);
+
+void main() {
+gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+}
+</file>
+
+<file path="rhiTriangle/CMakeLists.txt">
+add_executable(pnkr_rhi_triangle main.cpp)
+
+target_compile_features(pnkr_rhi_triangle PRIVATE cxx_std_20)
+
+target_link_libraries(pnkr_rhi_triangle PRIVATE pnkr_engine)
+
+if(MSVC)
+  target_compile_options(pnkr_rhi_triangle PRIVATE /W4)
+else()
+  target_compile_options(pnkr_rhi_triangle PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+set_target_properties(pnkr_rhi_triangle PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+
+find_program(GLSLC_EXECUTABLE glslc HINTS
+        "$ENV{VULKAN_SDK}/Bin"
+        "$ENV{VULKAN_SDK}/Bin32"
+)
+if (NOT GLSLC_EXECUTABLE)
+  message(FATAL_ERROR "glslc not found. Install Vulkan SDK and ensure VULKAN_SDK is set.")
+endif()
+
+
+set(RHI_TRIANGLE_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+set(RHI_TRIANGLE_SHADER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+
+file(MAKE_DIRECTORY "${RHI_TRIANGLE_SHADER_OUT_DIR}")
+
+set(RHI_TRIANGLE_SHADERS
+        "${RHI_TRIANGLE_SHADER_DIR}/triangle.vert"
+        "${RHI_TRIANGLE_SHADER_DIR}/triangle.frag"
+)
+
+set(RHI_TRIANGLE_SPV_OUTPUTS "")
+foreach(SHADER ${RHI_TRIANGLE_SHADERS})
+  get_filename_component(FILE ${SHADER} NAME)
+  set(OUT_SPV "${RHI_TRIANGLE_SHADER_OUT_DIR}/${FILE}.spv")
+
+  add_custom_command(
+          OUTPUT "${OUT_SPV}"
+          COMMAND "${GLSLC_EXECUTABLE}" -o "${OUT_SPV}" "${SHADER}"
+          DEPENDS "${SHADER}"
+          COMMENT "Compiling shader ${FILE} -> ${FILE}.spv"
+          VERBATIM
+  )
+
+  list(APPEND RHI_TRIANGLE_SPV_OUTPUTS "${OUT_SPV}")
+endforeach()
+
+add_custom_target(rhi_triangle_shaders ALL DEPENDS ${RHI_TRIANGLE_SPV_OUTPUTS})
+add_dependencies(pnkr_rhi_triangle rhi_triangle_shaders)
+
+add_custom_command(TARGET pnkr_rhi_triangle POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_triangle>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${RHI_TRIANGLE_SHADER_OUT_DIR}"
+        "$<TARGET_FILE_DIR:pnkr_rhi_triangle>/shaders"
+        COMMENT "Copying SPIR-V shaders to runtime output directory"
+)
+</file>
+
+<file path="rhiTriangle/main.cpp">
+#include "pnkr/engine.hpp"
+#include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/renderer/geometry/Vertex.h"
+#include "pnkr/core/Handle.h"
+#include <glm/glm.hpp>
+#include <fstream>
+#include <vector>
+
+// Include the SampleApp base
+#include "../common/RhiSampleApp.hpp"
+
+using namespace pnkr;
+
+class RHITriangleApp : public samples::RhiSampleApp
+{
+public:
+    // Initialize SampleApp with createRenderer=false to use RHIRenderer instead
+    RHITriangleApp()
+        : samples::RhiSampleApp({"RHI Triangle", 800, 600, SDL_WINDOW_RESIZABLE, false})
+    {
+    }
+
+
+
+    void onInit() override
+    {
+        // Create RHI renderer
+        m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
+
+        // Create triangle mesh
+        // Note: pnkr::renderer::Vertex has {pos, color, normal, texCoord}
+        std::vector<renderer::Vertex> vertices = {
+            {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+            {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+            {{0.0f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 1.0f}}
+        };
+
+        std::vector<uint32_t> indices = {0, 1, 2};
+
+        m_triangleMesh = m_renderer->createMesh(vertices, indices);
+
+        // Create pipeline
+        createPipeline();
+
+        // Set record callback
+        m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx)
+        {
+            this->recordFrame(ctx);
+        });
+    }
+
+    void createPipeline()
+    {
+        // Load shaders
+        std::vector<uint32_t> vertSpirv = loadSpirv(getShaderPath("triangle.vert.spv").string());
+        std::vector<uint32_t> fragSpirv = loadSpirv(getShaderPath("triangle.frag.spv").string());
+
+        renderer::rhi::GraphicsPipelineDescriptor desc{};
+
+        // Shaders
+        desc.shaders.push_back({
+            renderer::rhi::ShaderStage::Vertex,
+            vertSpirv,
+            "main"
+        });
+        desc.shaders.push_back({
+            renderer::rhi::ShaderStage::Fragment,
+            fragSpirv,
+            "main"
+        });
+
+        // Vertex input
+        desc.vertexBindings.push_back({
+            0, // binding
+            sizeof(renderer::Vertex),
+            renderer::rhi::VertexInputRate::Vertex
+        });
+
+        // Use correct member names: m_color, m_texCoord
+        desc.vertexAttributes = {
+            {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_position)},
+            {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_color)},
+            {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_normal)},
+            {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT, .offset=offsetof(renderer::Vertex, m_texCoord)}
+        };
+
+        // Topology
+        desc.topology = renderer::rhi::PrimitiveTopology::TriangleList;
+
+        // Rasterization
+        desc.rasterization.polygonMode = renderer::rhi::PolygonMode::Fill;
+        desc.rasterization.cullMode = renderer::rhi::CullMode::None;
+        desc.rasterization.frontFaceCCW = true;
+
+        // Depth/stencil
+        desc.depthStencil.depthTestEnable = true;
+        desc.depthStencil.depthWriteEnable = true;
+        desc.depthStencil.depthCompareOp = renderer::rhi::CompareOp::Less;
+
+        // Blend (no blending)
+        renderer::rhi::BlendAttachment blendAttachment{};
+        blendAttachment.blendEnable = false;
+        desc.blend.attachments.push_back(blendAttachment);
+
+        // Render target formats
+        desc.colorFormats.push_back(m_renderer->getDrawColorFormat());
+        desc.depthFormat = m_renderer->getDrawDepthFormat();
+
+        m_pipeline = m_renderer->createGraphicsPipeline(desc);
+    }
+
+    void recordFrame(const renderer::RHIFrameContext& ctx)
+    {
+        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
+        m_renderer->bindMesh(ctx.commandBuffer, m_triangleMesh);
+        m_renderer->drawMesh(ctx.commandBuffer, m_triangleMesh);
+    }
+
+    // Override the custom render loop from SampleApp
+    void onRenderFrame(float deltaTime) override
+    {
+        m_renderer->beginFrame(deltaTime);
+        m_renderer->drawFrame();
+        m_renderer->endFrame();
+    }
+
+    // Fix: onResize is not virtual in SampleApp, handled via SDL events usually,
+    // but we can hook into onEvent or just let the SampleApp loop handle window size.
+    // However, RHIRenderer needs explicit resize.
+    void onEvent(const SDL_Event& event) override
+    {
+        if (event.type == SDL_EVENT_WINDOW_RESIZED)
+        {
+            m_renderer->resize(event.window.data1, event.window.data2);
+        }
+    }
+
+private:
+    std::unique_ptr<renderer::RHIRenderer> m_renderer;
+    MeshHandle m_triangleMesh;
+    PipelineHandle m_pipeline;
+
+    std::vector<uint32_t> loadSpirv(const std::string& filename)
+    {
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+        if (!file.is_open())
+        {
+            throw std::runtime_error("Failed to open SPIR-V file: " + filename);
+        }
+
+        size_t fileSize = (size_t)file.tellg();
+        std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
+        file.seekg(0);
+        file.read((char*)buffer.data(), fileSize);
+        return buffer;
+    }
+};
+
+int main(int argc, char** argv)
+{
+    (void)argc;
+    (void)argv;
+    RHITriangleApp app;
+    return app.run();
+}
+</file>
+
+<file path="rhiTriangle/shaders/triangle.frag">
+#version 450
+layout(location = 0) out vec4 outColor;
+void main() {
+  outColor = vec4(1.0, 0.2, 0.2, 1.0);
+}
+</file>
+
+<file path="rhiTriangle/shaders/triangle.vert">
+#version 450
+
+// Full-screen-ish triangle in NDC using gl_VertexIndex.
+vec2 positions[3] = vec2[](
+vec2( 0.0, -0.5),
+vec2( 0.5,  0.5),
+vec2(-0.5,  0.5)
+);
+
+void main() {
+gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+}
+</file>
+
+<file path="triangle/CMakeLists.txt">
+add_executable(pnkr_triangle main.cpp)
+
+target_compile_features(pnkr_triangle PRIVATE cxx_std_20)
+
+target_link_libraries(pnkr_triangle PRIVATE pnkr_engine)
+
+if(MSVC)
+  target_compile_options(pnkr_triangle PRIVATE /W4)
+else()
+  target_compile_options(pnkr_triangle PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+set_target_properties(pnkr_triangle PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+
+find_program(GLSLC_EXECUTABLE glslc HINTS
+        "$ENV{VULKAN_SDK}/Bin"
+        "$ENV{VULKAN_SDK}/Bin32"
+)
+if (NOT GLSLC_EXECUTABLE)
+  message(FATAL_ERROR "glslc not found. Install Vulkan SDK and ensure VULKAN_SDK is set.")
+endif()
+
+
+set(TRIANGLE_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+set(TRIANGLE_SHADER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+
+file(MAKE_DIRECTORY "${TRIANGLE_SHADER_OUT_DIR}")
+
+set(TRIANGLE_SHADERS
+        "${TRIANGLE_SHADER_DIR}/triangle.vert"
+        "${TRIANGLE_SHADER_DIR}/triangle.frag"
+)
+
+set(TRIANGLE_SPV_OUTPUTS "")
+foreach(SHADER ${TRIANGLE_SHADERS})
+  get_filename_component(FILE ${SHADER} NAME)
+  set(OUT_SPV "${TRIANGLE_SHADER_OUT_DIR}/${FILE}.spv")
+
+  add_custom_command(
+          OUTPUT "${OUT_SPV}"
+          COMMAND "${GLSLC_EXECUTABLE}" -o "${OUT_SPV}" "${SHADER}"
+          DEPENDS "${SHADER}"
+          COMMENT "Compiling shader ${FILE} -> ${FILE}.spv"
+          VERBATIM
+  )
+
+  list(APPEND TRIANGLE_SPV_OUTPUTS "${OUT_SPV}")
+endforeach()
+
+add_custom_target(triangle_shaders ALL DEPENDS ${TRIANGLE_SPV_OUTPUTS})
+add_dependencies(pnkr_triangle triangle_shaders)
+
+add_custom_command(TARGET pnkr_triangle POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_triangle>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${TRIANGLE_SHADER_OUT_DIR}"
+        "$<TARGET_FILE_DIR:pnkr_triangle>/shaders"
+        COMMENT "Copying SPIR-V shaders to runtime output directory"
+)
+</file>
+
+<file path="triangle/main.cpp">
+#include "../common/SampleApp.h"
+
+using namespace pnkr;
+using namespace pnkr::samples;
+
+class TriangleSample : public RhiSampleApp {
+    PipelineHandle m_pipe{};
+
+public:
+    TriangleSample() : RhiSampleApp({"PNKR - Triangle", 800, 600, SDL_WINDOW_RESIZABLE}) {}
+
+    void onInit() override {
+        renderer::VulkanPipeline::Config cfg{};
+        cfg.m_vertSpvPath = getShaderPath("triangle.vert.spv");
+        cfg.m_fragSpvPath = getShaderPath("triangle.frag.spv");
+        cfg.m_cullMode = vk::CullModeFlagBits::eNone;
+        m_pipe = m_renderer.createPipeline(cfg);
+    }
+
+    void onRender(const renderer::RenderFrameContext& ctx) override {
+        m_renderer.bindPipeline(ctx.m_cmd, m_pipe);
+        ctx.m_cmd.draw(3, 1, 0, 0);
+    }
+};
+
+int main(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
+    TriangleSample app;
+    return app.run();
+}
+</file>
+
+<file path="triangle/shaders/triangle.frag">
+#version 450
+layout(location = 0) out vec4 outColor;
+void main() {
+  outColor = vec4(1.0, 0.2, 0.2, 1.0);
+}
+</file>
+
+<file path="triangle/shaders/triangle.vert">
+#version 450
+
+// Full-screen-ish triangle in NDC using gl_VertexIndex.
+vec2 positions[3] = vec2[](
+vec2( 0.0, -0.5),
+vec2( 0.5,  0.5),
+vec2(-0.5,  0.5)
+);
+
+void main() {
+gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+}
+</file>
+
+</files>

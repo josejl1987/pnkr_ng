@@ -306,3 +306,4 @@ namespace pnkr::renderer
         }
     }
 } // namespace pnkr::renderer
+// TODO: Fix descriptor set layout mismatch - pipelines need to use bindless layout for set 1

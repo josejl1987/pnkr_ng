@@ -42,8 +42,8 @@ namespace pnkr::renderer {
         void transitionLayout(vk::CommandBuffer cmd,
                               vk::ImageLayout oldLayout,
                               vk::ImageLayout newLayout,
-                              vk::PipelineStageFlags srcStage,
-                              vk::PipelineStageFlags dstStage);
+                              vk::PipelineStageFlags2 srcStage,
+                              vk::PipelineStageFlags2 dstStage);
 
         [[nodiscard]] vk::Image image() const noexcept { return m_image; }
         [[nodiscard]] vk::ImageView view() const noexcept { return m_view; }

@@ -7,19 +7,19 @@
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/transform.hpp"
 #include "pnkr/renderer/vulkan/PushConstants.h"
-#include "pnkr/renderer/vulkan/geometry/VertexInputDescription.h"
+#include "pnkr/renderer/geometry/VertexInputDescription.h"
 
 using namespace pnkr;
 using namespace pnkr::samples;
 
-class CubeSample : public SampleApp {
+class CubeSample : public RhiSampleApp {
     MeshHandle m_cubeMesh;
     PipelineHandle m_cubePipe;
     renderer::scene::Camera m_camera;
     vk::Extent2D m_lastExtent{0, 0};
 
 public:
-    CubeSample() : SampleApp({"PNKR - Cube", 800, 600}) {}
+    CubeSample() : RhiSampleApp({"PNKR - Cube", 800, 600}) {}
 
     void onInit() override {
         auto cubeData = GeometryUtils::getCube();
@@ -28,7 +28,6 @@ public:
         renderer::VulkanPipeline::Config cfg{};
         cfg.m_vertSpvPath = getShaderPath("cube.vert.spv");
         cfg.m_fragSpvPath = getShaderPath("cube.frag.spv");
-        cfg.m_vertexInput = renderer::Vertex::getLayout();
         cfg.m_pushConstantSize = sizeof(PushConstants);
         cfg.m_pushConstantStages = vk::ShaderStageFlagBits::eVertex;
         cfg.m_depth.testEnable = true;

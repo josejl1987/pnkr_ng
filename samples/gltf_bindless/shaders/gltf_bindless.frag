@@ -16,6 +16,8 @@ layout(location = 0) in VS_OUT {
     vec2 texCoord;
     vec3 worldPos;
     vec3 color;
+    vec3 tangent;
+    float bitangentSign;
     flat uint materialIndex;
 } fsIn;
 
@@ -26,9 +28,16 @@ void main() {
 
     baseColor = texture(bindlessTextures[nonuniformEXT(pc.materialIndex)], fsIn.texCoord);
 
+    // Compute TBN matrix for potential normal mapping
     vec3 N = normalize(fsIn.normal);
+    vec3 T = normalize(fsIn.tangent);
+    vec3 B = cross(N, T) * fsIn.bitangentSign;
+    mat3 TBN = mat3(T, B, N);
+
+    // Simple lighting - can be enhanced with normal mapping later
     vec3 L = normalize(vec3(1.0, 1.0, 1.0));
-    float ndotl = max(dot(N, L), 0.0);
+    vec3 finalNormal = N; // Currently using vertex normal - could be replaced with normal map
+    float ndotl = max(dot(finalNormal, L), 0.0);
     vec3 color = baseColor.rgb * (0.3 + 0.7 * ndotl);
 
     outColor = vec4(color, baseColor.a);

@@ -1,11 +1,13 @@
-# Simply include all sample subdirectories
-add_subdirectory(triangle)
-add_subdirectory(cube)
-add_subdirectory(multidraw)
-add_subdirectory(scene)
-add_subdirectory(gltf)
-add_subdirectory(gltf_bindless)
+# Ensure the cmake directory is in the module path so we can include ShaderTools
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
-# Add more samples here later:
-# add_subdirectory(quad)
-# add_subdirectory(textured_cube)
+# Include the tools
+include(ShaderTools)
+
+# Include sample subdirectories
+add_subdirectory(rhiTriangle)
+add_subdirectory(rhiCube)
+add_subdirectory(rhiMultidraw)
+add_subdirectory(rhiGltfBindless)
+add_subdirectory(rhiSkybox)
+add_subdirectory(debug_canvas)

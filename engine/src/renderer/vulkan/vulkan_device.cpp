@@ -234,6 +234,8 @@ void VulkanDevice::createLogicalDevice(vk::SurfaceKHR /*surface*/) {
   features12.shaderSampledImageArrayNonUniformIndexing = true;
   features12.descriptorBindingPartiallyBound = true; // Often needed for bindless
   features12.descriptorBindingVariableDescriptorCount = true;
+  features12.descriptorBindingSampledImageUpdateAfterBind = true; // Essential for bindless
+  features12.descriptorBindingStorageBufferUpdateAfterBind = true; // Essential for bindless
 
   vk::PhysicalDeviceVulkan13Features features13{};
   features13.dynamicRendering = VK_TRUE;

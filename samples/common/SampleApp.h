@@ -12,17 +12,17 @@
 
 namespace pnkr::samples {
 
-struct SampleConfig {
+struct RhiSampleConfig {
     std::string title{"PNKR Sample"};
     int width{800};
     int height{600};
     SDL_WindowFlags windowFlags{SDL_WINDOW_RESIZABLE};
 };
 
-class SampleApp {
+class RhiSampleApp {
 public:
-    explicit SampleApp(SampleConfig cfg);
-    virtual ~SampleApp() = default;
+    explicit RhiSampleApp(RhiSampleConfig cfg);
+    virtual ~RhiSampleApp() = default;
 
     int run();
 
@@ -38,7 +38,7 @@ protected:
 
     static std::filesystem::path resolveBasePath();
 
-    SampleConfig m_config;
+    RhiSampleConfig m_config;
 
 protected:
     platform::Window m_window;
@@ -53,7 +53,7 @@ protected:
     platform::Input m_input;
 };
 
-inline std::filesystem::path SampleApp::resolveBasePath() {
+inline std::filesystem::path RhiSampleApp::resolveBasePath() {
     const char* base = SDL_GetBasePath();
     if (base) {
         std::filesystem::path path(base);
@@ -63,7 +63,7 @@ inline std::filesystem::path SampleApp::resolveBasePath() {
     return std::filesystem::current_path();
 }
 
-inline SampleApp::SampleApp(SampleConfig cfg)
+inline RhiSampleApp::RhiSampleApp(RhiSampleConfig cfg)
     : m_config(std::move(cfg)),
       m_window(m_config.title, m_config.width, m_config.height, m_config.windowFlags),
       m_renderer(m_window),
@@ -73,7 +73,7 @@ inline SampleApp::SampleApp(SampleConfig cfg)
         [this](const renderer::RenderFrameContext& ctx) { onRender(ctx); });
 }
 
-inline int SampleApp::run() {
+inline int RhiSampleApp::run() {
     try {
         pnkr::Log::init("[%H:%M:%S] [%-8l] %v");
         pnkr::Log::info("PNKR Engine v{}.{}.{}", PNKR_VERSION_MAJOR,
@@ -110,7 +110,7 @@ inline int SampleApp::run() {
     }
 }
 
-inline std::filesystem::path SampleApp::getShaderPath(
+inline std::filesystem::path RhiSampleApp::getShaderPath(
     const std::filesystem::path& filename) const {
     const std::filesystem::path fullPath =
         filename.is_absolute() ? filename : m_shaderDir / filename;

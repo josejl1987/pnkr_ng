@@ -8,12 +8,12 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/vulkan/vulkan_sync_manager.h
         src/renderer/vulkan/vulkan_sync_manager.cpp
         include/pnkr/renderer/vulkan/vma.cpp
-        include/pnkr/renderer/vulkan/geometry/Vertex.h
-        include/pnkr/renderer/vulkan/geometry/VertexInputDescription.h
+        include/pnkr/renderer/geometry/Vertex.h
+        include/pnkr/renderer/geometry/VertexInputDescription.h
         include/pnkr/renderer/vulkan/pipeline/PipelineConfig.h
         include/pnkr/renderer/pipeline/Pipeline.h
-        include/pnkr/renderer/vulkan/geometry/mesh.h
-        src/renderer/vulkan/geometry/mesh.cpp
+        include/pnkr/renderer/geometry/mesh.h
+        src/renderer/geometry/mesh.cpp
         include/pnkr/core/Handle.h
         include/pnkr/renderer/vulkan/PushConstants.h
         include/pnkr/renderer/scene/camera.hpp
@@ -27,6 +27,8 @@ add_library(pnkr_engine STATIC
         src/renderer/vulkan/vulkan_descriptor.cpp
         include/pnkr/renderer/scene/Model.hpp
         include/pnkr/renderer/scene/Node.hpp
+        include/pnkr/renderer/scene/RHIScene.hpp
+        include/pnkr/renderer/scene/Skybox.hpp
         include/pnkr/renderer/material/Material.hpp
         include/pnkr/renderer/vulkan/vulkan_render_target.h
         src/renderer/vulkan/vulkan_render_target.cpp
@@ -37,7 +39,36 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/vulkan/pipeline/compute_pipeline.hpp
         src/renderer/vulkan/pipeline/compute_pipeline.cpp
         include/pnkr/renderer/vulkan/bindless/bindless_manager.hpp
-        src/renderer/vulkan/bindless/bindless_manager.cpp)
+        src/renderer/vulkan/bindless/bindless_manager.cpp
+        src/rhi/vulkan/vulkan_buffer.cpp
+        src/rhi/vulkan/vulkan_command_buffer.cpp
+        src/rhi/vulkan/vulkan_texture.cpp
+        src/rhi/vulkan/vulkan_device.cpp
+        src/rhi/vulkan/vulkan_descriptor.cpp
+        src/rhi/vulkan/vulkan_swapchain.cpp
+        src/rhi/vulkan/vulkan_utils.cpp
+        src/rhi/vulkan/vulkan_buffer.cpp
+
+        src/rhi/vulkan/vulkan_texture.cpp
+        src/rhi/vulkan/vulkan_pipeline.cpp
+        src/rhi/vulkan/vulkan_sampler.cpp
+        src/rhi/vulkan/rhi_factory.cpp
+        include/pnkr/renderer/rhi_renderer.hpp
+        src/renderer/rhi_renderer.cpp
+        include/pnkr/rhi/rhi_pipeline_builder.hpp
+        src/rhi/rhi_pipeline_builder.cpp
+        include/pnkr/rhi/rhi_shader.hpp
+        src/rhi/rhi_shader.cpp
+        include/pnkr/renderer/scene/RHIScene.hpp
+        src/renderer/scene/RHIScene.cpp
+        include/pnkr/renderer/scene/Skybox.hpp
+        src/renderer/scene/Skybox.cpp
+        include/pnkr/renderer/debug/LineCanvas3D.hpp
+        src/renderer/debug/LineCanvas3D.cpp
+        include/pnkr/renderer/debug/DebugLayer.hpp
+        src/renderer/debug/DebugLayer.cpp
+        src/renderer/debug/shaders/line_canvas.vert
+        src/renderer/debug/shaders/line_canvas.frag)
 
 target_sources(pnkr_engine
   PRIVATE
@@ -62,6 +93,10 @@ target_sources(pnkr_engine
       include/pnkr/platform/window.hpp
       include/pnkr/renderer/renderer_config.hpp
       include/pnkr/renderer/renderer.hpp
+      include/pnkr/rhi/rhi_descriptor.hpp
+      include/pnkr/rhi/rhi_swapchain.hpp
+      include/pnkr/rhi/vulkan/vulkan_swapchain.hpp
+      include/pnkr/rhi/vulkan/vulkan_descriptor.hpp
         include/pnkr/renderer/vulkan/vulkan_buffer.hpp
         include/pnkr/renderer/vulkan/vulkan_command_buffer.hpp
         include/pnkr/renderer/vulkan/vulkan_context.hpp
@@ -70,8 +105,39 @@ target_sources(pnkr_engine
         include/pnkr/renderer/vulkan/vulkan_swapchain.hpp
         include/pnkr/renderer/scene/Model.hpp
         include/pnkr/renderer/scene/Node.hpp
+        include/pnkr/renderer/scene/RHIScene.hpp
+        include/pnkr/renderer/scene/Skybox.hpp
         include/pnkr/renderer/material/Material.hpp
 )
+
+# ============================================================================
+# Debug Layer Shader Compilation
+# ============================================================================
+find_program(GLSLC_EXECUTABLE glslc HINTS $ENV{VULKAN_SDK}/bin $ENV{VULKAN_SDK}/bin32)
+if(NOT GLSLC_EXECUTABLE)
+  message(STATUS "glslc not found - DebugLayer shaders will not be compiled")
+else()
+  # Set output directory for compiled shaders
+  set(DEBUG_SHADER_OUTPUT_DIR ${CMAKE_BINARY_DIR}/shaders)
+
+  # Ensure output directory exists
+  file(MAKE_DIRECTORY ${DEBUG_SHADER_OUTPUT_DIR})
+
+  # Compile debug layer shaders
+  add_custom_command(
+    OUTPUT ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.vert.spv ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.frag.spv
+    COMMAND ${GLSLC_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/debug/shaders/line_canvas.vert -o ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.vert.spv
+    COMMAND ${GLSLC_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/debug/shaders/line_canvas.frag -o ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.frag.spv
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/debug/shaders/line_canvas.vert ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/debug/shaders/line_canvas.frag
+    COMMENT "Compiling DebugLayer shaders to SPIR-V"
+  )
+
+  # Create a custom target for shader compilation
+  add_custom_target(debug_shaders ALL DEPENDS ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.vert.spv ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.frag.spv)
+
+  # Make the engine depend on shader compilation
+  add_dependencies(pnkr_engine debug_shaders)
+endif()
 
 # ============================================================================
 # Compilation Settings
@@ -175,6 +241,20 @@ target_link_libraries(pnkr_engine
         Tracy::TracyClient
 )
 
+find_package(spirv_cross_core CONFIG REQUIRED)
+find_package(spirv_cross_glsl CONFIG REQUIRED)
+find_package(spirv_cross_cpp CONFIG REQUIRED)
+find_package(spirv_cross_hlsl CONFIG REQUIRED)
+find_package(fastgltf CONFIG REQUIRED)
+
+target_link_libraries(pnkr_engine
+        PUBLIC
+        spirv-cross-core
+        spirv-cross-glsl
+        spirv-cross-cpp
+        spirv-cross-hlsl
+        fastgltf::fastgltf
+)
 
 # ============================================================================
 # Compiler Warnings (Per-target)

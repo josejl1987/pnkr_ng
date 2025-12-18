@@ -170,8 +170,8 @@ namespace pnkr::renderer
                 cmd,
                 vk::ImageLayout::eUndefined,
                 vk::ImageLayout::eTransferDstOptimal,
-                vk::PipelineStageFlagBits::eTopOfPipe,
-                vk::PipelineStageFlagBits::eTransfer
+                vk::PipelineStageFlagBits2::eNone,
+                vk::PipelineStageFlagBits2::eTransfer
             );
 
             // Copy buffer to image
@@ -202,8 +202,8 @@ namespace pnkr::renderer
                 cmd,
                 vk::ImageLayout::eTransferDstOptimal,
                 vk::ImageLayout::eShaderReadOnlyOptimal,
-                vk::PipelineStageFlagBits::eTransfer,
-                vk::PipelineStageFlagBits::eFragmentShader
+                vk::PipelineStageFlagBits2::eTransfer,
+                vk::PipelineStageFlagBits2::eFragmentShader
             );
         });
 
@@ -213,10 +213,10 @@ namespace pnkr::renderer
     void VulkanImage::transitionLayout(vk::CommandBuffer cmd,
                                        vk::ImageLayout oldLayout,
                                        vk::ImageLayout newLayout,
-                                       vk::PipelineStageFlags srcStage,
-                                       vk::PipelineStageFlags dstStage)
+                                       vk::PipelineStageFlags2 srcStage,
+                                       vk::PipelineStageFlags2 dstStage)
     {
-        vk::ImageMemoryBarrier barrier{};
+        vk::ImageMemoryBarrier2 barrier{};
         barrier.oldLayout = oldLayout;
         barrier.newLayout = newLayout;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -243,42 +243,48 @@ namespace pnkr::renderer
         if (oldLayout == vk::ImageLayout::eUndefined &&
             newLayout == vk::ImageLayout::eTransferDstOptimal)
         {
-            barrier.srcAccessMask = vk::AccessFlagBits::eNone;
-            barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+            barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
+            barrier.dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
         }
         else if (oldLayout == vk::ImageLayout::eTransferDstOptimal &&
             newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
         {
-            barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+            barrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
+            barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
         }
 
         else if (oldLayout == vk::ImageLayout::eUndefined &&
             newLayout == vk::ImageLayout::eColorAttachmentOptimal)
         {
-            barrier.srcAccessMask = vk::AccessFlagBits::eNone;
-            barrier.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
+            barrier.dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
         }
         else if (oldLayout == vk::ImageLayout::eUndefined &&
             newLayout == vk::ImageLayout::eDepthAttachmentOptimal)
         {
-            barrier.srcAccessMask = vk::AccessFlagBits::eNone;
-            barrier.dstAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+            barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
+            barrier.dstAccessMask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
         }
         else if (oldLayout == vk::ImageLayout::eColorAttachmentOptimal &&
             newLayout == vk::ImageLayout::eTransferSrcOptimal)
         {
-            barrier.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
-            barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+            barrier.srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+            barrier.dstAccessMask = vk::AccessFlagBits2::eTransferRead;
         }
         else
         {
             throw std::runtime_error("Unsupported layout transition");
         }
 
-        cmd.pipelineBarrier(srcStage, dstStage,
-                            vk::DependencyFlags{},
-                            nullptr, nullptr, barrier);
+        barrier.srcStageMask = srcStage;
+        barrier.dstStageMask = dstStage;
+
+        vk::DependencyInfo depInfo{};
+        depInfo.dependencyFlags = vk::DependencyFlags{};
+        depInfo.imageMemoryBarrierCount = 1;
+        depInfo.pImageMemoryBarriers = &barrier;
+
+        cmd.pipelineBarrier2(depInfo);
     }
 
 

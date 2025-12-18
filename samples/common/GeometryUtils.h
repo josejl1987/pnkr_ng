@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vector>
-#include "pnkr/renderer/vulkan/geometry/Vertex.h"
+#include "pnkr/renderer/geometry/Vertex.h"
 
 namespace pnkr::samples {
 
