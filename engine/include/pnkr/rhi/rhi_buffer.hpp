@@ -7,9 +7,10 @@ namespace pnkr::renderer::rhi
 {
     struct BufferDescriptor
     {
-        uint64_t size;
-        BufferUsage usage;
-        MemoryUsage memoryUsage;
+        uint64_t size = 0;
+        BufferUsage usage = BufferUsage::None;
+        MemoryUsage memoryUsage = MemoryUsage::GPUOnly;
+        const void* data = nullptr; // Optional initial data
         const char* debugName = nullptr;
     };
 

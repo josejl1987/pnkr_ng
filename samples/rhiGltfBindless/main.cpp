@@ -20,9 +20,9 @@
 
 using namespace pnkr;
 
-class RHIVertexPullingApp : public samples::RhiSampleApp {
+class RHIGltfBindlessApp : public samples::RhiSampleApp {
 public:
-    RHIVertexPullingApp()
+    RHIGltfBindlessApp()
         : samples::RhiSampleApp({.title="RHI Bindless GLTF", .width=1280, .height=720, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false}) {}
 
     renderer::scene::Camera m_camera;
@@ -95,14 +95,20 @@ public:
 }
 
         size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
-        m_materialBuffer = m_renderer->device()->createBuffer(
-            size,
-            renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst,
-            renderer::rhi::MemoryUsage::GPUOnly
-        );
+        m_materialBuffer = m_renderer->device()->createBuffer({
+            .size = size,
+            .usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst,
+            .memoryUsage = renderer::rhi::MemoryUsage::GPUOnly,
+            .debugName = "MaterialBuffer"
+        });
 
-        auto staging = m_renderer->device()->createBuffer(size, renderer::rhi::BufferUsage::TransferSrc, renderer::rhi::MemoryUsage::CPUToGPU);
-        staging->uploadData(gpuMaterials.data(), size);
+        auto staging = m_renderer->device()->createBuffer({
+            .size = size,
+            .usage = renderer::rhi::BufferUsage::TransferSrc,
+            .memoryUsage = renderer::rhi::MemoryUsage::CPUToGPU,
+            .data = gpuMaterials.data(),
+            .debugName = "MaterialStaging"
+        });
 
         auto cmd = m_renderer->device()->createCommandBuffer();
         cmd->begin();
@@ -190,6 +196,6 @@ public:
 };
 
 int main(int argc, char** argv) {
-    RHIVertexPullingApp app;
+    RHIGltfBindlessApp app;
     return app.run();
 }

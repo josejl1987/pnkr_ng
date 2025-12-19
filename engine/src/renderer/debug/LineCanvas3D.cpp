@@ -401,10 +401,12 @@ namespace pnkr::renderer::debug
     void LineCanvas3D::createVertexBuffer()
     {
         // Create buffer through device
-        m_vertexBuffer = m_renderer->device()->createBuffer(
-            u64(m_maxVertices * kMaxFrames) * sizeof(LineVertex),
-            rhi::BufferUsage::VertexBuffer,
-            rhi::MemoryUsage::CPUToGPU);
+        m_vertexBuffer = m_renderer->device()->createBuffer({
+            .size = u64(m_maxVertices * kMaxFrames) * sizeof(LineVertex),
+            .usage = rhi::BufferUsage::VertexBuffer,
+            .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+            .debugName = "LineCanvas3D_VertexBuffer"
+        });
     }
 
     void LineCanvas3D::uploadVertexData()

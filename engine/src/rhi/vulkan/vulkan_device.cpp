@@ -321,17 +321,41 @@ namespace pnkr::renderer::rhi::vulkan
         m_descriptorPool = m_device.createDescriptorPool(poolInfo);
     }
 
-    std::unique_ptr<RHIBuffer> VulkanRHIDevice::createBuffer(
-        uint64_t size,
-        BufferUsage usage,
-        MemoryUsage memoryUsage)
+    std::unique_ptr<RHIBuffer> VulkanRHIDevice::createBuffer(const BufferDescriptor& desc)
     {
-        BufferDescriptor desc{};
-        desc.size = size;
-        desc.usage = usage;
-        desc.memoryUsage = memoryUsage;
+        BufferDescriptor finalDesc = desc;
 
-        return std::make_unique<VulkanRHIBuffer>(m_device, m_allocator, desc);
+        // If we have data to upload to a GPU-only buffer, we need TransferDst usage
+        if (desc.data && desc.memoryUsage == MemoryUsage::GPUOnly) {
+            finalDesc.usage |= BufferUsage::TransferDst;
+        }
+
+        auto buffer = std::make_unique<VulkanRHIBuffer>(m_device, m_allocator, finalDesc);
+
+        if (desc.data) {
+            if (desc.memoryUsage == MemoryUsage::CPUToGPU || desc.memoryUsage == MemoryUsage::CPUOnly) {
+                // Direct map and copy
+                buffer->uploadData(desc.data, desc.size);
+            } else {
+                // GPUOnly: Requires staging buffer
+                auto staging = createBuffer({
+                    .size = desc.size,
+                    .usage = BufferUsage::TransferSrc,
+                    .memoryUsage = MemoryUsage::CPUToGPU
+                });
+                staging->uploadData(desc.data, desc.size);
+
+                auto cmd = createCommandBuffer();
+                cmd->begin();
+                cmd->copyBuffer(staging.get(), buffer.get(), 0, 0, desc.size);
+                cmd->end();
+
+                submitCommands(cmd.get());
+                waitIdle(); // Ensure data is there before returning the handle
+            }
+        }
+
+        return buffer;
     }
 
     std::unique_ptr<RHITexture> VulkanRHIDevice::createTexture(

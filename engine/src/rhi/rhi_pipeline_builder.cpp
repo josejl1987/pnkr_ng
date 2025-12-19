@@ -72,20 +72,21 @@ namespace pnkr::renderer::rhi {
     }
 
     void RHIPipelineBuilder::mergeReflection(const ShaderReflectionData& reflection) {
-        // --- 1. Robust Push Constant Merging ---
         for (const auto& incomingPC : reflection.pushConstants) {
+            // VULKAN FIX: Push constant ranges in the Pipeline Layout should be 16-byte aligned
+            uint32_t alignedSize = (incomingPC.size + 15) & ~15;
+
             if (m_mergedPushConstants.empty()) {
-                m_mergedPushConstants.push_back(incomingPC);
+                PushConstantRange range = incomingPC;
+                range.size = alignedSize;
+                m_mergedPushConstants.push_back(range);
             } else {
                 auto& existing = m_mergedPushConstants[0];
-                // Union of stages: e.g. Vertex | Fragment
                 existing.stages = existing.stages | incomingPC.stages;
-                // Max of sizes: ensure the layout is big enough for the largest user
-                existing.size = std::max(existing.size, incomingPC.size);
+                existing.size = std::max(existing.size, alignedSize);
             }
         }
 
-        // --- 2. Merge Descriptor Sets (Logic remains the same) ---
         if (reflection.descriptorSets.size() > m_mergedLayouts.size()) {
             m_mergedLayouts.resize(reflection.descriptorSets.size());
         }

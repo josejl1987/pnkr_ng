@@ -114,15 +114,21 @@ public:
         }
 
         size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
-        m_materialBuffer = m_renderer->device()->createBuffer(
-            size,
-            renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst,
-            renderer::rhi::MemoryUsage::GPUOnly
-        );
+        renderer::rhi::BufferDescriptor bufferDesc;
+        bufferDesc.size = size;
+        bufferDesc.usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst;
+        bufferDesc.memoryUsage = renderer::rhi::MemoryUsage::GPUOnly;
+        m_materialBuffer = m_renderer->device()->createBuffer(bufferDesc);
 
-        auto staging = m_renderer->device()->createBuffer(size, renderer::rhi::BufferUsage::TransferSrc,
-                                                          renderer::rhi::MemoryUsage::CPUToGPU);
-        staging->uploadData(gpuMaterials.data(), size);
+        renderer::rhi::BufferDescriptor stagingDesc;
+
+        stagingDesc.size = size;
+        stagingDesc.usage = renderer::rhi::BufferUsage::TransferSrc;
+        stagingDesc.memoryUsage = renderer::rhi::MemoryUsage::CPUToGPU;
+        stagingDesc.data = gpuMaterials.data();
+
+
+        auto staging = m_renderer->device()->createBuffer(stagingDesc);
 
         auto cmd = m_renderer->device()->createCommandBuffer();
         cmd->begin();
@@ -143,10 +149,9 @@ public:
                                               getShaderPath("vertex_pulling.vert.spv"), config);
         auto fs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Fragment,
                                               getShaderPath("gltf_bindless.frag.spv"), config);
-        auto gs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Geometry,
-                                              getShaderPath("wireframe.geom.spv"), config);
+
         auto builder = renderer::rhi::RHIPipelineBuilder()
-                       .setShaders(vs.get(), fs.get(), gs.get())
+                       .setShaders(vs.get(), fs.get(), nullptr)
                        .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
                        .setCullMode(renderer::rhi::CullMode::Back)
                        .enableDepthTest()

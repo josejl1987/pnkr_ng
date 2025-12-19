@@ -371,10 +371,11 @@ namespace pnkr::renderer::debug
     void DebugLayer::allocateBuffer(uint64_t vertexCount)
     {
         // Ring buffer size: Max vertices per frame * Max frames in flight
-        m_vertexBuffer = m_renderer->device()->createBuffer(
-            vertexCount * kMaxFrames * sizeof(LineVertex),
-            rhi::BufferUsage::VertexBuffer,
-            rhi::MemoryUsage::CPUToGPU
-        );
+        m_vertexBuffer = m_renderer->device()->createBuffer({
+            .size = vertexCount * kMaxFrames * sizeof(LineVertex),
+            .usage = rhi::BufferUsage::VertexBuffer,
+            .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+            .debugName = "DebugLayer_VertexBuffer"
+        });
     }
 } // namespace pnkr::renderer::debug

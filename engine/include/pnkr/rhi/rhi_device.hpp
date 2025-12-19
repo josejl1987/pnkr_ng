@@ -17,6 +17,9 @@ namespace pnkr::renderer::rhi
     class RHIDescriptorSetLayout;
     class RHIDescriptorSet;
 
+    // Forward declaration for BufferDescriptor
+    struct BufferDescriptor;
+
     // Physical device capabilities
     struct DeviceCapabilities
     {
@@ -80,10 +83,7 @@ namespace pnkr::renderer::rhi
         virtual ~RHIDevice() = default;
 
         // Resource creation
-        virtual std::unique_ptr<RHIBuffer> createBuffer(
-            uint64_t size,
-            BufferUsage usage,
-            MemoryUsage memoryUsage) = 0;
+        virtual std::unique_ptr<RHIBuffer> createBuffer(const BufferDescriptor& desc) = 0;
 
         virtual std::unique_ptr<RHITexture> createTexture(
             const Extent3D& extent,

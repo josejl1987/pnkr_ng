@@ -290,25 +290,23 @@ namespace pnkr::renderer
 
         // Create vertex buffer
         uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
-        mesh.m_vertexBuffer = m_device->createBuffer(
-            vertexBufferSize,
-            rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::TransferDst,
-            rhi::MemoryUsage::GPUOnly
-        );
-
-        // Upload vertices (using staging buffer internally)
-        uploadToBuffer(mesh.m_vertexBuffer.get(), vertices.data(), vertexBufferSize);
+        mesh.m_vertexBuffer = m_device->createBuffer({
+            .size = vertexBufferSize,
+            .usage = rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::TransferDst,
+            .memoryUsage = rhi::MemoryUsage::GPUOnly,
+            .data = vertices.data(),
+            .debugName = "VertexBuffer"
+        });
 
         // Create index buffer
         uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
-        mesh.m_indexBuffer = m_device->createBuffer(
-            indexBufferSize,
-            rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::TransferDst,
-            rhi::MemoryUsage::GPUOnly
-        );
-
-        // Upload indices
-        uploadToBuffer(mesh.m_indexBuffer.get(), indices.data(), indexBufferSize);
+        mesh.m_indexBuffer = m_device->createBuffer({
+            .size = indexBufferSize,
+            .usage = rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::TransferDst,
+            .memoryUsage = rhi::MemoryUsage::GPUOnly,
+            .data = indices.data(),
+            .debugName = "IndexBuffer"
+        });
 
         mesh.m_vertexCount = u32(vertices.size());
         mesh.m_indexCount = u32(indices.size());
@@ -329,25 +327,23 @@ namespace pnkr::renderer
         mesh.m_vertexPulling = true;
         // Create vertex buffer
         uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
-        mesh.m_vertexBuffer = m_device->createBuffer(
-            vertexBufferSize,
-            rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress | rhi::BufferUsage::TransferDst,
-            rhi::MemoryUsage::GPUOnly
-        );
-
-        // Upload vertices (using staging buffer internally)
-        uploadToBuffer(mesh.m_vertexBuffer.get(), vertices.data(), vertexBufferSize);
+        mesh.m_vertexBuffer = m_device->createBuffer({
+            .size = vertexBufferSize,
+            .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress | rhi::BufferUsage::TransferDst,
+            .memoryUsage = rhi::MemoryUsage::GPUOnly,
+            .data = vertices.data(),
+            .debugName = "VertexPullingVertexBuffer"
+        });
 
         // Create index buffer
         uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
-        mesh.m_indexBuffer = m_device->createBuffer(
-            indexBufferSize,
-            rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::TransferDst,
-            rhi::MemoryUsage::GPUOnly
-        );
-
-        // Upload indices
-        uploadToBuffer(mesh.m_indexBuffer.get(), indices.data(), indexBufferSize);
+        mesh.m_indexBuffer = m_device->createBuffer({
+            .size = indexBufferSize,
+            .usage = rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::TransferDst,
+            .memoryUsage = rhi::MemoryUsage::GPUOnly,
+            .data = indices.data(),
+            .debugName = "VertexPullingIndexBuffer"
+        });
 
         mesh.m_vertexCount = u32(vertices.size());
         mesh.m_indexCount = u32(indices.size());
@@ -553,6 +549,28 @@ namespace pnkr::renderer
         return handle;
     }
 
+    BufferHandle RHIRenderer::createBuffer(const rhi::BufferDescriptor& desc)
+    {
+        BufferData data{};
+
+        // 1. Create the hardware resource via device
+        data.buffer = m_device->createBuffer(desc);
+
+        // 2. Automatically register with Bindless if it's a Storage Buffer
+        if (m_useBindless && hasFlag(desc.usage, rhi::BufferUsage::StorageBuffer)) {
+            auto bindlessHandle = m_device->registerBindlessBuffer(data.buffer.get());
+            data.bindlessIndex = bindlessHandle.index;
+        }
+
+        // 3. Store and return handle
+        BufferHandle handle{static_cast<uint32_t>(m_buffers.size())};
+        m_buffers.push_back(std::move(data));
+
+        core::Logger::info("Created Buffer: handle={}, size={}, bindless={}",
+                           handle.id, desc.size, data.bindlessIndex);
+        return handle;
+    }
+
     PipelineHandle RHIRenderer::createGraphicsPipeline(const rhi::GraphicsPipelineDescriptor& desc)
     {
         auto pipeline = m_device->createGraphicsPipeline(desc);
@@ -658,6 +676,28 @@ namespace pnkr::renderer
         return m_textures[handle.id].bindlessIndex;
     }
 
+    rhi::RHIBuffer* RHIRenderer::getBuffer(BufferHandle handle) const
+    {
+        if (handle.id >= m_buffers.size())
+        {
+            core::Logger::error("Invalid buffer handle: {}", handle.id);
+            return nullptr;
+        }
+
+        return m_buffers[handle.id].buffer.get();
+    }
+
+    uint32_t RHIRenderer::getBufferBindlessIndex(BufferHandle handle) const
+    {
+        if (handle.id >= m_buffers.size())
+        {
+            core::Logger::error("Invalid buffer handle: {}", handle.id);
+            return 0xFFFFFFFFU;
+        }
+
+        return m_buffers[handle.id].bindlessIndex;
+    }
+
     uint64_t RHIRenderer::getMeshVertexBufferAddress(MeshHandle handle) const
     {
         return m_meshes[handle.id].m_vertexBuffer->getDeviceAddress();
@@ -745,8 +785,13 @@ namespace pnkr::renderer
             return;
         }
 
-        auto staging = m_device->createBuffer(size, rhi::BufferUsage::TransferSrc, rhi::MemoryUsage::CPUToGPU);
-        staging->uploadData(data, size);
+        auto staging = m_device->createBuffer({
+            .size = size,
+            .usage = rhi::BufferUsage::TransferSrc,
+            .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+            .data = data,
+            .debugName = "UploadToBufferStaging"
+        });
 
         auto cmd = m_device->createCommandBuffer();
         cmd->begin();

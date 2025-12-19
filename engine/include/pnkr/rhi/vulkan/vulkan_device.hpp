@@ -48,10 +48,7 @@ namespace pnkr::renderer::rhi::vulkan
         VulkanRHIDevice& operator=(const VulkanRHIDevice&) = delete;
 
         // RHIDevice interface - Resource creation
-        std::unique_ptr<RHIBuffer> createBuffer(
-            uint64_t size,
-            BufferUsage usage,
-            MemoryUsage memoryUsage) override;
+        std::unique_ptr<RHIBuffer> createBuffer(const BufferDescriptor& desc) override;
 
         std::unique_ptr<RHITexture> createTexture(
             const Extent3D& extent,

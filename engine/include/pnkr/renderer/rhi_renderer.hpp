@@ -58,17 +58,19 @@ namespace pnkr::renderer
         // Resource creation
         MeshHandle createMesh(const std::vector<struct Vertex>& vertices,
                               const std::vector<uint32_t>& indices, bool enableVertexPulling);
-        
+
         TextureHandle createTexture(const unsigned char* data,
                                    int width, int height, int channels,
                                    bool srgb = true);
-        
+
         TextureHandle loadTexture(const std::filesystem::path& filepath,
                                  bool srgb = true);
 
         TextureHandle createCubemap(const std::vector<std::filesystem::path>& faces,
                                    bool srgb = true);
-        
+
+        BufferHandle createBuffer(const rhi::BufferDescriptor& desc);
+
         PipelineHandle createGraphicsPipeline(const rhi::GraphicsPipelineDescriptor& desc);
         PipelineHandle createComputePipeline(const rhi::ComputePipelineDescriptor& desc);
 
@@ -102,6 +104,10 @@ namespace pnkr::renderer
         // Texture/descriptor access
         [[nodiscard]] rhi::RHITexture* getTexture(TextureHandle handle) const;
         [[nodiscard]] uint32_t getTextureBindlessIndex(TextureHandle handle) const;
+
+        // Buffer access
+        [[nodiscard]] rhi::RHIBuffer* getBuffer(BufferHandle handle) const;
+        [[nodiscard]] uint32_t getBufferBindlessIndex(BufferHandle handle) const;
 
         uint64_t getMeshVertexBufferAddress(MeshHandle handle) const;
 
@@ -149,6 +155,12 @@ namespace pnkr::renderer
             uint32_t bindlessIndex;
         };
         std::vector<TextureData> m_textures;
+
+        struct BufferData {
+            std::unique_ptr<rhi::RHIBuffer> buffer;
+            uint32_t bindlessIndex = 0xFFFFFFFF;
+        };
+        std::vector<BufferData> m_buffers;
 
         std::vector<std::unique_ptr<rhi::RHIPipeline>> m_pipelines;
 

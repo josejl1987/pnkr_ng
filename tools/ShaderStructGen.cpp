@@ -14,7 +14,6 @@
 // -----------------------------------------------------------------------------
 std::string getCppTypeName(spirv_cross::Compiler& comp, const spirv_cross::SPIRType& type)
 {
-
     if (type.storage == spv::StorageClassPhysicalStorageBuffer)
     {
         return "uint64_t";
@@ -38,7 +37,7 @@ std::string getCppTypeName(spirv_cross::Compiler& comp, const spirv_cross::SPIRT
     if (type.width == 64)
     {
         if (type.basetype == spirv_cross::SPIRType::UInt) return "uint64_t";
-        if (type.basetype == spirv_cross::SPIRType::Int)  return "int64_t";
+        if (type.basetype == spirv_cross::SPIRType::Int) return "int64_t";
         if (type.basetype == spirv_cross::SPIRType::Float) return "double";
     }
 
@@ -139,8 +138,11 @@ void generateStruct(spirv_cross::Compiler& comp, uint32_t typeId, std::ofstream&
     }
 
     std::string structName = getCppTypeName(comp, type);
-    size_t totalSize = comp.get_declared_struct_size(type);
+    size_t reflectedSize = comp.get_declared_struct_size(type);
 
+    // Round the size up to the struct alignment (C++ tail padding behavior)
+    // VULKAN FIX: Round up to nearest 16 bytes to match C++ alignment/padding
+    size_t totalSize = (reflectedSize + 15) & ~15;
     out << "// SPIR-V ID: " << typeId << " | Size: " << totalSize << " bytes\n";
     out << "struct " << structName << " {\n";
 

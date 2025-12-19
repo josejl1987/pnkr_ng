@@ -172,18 +172,13 @@ namespace pnkr::renderer::rhi::vulkan
         const TextureSubresource& subresource)
     {
         // Create staging buffer
-        BufferDescriptor stagingDesc{};
-        stagingDesc.size = dataSize;
-        stagingDesc.usage = BufferUsage::TransferSrc;
-        stagingDesc.memoryUsage = MemoryUsage::CPUToGPU;
-
-        auto stagingBuffer = m_device->createBuffer(
-            dataSize,
-            BufferUsage::TransferSrc,
-            MemoryUsage::CPUToGPU);
-
-        // Upload to staging buffer
-        stagingBuffer->uploadData(data, dataSize, 0);
+        auto stagingBuffer = m_device->createBuffer({
+            .size = dataSize,
+            .usage = BufferUsage::TransferSrc,
+            .memoryUsage = MemoryUsage::CPUToGPU,
+            .data = data,
+            .debugName = "TextureUploadStaging"
+        });
 
         // Create command buffer for transfer
         auto cmdBuffer = m_device->createCommandBuffer();
