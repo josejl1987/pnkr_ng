@@ -3,6 +3,9 @@
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/rhi/vulkan/vulkan_descriptor.hpp"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
+
+using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
@@ -51,14 +54,15 @@ namespace pnkr::renderer::rhi::vulkan
             vk::PipelineShaderStageCreateInfo stageInfo{};
             vk::ShaderStageFlags flags = VulkanUtils::toVkShaderStage(shaderDesc.stage);
             // Get the first bit set
-            if (flags & vk::ShaderStageFlagBits::eVertex)
+            if (flags & vk::ShaderStageFlagBits::eVertex) {
                 stageInfo.stage = vk::ShaderStageFlagBits::eVertex;
-            else if (flags & vk::ShaderStageFlagBits::eFragment)
+            } else if (flags & vk::ShaderStageFlagBits::eFragment) {
                 stageInfo.stage = vk::ShaderStageFlagBits::eFragment;
-            else if (flags & vk::ShaderStageFlagBits::eCompute)
+            } else if (flags & vk::ShaderStageFlagBits::eCompute) {
                 stageInfo.stage = vk::ShaderStageFlagBits::eCompute;
-            else if (flags & vk::ShaderStageFlagBits::eGeometry)
+            } else if (flags & vk::ShaderStageFlagBits::eGeometry) {
                 stageInfo.stage = vk::ShaderStageFlagBits::eGeometry;
+}
             stageInfo.module = module;
             stageInfo.pName = shaderDesc.entryPoint.c_str();
 
@@ -90,9 +94,9 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
-        vertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescs.size());
+        vertexInputInfo.vertexBindingDescriptionCount = u32(bindingDescs.size());
         vertexInputInfo.pVertexBindingDescriptions = bindingDescs.data();
-        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescs.size());
+        vertexInputInfo.vertexAttributeDescriptionCount = u32(attributeDescs.size());
         vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
 
         // Input assembly state
@@ -151,7 +155,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::PipelineColorBlendStateCreateInfo colorBlending{};
         colorBlending.logicOpEnable = VK_FALSE;
-        colorBlending.attachmentCount = static_cast<uint32_t>(colorBlendAttachments.size());
+        colorBlending.attachmentCount = u32(colorBlendAttachments.size());
         colorBlending.pAttachments = colorBlendAttachments.data();
 
         // Dynamic state
@@ -161,7 +165,7 @@ namespace pnkr::renderer::rhi::vulkan
         };
 
         vk::PipelineDynamicStateCreateInfo dynamicState{};
-        dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+        dynamicState.dynamicStateCount = u32(dynamicStates.size());
         dynamicState.pDynamicStates = dynamicStates.data();
 
         // Create descriptor set layouts
@@ -178,13 +182,13 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         vk::PipelineRenderingCreateInfo renderingInfo{};
-        renderingInfo.colorAttachmentCount = static_cast<uint32_t>(colorFormats.size());
+        renderingInfo.colorAttachmentCount = u32(colorFormats.size());
         renderingInfo.pColorAttachmentFormats = colorFormats.data();
         renderingInfo.depthAttachmentFormat = VulkanUtils::toVkFormat(desc.depthFormat);
 
         // Create graphics pipeline
         vk::GraphicsPipelineCreateInfo pipelineInfo{};
-        pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+        pipelineInfo.stageCount = u32(shaderStages.size());
         pipelineInfo.pStages = shaderStages.data();
         pipelineInfo.pVertexInputState = &vertexInputInfo;
         pipelineInfo.pInputAssemblyState = &inputAssembly;
@@ -209,7 +213,7 @@ namespace pnkr::renderer::rhi::vulkan
         m_pipeline = result.value;
 
         // Set debug name
-        if (desc.debugName)
+        if (desc.debugName != nullptr)
         {
             vk::DebugUtilsObjectNameInfoEXT nameInfo{};
             nameInfo.objectType = vk::ObjectType::ePipeline;
@@ -252,7 +256,7 @@ namespace pnkr::renderer::rhi::vulkan
         m_pipeline = result.value;
 
         // Set debug name
-        if (desc.debugName)
+        if (desc.debugName != nullptr)
         {
             vk::DebugUtilsObjectNameInfoEXT nameInfo{};
             nameInfo.objectType = vk::ObjectType::ePipeline;
@@ -273,9 +277,9 @@ namespace pnkr::renderer::rhi::vulkan
             // FIX: If this is Set 1 (Bindless), use the global layout from the device
             // This avoids mismatch errors where Reflection thinks size is 1 but actual set is 200k.
             // Also ensures UpdateAfterBind flags are present.
-            if (i == 1 && m_device->getBindlessDescriptorSetLayout())
+            if (i == 1 && (m_device->getBindlessDescriptorSetLayout() != nullptr))
             {
-                auto* bindlessLayout = static_cast<VulkanRHIDescriptorSetLayout*>(m_device->getBindlessDescriptorSetLayout());
+                auto* bindlessLayout = dynamic_cast<VulkanRHIDescriptorSetLayout*>(m_device->getBindlessDescriptorSetLayout());
                 m_descriptorSetLayouts.push_back(
                     std::make_unique<VulkanRHIDescriptorSetLayout>(
                         m_device, bindlessLayout->layout(), setLayout, false /* don't own */)
@@ -297,7 +301,7 @@ namespace pnkr::renderer::rhi::vulkan
             }
 
             vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-            layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+            layoutInfo.bindingCount = u32(bindings.size());
             layoutInfo.pBindings = bindings.data();
 
             vk::DescriptorSetLayout layout = m_device->device().createDescriptorSetLayout(layoutInfo);
@@ -328,9 +332,9 @@ namespace pnkr::renderer::rhi::vulkan
             vkLayouts.push_back(layout->layout());
         }
 
-        layoutInfo.setLayoutCount = static_cast<uint32_t>(vkLayouts.size());
+        layoutInfo.setLayoutCount = u32(vkLayouts.size());
         layoutInfo.pSetLayouts = vkLayouts.data();
-        layoutInfo.pushConstantRangeCount = static_cast<uint32_t>(vkPushConstants.size());
+        layoutInfo.pushConstantRangeCount = u32(vkPushConstants.size());
         layoutInfo.pPushConstantRanges = vkPushConstants.data();
 
         m_pipelineLayout = m_device->device().createPipelineLayout(layoutInfo);
@@ -368,6 +372,6 @@ namespace pnkr::renderer::rhi::vulkan
 
     uint32_t VulkanRHIPipeline::descriptorSetLayoutCount() const
     {
-        return static_cast<uint32_t>(m_descriptorSetLayouts.size());
+        return u32(m_descriptorSetLayouts.size());
     }
 } // namespace pnkr::renderer::rhi::vulkan

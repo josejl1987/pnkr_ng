@@ -34,25 +34,25 @@ protected:
 
         // Set up camera controller (uses built-in FPS controls)
         auto& cameraController = m_scene->cameraController();
-        cameraController.setPosition(glm::vec3(0.0f, 5.0f, 15.0f));
+        cameraController.setPosition(glm::vec3(0.0F, 5.0F, 15.0F));
 
         // Set up camera
         auto& camera = m_scene->camera();
-        camera.setPerspective(glm::radians(45.0f),
-                             static_cast<float>(m_config.width) / m_config.height,
-                             0.1f, 1000.0f);
+        camera.setPerspective(glm::radians(45.0F),
+                             util::toFloat(m_config.width) / m_config.height,
+                             0.1F, 1000.0F);
 
         // Set scene reference for debug layer (optional)
         m_debugLayer.setScene(m_scene.get());
 
         // Start rotation timer
-        m_rotation = 0.0f;
+        m_rotation = 0.0F;
     }
 
     void onUpdate(float dt) override
     {
         // Update rotation
-        m_rotation += dt * 0.5f;
+        m_rotation += dt * 0.5F;
 
         // Update scene with input (camera controller handles input)
         auto& cameraController = m_scene->cameraController();
@@ -90,62 +90,63 @@ protected:
         m_debugLayer.line(glm::vec3(0, 0, 0), glm::vec3(0, 0, 5), glm::vec3(0, 0, 1)); // Z - Blue
 
         // Draw a rotating box
-        glm::mat4 boxTransform = glm::mat4(1.0f);
+        auto boxTransform = glm::mat4(1.0F);
         boxTransform = glm::rotate(boxTransform, m_rotation, glm::vec3(0, 1, 0));
-        boxTransform = glm::rotate(boxTransform, m_rotation * 0.7f, glm::vec3(1, 0, 0));
-        m_debugLayer.box(boxTransform, glm::vec3(2.0f), glm::vec3(1, 1, 0));
+        boxTransform = glm::rotate(boxTransform, m_rotation * 0.7F, glm::vec3(1, 0, 0));
+        m_debugLayer.box(boxTransform, glm::vec3(2.0F), glm::vec3(1, 1, 0));
 
         // Draw a sphere
-        m_debugLayer.sphere(glm::vec3(4, 0, 0), 1.0f, glm::vec3(0, 1, 1), 16);
+        m_debugLayer.sphere(glm::vec3(4, 0, 0), 1.0F, glm::vec3(0, 1, 1), 16);
 
         // Draw a circle in YZ plane (normal points along X-axis)
-        m_debugLayer.circle(glm::vec3(-4, 0, 0), 1.5f, glm::vec3(1, 0, 0), glm::vec3(1, 0, 1), 32);
+        m_debugLayer.circle(glm::vec3(-4, 0, 0), 1.5F, glm::vec3(1, 0, 0), glm::vec3(1, 0, 1), 32);
 
         // Draw a plane grid (slightly offset to prevent z-fighting)
-        m_debugLayer.plane(glm::vec3(0, -2.99f, 0),  // Small offset to prevent z-fighting
+        m_debugLayer.plane(glm::vec3(0, -2.99F, 0),  // Small offset to prevent z-fighting
                           glm::vec3(20, 0, 0),
                           glm::vec3(0, 0, 20),
                           20, 20,
-                          glm::vec3(0.3f, 0.3f, 0.3f));
+                          glm::vec3(0.3F, 0.3F, 0.3F));
 
         // Draw multiple boxes in a grid pattern
         for (int x = -2; x <= 2; ++x)
         {
             for (int z = -2; z <= 2; ++z)
             {
-                if (x == 0 && z == 0) continue; // Skip center
+                if (x == 0 && z == 0) { continue; // Skip center
+}
 
-                glm::vec3 pos(x * 3.0f, 2.0f, z * 3.0f);
-                glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos);
+                glm::vec3 pos(x * 3.0F, 2.0F, z * 3.0F);
+                glm::mat4 transform = glm::translate(glm::mat4(1.0F), pos);
                 transform = glm::rotate(transform, m_rotation + static_cast<float>(x + z),
                                        glm::vec3(0, 1, 0));
-                transform = glm::scale(transform, glm::vec3(0.5f));
+                transform = glm::scale(transform, glm::vec3(0.5F));
 
                 glm::vec3 color = glm::vec3(
-                    (static_cast<float>(x + 2) / 4.0f),
-                    (static_cast<float>(z + 2) / 4.0f),
-                    0.5f
+                    util::toFloat(x + 2) / 4.0F,
+                    util::toFloat(z + 2) / 4.0F,
+                    0.5F
                 );
 
-                m_debugLayer.box(transform, glm::vec3(1.0f), color);
+                m_debugLayer.box(transform, glm::vec3(1.0F), color);
             }
         }
 
         // Draw a frustum (visualize a camera)
         glm::mat4 frustumView = glm::lookAt(glm::vec3(-8, 5, 8), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-        glm::mat4 frustumProj = glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 20.0f);
+        glm::mat4 frustumProj = glm::perspective(glm::radians(60.0F), 1.0F, 0.1F, 20.0F);
         m_debugLayer.frustum(frustumProj * frustumView, glm::vec3(1, 1, 0));
 
         // Draw a wireframe frame around the scene
         glm::vec3 boundsMin = glm::vec3(-8, -3, -8);
         glm::vec3 boundsMax = glm::vec3(8, 5, 8);
-        m_debugLayer.box(boundsMin, boundsMax, glm::vec3(0.5f));
+        m_debugLayer.box(boundsMin, boundsMax, glm::vec3(0.5F));
     }
 
 private:
     renderer::debug::DebugLayer m_debugLayer;
     std::unique_ptr<renderer::scene::RHIScene> m_scene;
-    float m_rotation;
+    float m_rotation{};
 };
 
 int main()

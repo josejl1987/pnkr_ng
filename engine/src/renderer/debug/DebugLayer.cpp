@@ -5,10 +5,15 @@
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
+#include <algorithm>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <cstring>
+
+using namespace pnkr::util;
 
 namespace pnkr::renderer::debug
 {
@@ -17,7 +22,7 @@ namespace pnkr::renderer::debug
 
     void DebugLayer::initialize(pnkr::renderer::RHIRenderer* renderer)
     {
-        if (m_initialized || !renderer)
+        if (m_initialized || (renderer == nullptr))
         {
             return;
         }
@@ -55,15 +60,17 @@ namespace pnkr::renderer::debug
 
     void DebugLayer::line(const glm::vec3& start, const glm::vec3& end, const glm::vec3& color)
     {
-        if (!hasCapacity(2)) return;
+        if (!hasCapacity(2)) { return;
+}
 
-        m_vertices.push_back({start, color});
-        m_vertices.push_back({end, color});
+        m_vertices.push_back({.position=start, .color=color});
+        m_vertices.push_back({.position=end, .color=color});
     }
 
     void DebugLayer::box(const glm::vec3& min, const glm::vec3& max, const glm::vec3& color)
     {
-        if (!hasCapacity(24)) return; // 12 edges * 2 vertices per edge
+        if (!hasCapacity(24)) { return; // 12 edges * 2 vertices per edge
+}
 
         glm::vec3 corners[8] = {
             glm::vec3(min.x, min.y, min.z),
@@ -97,21 +104,22 @@ namespace pnkr::renderer::debug
 
     void DebugLayer::box(const glm::mat4& transform, const glm::vec3& size, const glm::vec3& color)
     {
-        if (!hasCapacity(24)) return; // 12 edges * 2 vertices per edge
+        if (!hasCapacity(24)) { return; // 12 edges * 2 vertices per edge
+}
 
-        glm::vec3 halfSize = size * 0.5f;
+        glm::vec3 halfSize = size * 0.5F;
         glm::vec3 min = -halfSize;
         glm::vec3 max = halfSize;
 
         glm::vec3 corners[8] = {
-            glm::vec3(transform * glm::vec4(min.x, min.y, min.z, 1.0f)),
-            glm::vec3(transform * glm::vec4(max.x, min.y, min.z, 1.0f)),
-            glm::vec3(transform * glm::vec4(max.x, max.y, min.z, 1.0f)),
-            glm::vec3(transform * glm::vec4(min.x, max.y, min.z, 1.0f)),
-            glm::vec3(transform * glm::vec4(min.x, min.y, max.z, 1.0f)),
-            glm::vec3(transform * glm::vec4(max.x, min.y, max.z, 1.0f)),
-            glm::vec3(transform * glm::vec4(max.x, max.y, max.z, 1.0f)),
-            glm::vec3(transform * glm::vec4(min.x, max.y, max.z, 1.0f))
+            glm::vec3(transform * glm::vec4(min.x, min.y, min.z, 1.0F)),
+            glm::vec3(transform * glm::vec4(max.x, min.y, min.z, 1.0F)),
+            glm::vec3(transform * glm::vec4(max.x, max.y, min.z, 1.0F)),
+            glm::vec3(transform * glm::vec4(min.x, max.y, min.z, 1.0F)),
+            glm::vec3(transform * glm::vec4(min.x, min.y, max.z, 1.0F)),
+            glm::vec3(transform * glm::vec4(max.x, min.y, max.z, 1.0F)),
+            glm::vec3(transform * glm::vec4(max.x, max.y, max.z, 1.0F)),
+            glm::vec3(transform * glm::vec4(min.x, max.y, max.z, 1.0F))
         };
 
         // Bottom edges
@@ -136,16 +144,17 @@ namespace pnkr::renderer::debug
     void DebugLayer::plane(const glm::vec3& origin, const glm::vec3& v1, const glm::vec3& v2,
                            int segments1, int segments2, const glm::vec3& color)
     {
-        if (segments1 <= 0 || segments2 <= 0) return;
+        if (segments1 <= 0 || segments2 <= 0) { return;
+}
 
         // Draw grid lines parallel to v1, distributed along v2
         for (int i = 0; i <= segments2; ++i)
         {
             // Map i from [0, segments2] to [-0.5, 0.5]
-            float t = static_cast<float>(i) / static_cast<float>(segments2) - 0.5f;
+            float t = (toFloat(i) / toFloat(segments2)) - 0.5F;
             glm::vec3 offset = v2 * t;
-            glm::vec3 start = origin + offset - (v1 * 0.5f);
-            glm::vec3 end   = origin + offset + (v1 * 0.5f);
+            glm::vec3 start = origin + offset - (v1 * 0.5F);
+            glm::vec3 end   = origin + offset + (v1 * 0.5F);
             line(start, end, color);
         }
 
@@ -153,10 +162,10 @@ namespace pnkr::renderer::debug
         for (int i = 0; i <= segments1; ++i)
         {
             // Map i from [0, segments1] to [-0.5, 0.5]
-            float t = static_cast<float>(i) / static_cast<float>(segments1) - 0.5f;
+            float t = (toFloat(i) / toFloat(segments1)) - 0.5F;
             glm::vec3 offset = v1 * t;
-            glm::vec3 start = origin + offset - (v2 * 0.5f);
-            glm::vec3 end   = origin + offset + (v2 * 0.5f);
+            glm::vec3 start = origin + offset - (v2 * 0.5F);
+            glm::vec3 end   = origin + offset + (v2 * 0.5F);
             line(start, end, color);
         }
     }
@@ -178,10 +187,10 @@ namespace pnkr::renderer::debug
         glm::mat4 invViewProj = glm::inverse(viewProj);
 
         // Transform corners to world space
-        for (int i = 0; i < 8; ++i)
+        for (auto & i : corners)
         {
-            glm::vec4 corner = invViewProj * glm::vec4(corners[i], 1.0f);
-            corners[i] = glm::vec3(corner.x / corner.w, corner.y / corner.w, corner.z / corner.w);
+            glm::vec4 corner = invViewProj * glm::vec4(i, 1.0F);
+            i = glm::vec3(corner.x / corner.w, corner.y / corner.w, corner.z / corner.w);
         }
 
         // Near plane
@@ -205,11 +214,12 @@ namespace pnkr::renderer::debug
 
     void DebugLayer::circle(const glm::vec3& center, float radius, const glm::vec3& normal, const glm::vec3& color, int segments)
     {
-        if (!hasCapacity(segments * 2)) return;
-        if (segments < 3) segments = 3;
+        if (!hasCapacity(static_cast<size_t>(segments * 2))) { return;
+}
+        segments = std::max(segments, 3);
 
         // Build orthonormal basis for the circle orientation
-        glm::vec3 up = std::abs(normal.z) < 0.999f ? glm::vec3(0,0,1) : glm::vec3(1,0,0);
+        glm::vec3 up = std::abs(normal.z) < 0.999F ? glm::vec3(0,0,1) : glm::vec3(1,0,0);
         glm::vec3 right = glm::normalize(glm::cross(up, normal));
         glm::vec3 tangent = glm::cross(normal, right);
 
@@ -226,17 +236,18 @@ namespace pnkr::renderer::debug
 
     void DebugLayer::sphere(const glm::vec3& center, float radius, const glm::vec3& color, int segments)
     {
-        if (segments < 3) segments = 3;
+        segments = std::max(segments, 3);
 
         // Estimate vertex count: (segments + 1) * segments * 2 lines for latitude +
         // segments * segments lines for longitude = approximately segments * (segments + 3) * 2 vertices
-        size_t estimatedVertices = segments * (segments + 3) * 2;
-        if (!hasCapacity(estimatedVertices)) return;
+        size_t estimatedVertices = static_cast<size_t>(segments * (segments + 3) * 2);
+        if (!hasCapacity(estimatedVertices)) { return;
+}
 
         // Draw latitude circles
         for (int lat = 0; lat <= segments; ++lat)
         {
-            float theta = glm::pi<float>() * static_cast<float>(lat) / static_cast<float>(segments);
+            float theta = glm::pi<float>() * toFloat(lat) / toFloat(segments);
             float sinTheta = glm::sin(theta);
             float cosTheta = glm::cos(theta);
 
@@ -244,7 +255,7 @@ namespace pnkr::renderer::debug
 
             for (int lon = 1; lon <= segments; ++lon)
             {
-                float phi = 2.0f * glm::pi<float>() * static_cast<float>(lon) / static_cast<float>(segments);
+                float phi = 2.0F * glm::pi<float>() * toFloat(lon) / toFloat(segments);
                 float sinPhi = glm::sin(phi);
                 float cosPhi = glm::cos(phi);
 
@@ -262,7 +273,7 @@ namespace pnkr::renderer::debug
         // Draw longitude circles
         for (int lon = 0; lon < segments; ++lon)
         {
-            float phi = 2.0f * glm::pi<float>() * static_cast<float>(lon) / static_cast<float>(segments);
+            float phi = 2.0F * glm::pi<float>() * toFloat(lon) / toFloat(segments);
             float sinPhi = glm::sin(phi);
             float cosPhi = glm::cos(phi);
 
@@ -270,7 +281,7 @@ namespace pnkr::renderer::debug
 
             for (int lat = 1; lat <= segments; ++lat)
             {
-                float theta = glm::pi<float>() * static_cast<float>(lat) / static_cast<float>(segments);
+                float theta = glm::pi<float>() * toFloat(lat) / toFloat(segments);
                 float sinTheta = glm::sin(theta);
                 float cosTheta = glm::cos(theta);
 
@@ -302,7 +313,7 @@ namespace pnkr::renderer::debug
 
         // 1. Determine ring buffer offset
         uint32_t frameSlot = ctx.frameIndex % kMaxFrames;
-        uint64_t offset = frameSlot * m_maxVertices * sizeof(LineVertex);
+        uint64_t offset = u64(frameSlot * m_maxVertices) * sizeof(LineVertex);
 
         // 2. Upload
         m_vertexBuffer->uploadData(m_vertices.data(), m_vertices.size() * sizeof(LineVertex), offset);
@@ -335,10 +346,10 @@ namespace pnkr::renderer::debug
         auto frag = rhi::Shader::load(rhi::ShaderStage::Fragment, shaderDir / "line_canvas.frag.spv");
 
         rhi::RHIPipelineBuilder builder;
-        builder.setShaders(vert.get(), frag.get())
+        builder.setShaders(vert.get(), frag.get(), nullptr)
                .useVertexType<LineVertex>() // Uses the static layout we defined
                .setTopology(rhi::PrimitiveTopology::LineList)
-               .setLineWidth(1.0f)
+               .setLineWidth(1.0F)
                .setNoBlend()
                .setColorFormat(m_renderer->getDrawColorFormat())
                .setDepthFormat(m_renderer->getDrawDepthFormat())

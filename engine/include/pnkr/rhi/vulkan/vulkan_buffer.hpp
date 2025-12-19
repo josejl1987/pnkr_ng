@@ -30,12 +30,16 @@ namespace pnkr::renderer::rhi::vulkan
         // Vulkan-specific accessors
         vk::Buffer buffer() const { return m_buffer; }
         VmaAllocation allocation() const { return m_allocation; }
+         uint64_t getDeviceAddress() const override;
+        // Implicit conversion operators for cleaner Vulkan API usage
+        operator vk::Buffer() const { return m_buffer; }
+        operator VkBuffer() const { return m_buffer; }
 
     private:
         vk::Device m_device;
         VmaAllocator m_allocator;
         vk::Buffer m_buffer;
-        VmaAllocation m_allocation;
+        VmaAllocation m_allocation{};
         uint64_t m_size;
         BufferUsage m_usage;
         MemoryUsage m_memoryUsage;

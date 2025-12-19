@@ -6,6 +6,7 @@
 #include "pnkr/renderer/vulkan/vulkan_device.hpp"
 #include "pnkr/renderer/vulkan/vulkan_buffer.hpp"
 #include "pnkr/core/logger.hpp"
+#include <cstddef>
 #include <filesystem>
 #include <cstring>
 #include <stb_image.h>
@@ -43,8 +44,8 @@ namespace pnkr::renderer
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = memoryUsage;
 
-        VkImage rawImage;
-        VkImageCreateInfo rawImageInfo = static_cast<VkImageCreateInfo>(imageInfo);
+        VkImage rawImage = nullptr;
+        auto rawImageInfo = static_cast<VkImageCreateInfo>(imageInfo);
 
         if (vmaCreateImage(m_allocator, &rawImageInfo, &allocInfo,
                            &rawImage, &m_allocation, nullptr) != VK_SUCCESS)
@@ -116,9 +117,12 @@ namespace pnkr::renderer
                                             const std::filesystem::path& filepath,
                                             bool srgb)
     {
-        int w, h, c;
+        int w;
+        int h;
+        int c;
         stbi_uc* pixels = stbi_load(filepath.string().c_str(), &w, &h, &c, STBI_rgb_alpha);
-        if (!pixels) throw std::runtime_error("Failed load");
+        if (pixels == nullptr) { throw std::runtime_error("Failed load");
+}
 
         VulkanImage img = createFromMemory(device, pixels, w, h, srgb);
         stbi_image_free(pixels);
@@ -131,7 +135,7 @@ namespace pnkr::renderer
                                               int height,
                                               bool srgb)
     {
-        vk::DeviceSize imageSize = width * height * 4; // Assume RGBA
+        vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(width * height * 4); // Assume RGBA
         const vk::Format format = srgb
                                       ? vk::Format::eR8G8B8A8Srgb
                                       : vk::Format::eR8G8B8A8Unorm;
@@ -312,7 +316,7 @@ namespace pnkr::renderer
             m_view = nullptr;
         }
 
-        if (m_image && m_allocator)
+        if (m_image && (m_allocator != nullptr))
         {
             vmaDestroyImage(m_allocator, m_image, m_allocation);
             m_image = nullptr;

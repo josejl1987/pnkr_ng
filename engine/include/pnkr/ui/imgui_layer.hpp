@@ -13,12 +13,12 @@ namespace pnkr::ui
         void shutdown();
 
         // Pass SDL events here
-        void handleEvent(const SDL_Event& event);
+        static void handleEvent(const SDL_Event& event);
 
         // Start a new ImGui frame
-        void beginFrame();
+        static void beginFrame();
 
-        void endFrame();
+        static void endFrame();
 
     private:
         vk::DescriptorPool m_descriptorPool;

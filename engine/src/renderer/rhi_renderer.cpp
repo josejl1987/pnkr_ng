@@ -2,9 +2,13 @@
 #include "pnkr/rhi/rhi_factory.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
 
 #include <stb_image.h>
 #include <algorithm>
+#include <cstddef>
+
+using namespace pnkr::util;
 
 namespace pnkr::renderer
 {
@@ -50,7 +54,7 @@ namespace pnkr::renderer
         }
 
         // Create per-frame command buffers.
-        const uint32_t framesInFlight = std::max(1u, m_swapchain->framesInFlight());
+        const uint32_t framesInFlight = std::max(1U, m_swapchain->framesInFlight());
         m_commandBuffers.reserve(framesInFlight);
         for (uint32_t i = 0; i < framesInFlight; ++i)
         {
@@ -108,7 +112,7 @@ namespace pnkr::renderer
             return;
         }
 
-        const uint32_t frameSlot = m_frameIndex % static_cast<uint32_t>(m_commandBuffers.size());
+        const uint32_t frameSlot = m_frameIndex % u32(m_commandBuffers.size());
         m_activeCommandBuffer = m_commandBuffers[frameSlot].get();
 
         // Acquire swapchain image and transition it to ColorAttachment.
@@ -139,13 +143,13 @@ namespace pnkr::renderer
             return;
         }
 
-        if (!m_backbuffer || !m_depthTarget)
+        if ((m_backbuffer == nullptr) || !m_depthTarget)
         {
             core::Logger::error("drawFrame: missing backbuffer or depth target");
             return;
         }
 
-        if (!m_activeCommandBuffer)
+        if (m_activeCommandBuffer == nullptr)
         {
             core::Logger::error("drawFrame: command buffer not available");
             return;
@@ -173,9 +177,9 @@ namespace pnkr::renderer
         // Begin rendering into the swapchain backbuffer.
         rhi::RenderingInfo renderingInfo{};
         renderingInfo.renderArea = rhi::Rect2D{
-            0, 0,
-            m_swapchain->extent().width,
-            m_swapchain->extent().height
+            .x = 0, .y = 0,
+            .width = m_swapchain->extent().width,
+            .height = m_swapchain->extent().height
         };
 
         // Color attachment (swapchain image)
@@ -184,10 +188,10 @@ namespace pnkr::renderer
         colorAttachment.loadOp = rhi::LoadOp::Clear;
         colorAttachment.storeOp = rhi::StoreOp::Store;
         colorAttachment.clearValue.isDepthStencil = false;
-        colorAttachment.clearValue.color.float32[0] = 0.1f;
-        colorAttachment.clearValue.color.float32[1] = 0.1f;
-        colorAttachment.clearValue.color.float32[2] = 0.1f;
-        colorAttachment.clearValue.color.float32[3] = 1.0f;
+        colorAttachment.clearValue.color.float32[0] = 0.1F;
+        colorAttachment.clearValue.color.float32[1] = 0.1F;
+        colorAttachment.clearValue.color.float32[2] = 0.1F;
+        colorAttachment.clearValue.color.float32[3] = 1.0F;
         renderingInfo.colorAttachments.push_back(colorAttachment);
 
         // Depth attachment
@@ -196,7 +200,7 @@ namespace pnkr::renderer
         depthAttachment.loadOp = rhi::LoadOp::Clear;
         depthAttachment.storeOp = rhi::StoreOp::Store;
         depthAttachment.clearValue.isDepthStencil = true;
-        depthAttachment.clearValue.depthStencil.depth = 1.0f;
+        depthAttachment.clearValue.depthStencil.depth = 1.0F;
         depthAttachment.clearValue.depthStencil.stencil = 0;
         renderingInfo.depthAttachment = &depthAttachment;
 
@@ -204,12 +208,12 @@ namespace pnkr::renderer
 
         // Viewport/scissor
         rhi::Viewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(m_swapchain->extent().width);
-        viewport.height = static_cast<float>(m_swapchain->extent().height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
+        viewport.x = 0.0F;
+        viewport.y = 0.0F;
+        viewport.width = toFloat(m_swapchain->extent().width);
+        viewport.height = toFloat(m_swapchain->extent().height);
+        viewport.minDepth = 0.0F;
+        viewport.maxDepth = 1.0F;
         m_activeCommandBuffer->setViewport(viewport);
 
         rhi::Rect2D scissor{};
@@ -241,7 +245,7 @@ namespace pnkr::renderer
         if (!m_swapchain)
         {
             core::Logger::error("endFrame: swapchain not created");
-            if (m_activeCommandBuffer)
+            if (m_activeCommandBuffer != nullptr)
             {
                 m_activeCommandBuffer->end();
             }
@@ -251,7 +255,7 @@ namespace pnkr::renderer
         }
 
         // Transition to Present, end, submit, and present.
-        if (m_activeCommandBuffer)
+        if (m_activeCommandBuffer != nullptr)
         {
             (void)m_swapchain->endFrame(m_frameIndex, m_activeCommandBuffer);
         }
@@ -266,54 +270,105 @@ namespace pnkr::renderer
         core::Logger::info("Resizing renderer to {}x{}", width, height);
 
         if (!m_swapchain)
+        {
             return;
+        }
 
         m_device->waitIdle();
 
-        m_swapchain->recreate(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+        m_swapchain->recreate(u32(width), u32(height));
 
         // Recreate depth target for new extent.
         createRenderTargets();
     }
 
 
-    MeshHandle RHIRenderer::createMesh(const std::vector<Vertex>& vertices,
-                                       const std::vector<uint32_t>& indices)
+    MeshHandle RHIRenderer::loadNoVertexPulling(const std::vector<Vertex>& vertices,
+                                                const std::vector<uint32_t>& indices)
     {
         MeshData mesh{};
 
         // Create vertex buffer
         uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
-        mesh.vertexBuffer = m_device->createBuffer(
+        mesh.m_vertexBuffer = m_device->createBuffer(
             vertexBufferSize,
             rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::TransferDst,
             rhi::MemoryUsage::GPUOnly
         );
 
         // Upload vertices (using staging buffer internally)
-        uploadToBuffer(mesh.vertexBuffer.get(), vertices.data(), vertexBufferSize);
+        uploadToBuffer(mesh.m_vertexBuffer.get(), vertices.data(), vertexBufferSize);
 
         // Create index buffer
         uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
-        mesh.indexBuffer = m_device->createBuffer(
+        mesh.m_indexBuffer = m_device->createBuffer(
             indexBufferSize,
             rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::TransferDst,
             rhi::MemoryUsage::GPUOnly
         );
 
         // Upload indices
-        uploadToBuffer(mesh.indexBuffer.get(), indices.data(), indexBufferSize);
+        uploadToBuffer(mesh.m_indexBuffer.get(), indices.data(), indexBufferSize);
 
-        mesh.vertexCount = static_cast<uint32_t>(vertices.size());
-        mesh.indexCount = static_cast<uint32_t>(indices.size());
+        mesh.m_vertexCount = u32(vertices.size());
+        mesh.m_indexCount = u32(indices.size());
 
-        MeshHandle handle = static_cast<MeshHandle>(m_meshes.size());
+        auto handle = static_cast<MeshHandle>(m_meshes.size());
         m_meshes.push_back(std::move(mesh));
 
         core::Logger::info("Created mesh: {} vertices, {} indices",
-                           mesh.vertexCount, mesh.indexCount);
+                           mesh.m_vertexCount, mesh.m_indexCount);
 
         return handle;
+    }
+
+    MeshHandle RHIRenderer::loadVertexPulling(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
+    {
+        MeshData mesh{};
+
+        mesh.m_vertexPulling = true;
+        // Create vertex buffer
+        uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+        mesh.m_vertexBuffer = m_device->createBuffer(
+            vertexBufferSize,
+            rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress | rhi::BufferUsage::TransferDst,
+            rhi::MemoryUsage::GPUOnly
+        );
+
+        // Upload vertices (using staging buffer internally)
+        uploadToBuffer(mesh.m_vertexBuffer.get(), vertices.data(), vertexBufferSize);
+
+        // Create index buffer
+        uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
+        mesh.m_indexBuffer = m_device->createBuffer(
+            indexBufferSize,
+            rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::TransferDst,
+            rhi::MemoryUsage::GPUOnly
+        );
+
+        // Upload indices
+        uploadToBuffer(mesh.m_indexBuffer.get(), indices.data(), indexBufferSize);
+
+        mesh.m_vertexCount = u32(vertices.size());
+        mesh.m_indexCount = u32(indices.size());
+
+        auto handle = static_cast<MeshHandle>(m_meshes.size());
+        m_meshes.push_back(std::move(mesh));
+
+        core::Logger::info("Created mesh: {} vertices, {} indices",
+                           mesh.m_vertexCount, mesh.m_indexCount);
+
+
+        return handle;
+    }
+
+    MeshHandle RHIRenderer::createMesh(const std::vector<Vertex>& vertices,
+                                       const std::vector<uint32_t>& indices, bool enableVertexPulling)
+    {
+        auto meshHandle = enableVertexPulling
+                              ? loadVertexPulling(vertices, indices)
+                              : loadNoVertexPulling(vertices, indices);
+        return meshHandle;
     }
 
 
@@ -338,14 +393,14 @@ namespace pnkr::renderer
         }
 
         auto texture = m_device->createTexture(
-            rhi::Extent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1},
+            rhi::Extent3D{.width = u32(width), .height = u32(height), .depth = 1},
             format,
             rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
             1, 1
         );
 
         // Upload texture data
-        uint64_t imageSize = width * height * channels;
+        uint64_t imageSize = static_cast<uint64_t>(width * height * channels);
         texture->uploadData(data, imageSize);
 
         TextureData texData{};
@@ -361,7 +416,7 @@ namespace pnkr::renderer
             texData.bindlessIndex = bindlessHandle.index;
         }
 
-        TextureHandle handle = static_cast<TextureHandle>(m_textures.size());
+        auto handle = static_cast<TextureHandle>(m_textures.size());
         m_textures.push_back(std::move(texData));
 
         core::Logger::info("Created texture: {}x{}, {} channels", width, height, channels);
@@ -372,13 +427,15 @@ namespace pnkr::renderer
 
     TextureHandle RHIRenderer::loadTexture(const std::filesystem::path& filepath, bool srgb)
     {
-        int width, height, channels;
-        stbi_set_flip_vertically_on_load(true);
+        int width;
+        int height;
+        int channels;
+        stbi_set_flip_vertically_on_load(1);
 
         unsigned char* data = stbi_load(filepath.string().c_str(),
                                         &width, &height, &channels, 0);
 
-        if (!data)
+        if (data == nullptr)
         {
             core::Logger::error("Failed to load texture: {}", filepath.string());
             return INVALID_TEXTURE_HANDLE;
@@ -396,21 +453,28 @@ namespace pnkr::renderer
 
     TextureHandle RHIRenderer::createCubemap(const std::vector<std::filesystem::path>& faces, bool srgb)
     {
-        if (faces.size() != 6) {
+        if (faces.size() != 6)
+        {
             core::Logger::error("createCubemap: Exactly 6 face images required, got {}", faces.size());
             return INVALID_TEXTURE_HANDLE;
         }
 
         // Load all 6 faces first to validate they have the same dimensions
         std::vector<std::unique_ptr<unsigned char[], void(*)(void*)>> faceData;
-        std::vector<int> widths, heights, channels;
+        std::vector<int> widths;
+        std::vector<int> heights;
+        std::vector<int> channels;
 
-        for (const auto& facePath : faces) {
-            int w, h, c;
-            stbi_set_flip_vertically_on_load(false); // Don't flip for cubemaps
+        for (const auto& facePath : faces)
+        {
+            int w;
+            int h;
+            int c;
+            stbi_set_flip_vertically_on_load(0); // Don't flip for cubemaps
             unsigned char* data = stbi_load(facePath.string().c_str(), &w, &h, &c, STBI_rgb_alpha);
 
-            if (!data) {
+            if (data == nullptr)
+            {
                 core::Logger::error("Failed to load cubemap face: {}", facePath.string());
                 return INVALID_TEXTURE_HANDLE;
             }
@@ -422,8 +486,10 @@ namespace pnkr::renderer
         }
 
         // Validate all faces have the same dimensions
-        for (size_t i = 1; i < widths.size(); ++i) {
-            if (widths[i] != widths[0] || heights[i] != heights[0]) {
+        for (size_t i = 1; i < widths.size(); ++i)
+        {
+            if (widths[i] != widths[0] || heights[i] != heights[0])
+            {
                 core::Logger::error("All cubemap faces must have the same dimensions");
                 return INVALID_TEXTURE_HANDLE;
             }
@@ -431,11 +497,16 @@ namespace pnkr::renderer
 
         // Determine format
         rhi::Format format;
-        switch (channels[0]) {
-        case 1: format = rhi::Format::R8_UNORM; break;
-        case 2: format = rhi::Format::R8G8_UNORM; break;
-        case 3: format = rhi::Format::R8G8B8_UNORM; break;
-        case 4: format = srgb ? rhi::Format::R8G8B8A8_SRGB : rhi::Format::R8G8B8A8_UNORM; break;
+        switch (channels[0])
+        {
+        case 1: format = rhi::Format::R8_UNORM;
+            break;
+        case 2: format = rhi::Format::R8G8_UNORM;
+            break;
+        case 3: format = rhi::Format::R8G8B8_UNORM;
+            break;
+        case 4: format = srgb ? rhi::Format::R8G8B8A8_SRGB : rhi::Format::R8G8B8A8_UNORM;
+            break;
         default:
             core::Logger::error("Unsupported channel count: {}", channels[0]);
             return INVALID_TEXTURE_HANDLE;
@@ -443,18 +514,20 @@ namespace pnkr::renderer
 
         // Create cubemap texture
         auto texture = m_device->createCubemap(
-            rhi::Extent3D{static_cast<uint32_t>(widths[0]), static_cast<uint32_t>(heights[0]), 1},
+            rhi::Extent3D{.width = u32(widths[0]), .height = u32(heights[0]), .depth = 1},
             format,
             rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
-            1   // mipLevels
+            1 // mipLevels
         );
 
         // Upload each face
-        uint64_t faceSize = widths[0] * heights[0] * 4; // Always use RGBA after STBI_rgb_alpha conversion
-        for (uint32_t i = 0; i < 6; ++i) {
+        uint64_t faceSize = static_cast<uint64_t>(widths[0] * heights[0] * 4);
+        // Always use RGBA after STBI_rgb_alpha conversion
+        for (uint32_t i = 0; i < 6; ++i)
+        {
             rhi::TextureSubresource subresource{};
             subresource.mipLevel = 0;
-            subresource.arrayLayer = i;  // Each face is a different array layer
+            subresource.arrayLayer = i; // Each face is a different array layer
 
             texture->uploadData(faceData[i].get(), faceSize, subresource);
         }
@@ -463,7 +536,8 @@ namespace pnkr::renderer
         texData.texture = std::move(texture);
         texData.bindlessIndex = 0;
 
-        if (m_useBindless && m_device) {
+        if (m_useBindless && m_device)
+        {
             auto bindlessHandle = m_device->registerBindlessCubemap(
                 texData.texture.get(),
                 m_defaultSampler.get()
@@ -471,7 +545,7 @@ namespace pnkr::renderer
             texData.bindlessIndex = bindlessHandle.index;
         }
 
-        TextureHandle handle = static_cast<TextureHandle>(m_textures.size());
+        auto handle = static_cast<TextureHandle>(m_textures.size());
         m_textures.push_back(std::move(texData));
 
         core::Logger::info("Created cubemap: {}x{}, {} faces", widths[0], heights[0], 6);
@@ -483,7 +557,7 @@ namespace pnkr::renderer
     {
         auto pipeline = m_device->createGraphicsPipeline(desc);
 
-        PipelineHandle handle = static_cast<PipelineHandle>(m_pipelines.size());
+        auto handle = static_cast<PipelineHandle>(m_pipelines.size());
         m_pipelines.push_back(std::move(pipeline));
 
         core::Logger::info("Created graphics pipeline");
@@ -495,7 +569,7 @@ namespace pnkr::renderer
     {
         auto pipeline = m_device->createComputePipeline(desc);
 
-        PipelineHandle handle = static_cast<PipelineHandle>(m_pipelines.size());
+        auto handle = static_cast<PipelineHandle>(m_pipelines.size());
         m_pipelines.push_back(std::move(pipeline));
 
         core::Logger::info("Created compute pipeline");
@@ -528,8 +602,11 @@ namespace pnkr::renderer
         }
 
         const auto& mesh = m_meshes[handle.id];
-        cmd->bindVertexBuffer(0, mesh.vertexBuffer.get(), 0);
-        cmd->bindIndexBuffer(mesh.indexBuffer.get(), 0, false);
+        if (!mesh.m_vertexPulling)
+        {
+            cmd->bindVertexBuffer(0, mesh.m_vertexBuffer.get(), 0);
+        }
+        cmd->bindIndexBuffer(mesh.m_indexBuffer.get(), 0, false);
     }
 
     void RHIRenderer::drawMesh(rhi::RHICommandBuffer* cmd, MeshHandle handle)
@@ -541,7 +618,7 @@ namespace pnkr::renderer
         }
 
         const auto& mesh = m_meshes[handle.id];
-        cmd->drawIndexed(mesh.indexCount, 1, 0, 0, 0);
+        cmd->drawIndexed(mesh.m_indexCount, 1, 0, 0, 0);
     }
 
     void RHIRenderer::bindDescriptorSet(rhi::RHICommandBuffer* cmd,
@@ -550,7 +627,7 @@ namespace pnkr::renderer
                                         rhi::RHIDescriptorSet* descriptorSet)
     {
         auto* pipeline = getPipeline(handle);
-        if (!pipeline)
+        if (pipeline == nullptr)
         {
             core::Logger::error("Invalid pipeline handle: {}", handle.id);
             return;
@@ -575,10 +652,15 @@ namespace pnkr::renderer
         if (handle.id >= m_textures.size())
         {
             core::Logger::error("Invalid texture handle: {}", handle.id);
-            return 0xFFFFFFFFu;
+            return 0xFFFFFFFFU;
         }
 
         return m_textures[handle.id].bindlessIndex;
+    }
+
+    uint64_t RHIRenderer::getMeshVertexBufferAddress(MeshHandle handle) const
+    {
+        return m_meshes[handle.id].m_vertexBuffer->getDeviceAddress();
     }
 
     rhi::Format RHIRenderer::getDrawColorFormat() const
@@ -624,7 +706,7 @@ namespace pnkr::renderer
 
         // Depth target (device-owned; backbuffer comes from the swapchain).
         m_depthTarget = m_device->createTexture(
-            rhi::Extent3D{scExtent.width, scExtent.height, 1},
+            rhi::Extent3D{.width = scExtent.width, .height = scExtent.height, .depth = 1},
             rhi::Format::D32_SFLOAT,
             rhi::TextureUsage::DepthStencilAttachment,
             1, 1
@@ -657,7 +739,7 @@ namespace pnkr::renderer
 
     void RHIRenderer::uploadToBuffer(rhi::RHIBuffer* target, const void* data, uint64_t size)
     {
-        if (!target || !data || size == 0)
+        if ((target == nullptr) || (data == nullptr) || size == 0)
         {
             core::Logger::error("uploadToBuffer: invalid target/data/size");
             return;

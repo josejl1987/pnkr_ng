@@ -30,6 +30,10 @@ namespace pnkr::renderer::rhi::vulkan
         // Vulkan-specific
         vk::Sampler sampler() const { return m_sampler; }
 
+        // Implicit conversion operators for cleaner Vulkan API usage
+        operator vk::Sampler() const { return m_sampler; }
+        operator VkSampler() const { return m_sampler; }
+
     private:
         VulkanRHIDevice* m_device;
         vk::Sampler m_sampler;

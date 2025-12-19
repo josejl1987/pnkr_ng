@@ -1,6 +1,8 @@
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include <algorithm>
 
+#include "pnkr/core/logger.hpp"
+
 namespace pnkr::renderer::rhi {
 
     RHIPipelineBuilder::RHIPipelineBuilder() {
@@ -9,7 +11,7 @@ namespace pnkr::renderer::rhi {
         m_gfxDesc.rasterization.polygonMode = PolygonMode::Fill;
         m_gfxDesc.rasterization.cullMode = CullMode::Back;
         m_gfxDesc.rasterization.frontFaceCCW = true;
-        m_gfxDesc.rasterization.lineWidth = 1.0f;
+        m_gfxDesc.rasterization.lineWidth = 1.0F;
         m_gfxDesc.depthStencil.depthTestEnable = true;
         m_gfxDesc.depthStencil.depthWriteEnable = true;
         m_gfxDesc.depthStencil.depthCompareOp = CompareOp::Less;
@@ -17,12 +19,12 @@ namespace pnkr::renderer::rhi {
         setNoBlend(); // Default blend
     }
 
-    RHIPipelineBuilder& RHIPipelineBuilder::setShaders(const Shader* vert, const Shader* frag) {
+    RHIPipelineBuilder& RHIPipelineBuilder::setShaders(const Shader* vert, const Shader* frag, const Shader * geom) {
         m_gfxDesc.shaders.clear();
         m_mergedLayouts.clear();
         m_mergedPushConstants.clear();
 
-        if (vert) {
+        if (vert != nullptr) {
             ShaderModuleDescriptor sm{};
             sm.stage = ShaderStage::Vertex;
             sm.spirvCode = vert->code();
@@ -32,7 +34,16 @@ namespace pnkr::renderer::rhi {
             m_reflectedInputAttributes = vert->reflection().inputAttributes;
         }
 
-        if (frag) {
+        if (geom != nullptr) {
+            ShaderModuleDescriptor sm{};
+            sm.stage = ShaderStage::Geometry;
+            sm.spirvCode = geom->code();
+            sm.entryPoint = geom->reflection().entryPoint;
+            m_gfxDesc.shaders.push_back(sm);
+            mergeReflection(geom->reflection());
+        }
+
+        if (frag != nullptr) {
             ShaderModuleDescriptor sm{};
             sm.stage = ShaderStage::Fragment;
             sm.spirvCode = frag->code();
@@ -40,6 +51,10 @@ namespace pnkr::renderer::rhi {
             m_gfxDesc.shaders.push_back(sm);
             mergeReflection(frag->reflection());
         }
+
+
+
+
         return *this;
     }
 
@@ -47,7 +62,7 @@ namespace pnkr::renderer::rhi {
         m_mergedLayouts.clear();
         m_mergedPushConstants.clear();
 
-        if (comp) {
+        if (comp != nullptr) {
             m_compDesc.shader.stage = ShaderStage::Compute;
             m_compDesc.shader.spirvCode = comp->code();
             m_compDesc.shader.entryPoint = comp->reflection().entryPoint;
@@ -86,7 +101,8 @@ namespace pnkr::renderer::rhi {
                         break;
                     }
                 }
-                if (!found) targetSet.bindings.push_back(binding);
+                if (!found) { targetSet.bindings.push_back(binding);
+}
             }
         }
     }
@@ -129,7 +145,8 @@ namespace pnkr::renderer::rhi {
     }
 
     RHIPipelineBuilder& RHIPipelineBuilder::setNoBlend() {
-        if (m_gfxDesc.blend.attachments.empty()) m_gfxDesc.blend.attachments.resize(1);
+        if (m_gfxDesc.blend.attachments.empty()) { m_gfxDesc.blend.attachments.resize(1);
+}
         for (auto& att : m_gfxDesc.blend.attachments) {
             att.blendEnable = false;
             att.srcColorBlendFactor = BlendFactor::One;
@@ -139,7 +156,8 @@ namespace pnkr::renderer::rhi {
     }
 
     RHIPipelineBuilder& RHIPipelineBuilder::setAlphaBlend() {
-        if (m_gfxDesc.blend.attachments.empty()) m_gfxDesc.blend.attachments.resize(1);
+        if (m_gfxDesc.blend.attachments.empty()) { m_gfxDesc.blend.attachments.resize(1);
+}
         for (auto& att : m_gfxDesc.blend.attachments) {
             att.blendEnable = true;
             att.srcColorBlendFactor = BlendFactor::SrcAlpha;
@@ -153,7 +171,8 @@ namespace pnkr::renderer::rhi {
     }
 
     RHIPipelineBuilder& RHIPipelineBuilder::setAdditiveBlend() {
-        if (m_gfxDesc.blend.attachments.empty()) m_gfxDesc.blend.attachments.resize(1);
+        if (m_gfxDesc.blend.attachments.empty()) { m_gfxDesc.blend.attachments.resize(1);
+}
         for (auto& att : m_gfxDesc.blend.attachments) {
             att.blendEnable = true;
             att.srcColorBlendFactor = BlendFactor::One;
@@ -168,7 +187,8 @@ namespace pnkr::renderer::rhi {
 
     RHIPipelineBuilder& RHIPipelineBuilder::setColorFormat(Format format) {
         m_gfxDesc.colorFormats = { format };
-        if (m_gfxDesc.blend.attachments.size() != 1) m_gfxDesc.blend.attachments.resize(1);
+        if (m_gfxDesc.blend.attachments.size() != 1) { m_gfxDesc.blend.attachments.resize(1);
+}
         return *this;
     }
 
@@ -185,7 +205,7 @@ namespace pnkr::renderer::rhi {
 
     RHIPipelineBuilder& RHIPipelineBuilder::addPushConstant(ShaderStage stages, uint32_t offset, uint32_t size) {
         // Manual override adds to the merged list
-        m_mergedPushConstants.push_back({ stages, offset, size });
+        m_mergedPushConstants.push_back({ .stages=stages, .offset=offset, .size=size });
         return *this;
     }
 
@@ -213,20 +233,20 @@ namespace pnkr::renderer::rhi {
 
 
         if (m_vertexStride > 0) {
-            desc.vertexBindings.push_back({0, m_vertexStride, VertexInputRate::Vertex});
+            desc.vertexBindings.push_back({.binding=0, .stride=m_vertexStride, .inputRate=VertexInputRate::Vertex});
 
             // Match Reflected Inputs (Shader) to Cpp Layout (Vertex Struct)
             for (const auto& shaderIn : m_reflectedInputAttributes) {
-                auto it = std::find_if(m_cppLayout.begin(), m_cppLayout.end(),
+                auto it = std::ranges::find_if(m_cppLayout,
                                        [&](const auto& cpp) { return cpp.semantic == shaderIn.semantic; });
 
                 if (it != m_cppLayout.end()) {
                     desc.vertexAttributes.push_back({
-                        shaderIn.location,
-                        0,
-                        it->format,
-                        it->offset,
-                        it->semantic
+                        .location=shaderIn.location,
+                        .binding=0,
+                        .format=it->format,
+                        .offset=it->offset,
+                        .semantic=it->semantic
                     });
                 } else {
                     core::Logger::warn("Vertex shader requires semantic {} at location {}, but C++ Vertex struct does not provide it.",
@@ -243,5 +263,6 @@ namespace pnkr::renderer::rhi {
         desc.pushConstants = m_mergedPushConstants;
         return desc;
     }
+
 
 } // namespace pnkr::renderer::rhi

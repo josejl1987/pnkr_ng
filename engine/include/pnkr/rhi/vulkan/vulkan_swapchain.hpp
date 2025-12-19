@@ -91,9 +91,9 @@ namespace pnkr::renderer::rhi::vulkan
         void createSyncObjects();
         void destroySyncObjects();
 
-        vk::SurfaceFormatKHR chooseSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& formats, Format preferred) const;
-        vk::PresentModeKHR choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) const;
-        vk::Extent2D chooseExtent(const vk::SurfaceCapabilitiesKHR& caps, uint32_t width, uint32_t height) const;
+        static vk::SurfaceFormatKHR chooseSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& formats, Format preferred) ;
+        static vk::PresentModeKHR choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) ;
+        static vk::Extent2D chooseExtent(const vk::SurfaceCapabilitiesKHR& caps, uint32_t width, uint32_t height) ;
     };
 
 } // namespace pnkr::renderer::rhi::vulkan

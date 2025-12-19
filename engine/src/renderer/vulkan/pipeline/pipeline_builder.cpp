@@ -8,10 +8,10 @@
 
 namespace pnkr::renderer
 {
-    PipelineBuilder::PipelineBuilder(Renderer& renderer) : m_renderer(renderer)
+    PipelineBuilder::PipelineBuilder(Renderer& renderer) : m_renderer(renderer), m_colorFormat(m_renderer.getDrawColorFormat()), m_depthFormat(m_renderer.getDrawDepthFormat())
     {
-        m_colorFormat = m_renderer.getDrawColorFormat();
-        m_depthFormat = m_renderer.getDrawDepthFormat();
+        
+        
     }
 
     PipelineBuilder& PipelineBuilder::setRenderingFormats(vk::Format color, vk::Format depth)

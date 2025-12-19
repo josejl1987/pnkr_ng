@@ -22,7 +22,7 @@ class RHIMultiDrawApp : public samples::RhiSampleApp
 {
 public:
     RHIMultiDrawApp()
-        : samples::RhiSampleApp({"PNKR - RHI MultiDraw", 800, 600, SDL_WINDOW_RESIZABLE, false})
+        : samples::RhiSampleApp({.title="PNKR - RHI MultiDraw", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
     {
     }
 
@@ -42,15 +42,15 @@ public:
         m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
 
         // 2. Setup Camera
-        m_camera.lookAt({1.5f, 2.0f, 2.5f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
+        m_camera.lookAt({1.5F, 2.0F, 2.5F}, {0.F, 0.F, 0.F}, {0.F, 1.F, 0.F});
         updatePerspective();
 
         // 3. Create Geometry
         auto cubeData = samples::GeometryUtils::getCube();
-        m_cubeMesh = m_renderer->createMesh(cubeData.vertices, cubeData.indices);
+        m_cubeMesh = m_renderer->createMesh(cubeData.vertices, cubeData.indices, false);
 
-        auto planeData = samples::GeometryUtils::getPlane(2.5f, -0.6f);
-        m_planeMesh = m_renderer->createMesh(planeData.vertices, planeData.indices);
+        auto planeData = samples::GeometryUtils::getPlane(2.5F, -0.6F);
+        m_planeMesh = m_renderer->createMesh(planeData.vertices, planeData.indices, false);
 
         // 4. Create Pipelines
         createPipelines();
@@ -74,7 +74,7 @@ public:
         desc.debugName = "CubePipeline";
 
         // Vertex Input
-        desc.vertexBindings.push_back({ 0, sizeof(renderer::Vertex), renderer::rhi::VertexInputRate::Vertex });
+        desc.vertexBindings.push_back({ .binding=0, .stride=sizeof(renderer::Vertex), .inputRate=renderer::rhi::VertexInputRate::Vertex });
         desc.vertexAttributes = {
             {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_position)},
             {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_color)},
@@ -102,23 +102,23 @@ public:
 
         // Push Constants
         desc.pushConstants.push_back({
-            renderer::rhi::ShaderStage::Vertex,
-            0,
-            sizeof(ShaderGen::PushConstants)
+            .stages=renderer::rhi::ShaderStage::Vertex,
+            .offset=0,
+            .size=sizeof(ShaderGen::PushConstants)
         });
 
         // --- Pipeline 1: Cube ---
         desc.shaders = {
-            { renderer::rhi::ShaderStage::Vertex, vertSpirv, "main" },
-            { renderer::rhi::ShaderStage::Fragment, fragCubeSpirv, "main" }
+            { .stage=renderer::rhi::ShaderStage::Vertex, .spirvCode=vertSpirv, .entryPoint="main" },
+            { .stage=renderer::rhi::ShaderStage::Fragment, .spirvCode=fragCubeSpirv, .entryPoint="main" }
         };
         m_cubePipeline = m_renderer->createGraphicsPipeline(desc);
 
         // --- Pipeline 2: Plane ---
         desc.debugName = "PlanePipeline";
         desc.shaders = {
-            { renderer::rhi::ShaderStage::Vertex, vertSpirv, "main" },
-            { renderer::rhi::ShaderStage::Fragment, fragPlaneSpirv, "main" }
+            { .stage=renderer::rhi::ShaderStage::Vertex, .spirvCode=vertSpirv, .entryPoint="main" },
+            { .stage=renderer::rhi::ShaderStage::Fragment, .spirvCode=fragPlaneSpirv, .entryPoint="main" }
         };
         m_planePipeline = m_renderer->createGraphicsPipeline(desc);
     }
@@ -135,7 +135,7 @@ public:
         // --- Draw Cube ---
         {
             renderer::scene::Transform cubeXform;
-            cubeXform.m_rotation = glm::angleAxis(m_timeAccumulator, glm::vec3(0.0f, 1.0f, 0.0f));
+            cubeXform.m_rotation = glm::angleAxis(m_timeAccumulator, glm::vec3(0.0F, 1.0F, 0.0F));
             pc.model = cubeXform.mat4();
 
             m_renderer->bindPipeline(ctx.commandBuffer, m_cubePipeline);
@@ -175,16 +175,16 @@ public:
     }
 
 private:
-    float m_timeAccumulator = 0.0f;
+    float m_timeAccumulator = 0.0F;
 
     void updatePerspective() {
         if (m_window.height() > 0) {
             float aspect = (float)m_window.width() / (float)m_window.height();
-            m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+            m_camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
         }
     }
 
-    std::vector<uint32_t> loadSpirv(const std::string& filename)
+    static std::vector<uint32_t> loadSpirv(const std::string& filename)
     {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
         if (!file.is_open()) {

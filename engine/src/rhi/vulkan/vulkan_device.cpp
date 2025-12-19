@@ -10,6 +10,8 @@
 #include <array>
 #include <set>
 
+#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
+
 namespace pnkr::renderer::rhi::vulkan
 {
     // VulkanRHIPhysicalDevice Implementation
@@ -38,17 +40,17 @@ namespace pnkr::renderer::rhi::vulkan
         m_capabilities.maxFramebufferHeight = props.limits.maxFramebufferHeight;
         m_capabilities.maxColorAttachments = props.limits.maxColorAttachments;
 
-        m_capabilities.geometryShader = features.geometryShader;
-        m_capabilities.tessellationShader = features.tessellationShader;
-        m_capabilities.samplerAnisotropy = features.samplerAnisotropy;
-        m_capabilities.textureCompressionBC = features.textureCompressionBC;
+        m_capabilities.geometryShader = (features.geometryShader != 0u);
+        m_capabilities.tessellationShader = (features.tessellationShader != 0u);
+        m_capabilities.samplerAnisotropy = (features.samplerAnisotropy != 0u);
+        m_capabilities.textureCompressionBC = (features.textureCompressionBC != 0u);
 
         // Check for bindless support (descriptor indexing)
         vk::PhysicalDeviceDescriptorIndexingFeatures indexingFeatures;
         vk::PhysicalDeviceFeatures2 features2;
         features2.pNext = &indexingFeatures;
         m_physicalDevice.getFeatures2(&features2);
-        m_capabilities.bindlessTextures = indexingFeatures.descriptorBindingPartiallyBound;
+        m_capabilities.bindlessTextures = (indexingFeatures.descriptorBindingPartiallyBound != 0u);
 
         // Check for ray tracing
         m_capabilities.rayTracing = false;
@@ -124,7 +126,7 @@ namespace pnkr::renderer::rhi::vulkan
                 m_device.destroyDescriptorPool(m_descriptorPool);
             }
 
-            if (m_allocator)
+            if (m_allocator != nullptr)
             {
                 vmaDestroyAllocator(m_allocator);
             }
@@ -170,7 +172,7 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-        float queuePriority = 1.0f;
+        float queuePriority = 1.0F;
 
         for (uint32_t queueFamily : uniqueQueueFamilies)
         {
@@ -187,7 +189,7 @@ namespace pnkr::renderer::rhi::vulkan
         featuresCore.samplerAnisotropy = VK_TRUE;
         featuresCore.shaderStorageImageWriteWithoutFormat = VK_TRUE;
         featuresCore.fillModeNonSolid = VK_TRUE;
-
+        featuresCore.geometryShader = VK_TRUE;
         // Vulkan 1.2 features (Bindless)
         vk::PhysicalDeviceVulkan12Features features12{};
         features12.runtimeDescriptorArray = VK_TRUE;
@@ -270,7 +272,7 @@ namespace pnkr::renderer::rhi::vulkan
         allocatorInfo.pVulkanFunctions = &funcs;
         allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
-        vk::Result result = static_cast<vk::Result>(vmaCreateAllocator(&allocatorInfo, &m_allocator));
+        auto result = static_cast<vk::Result>(vmaCreateAllocator(&allocatorInfo, &m_allocator));
         if (result != vk::Result::eSuccess)
         {
             throw std::runtime_error("Failed to create VMA allocator: " + vk::to_string(result));
@@ -418,7 +420,7 @@ namespace pnkr::renderer::rhi::vulkan
     std::unique_ptr<RHIDescriptorSet> VulkanRHIDevice::allocateDescriptorSet(
         RHIDescriptorSetLayout* layout)
     {
-        auto* vkLayout = static_cast<VulkanRHIDescriptorSetLayout*>(layout);
+        auto* vkLayout = dynamic_cast<VulkanRHIDescriptorSetLayout*>(layout);
 
         vk::DescriptorSetAllocateInfo allocInfo{};
         allocInfo.descriptorPool = m_descriptorPool;
@@ -437,7 +439,8 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHIDevice::waitForFences(const std::vector<uint64_t>& fenceValues)
     {
-        if (fenceValues.empty()) return;
+        if (fenceValues.empty()) { return;
+}
 
         std::vector<vk::Semaphore> semaphores(fenceValues.size(), m_timelineSemaphore);
 
@@ -458,7 +461,7 @@ namespace pnkr::renderer::rhi::vulkan
         const std::vector<uint64_t>& waitSemaphores,
         const std::vector<uint64_t>& signalSemaphores)
     {
-        auto* vkCmdBuffer = static_cast<VulkanRHICommandBuffer*>(commandBuffer);
+        auto* vkCmdBuffer = dynamic_cast<VulkanRHICommandBuffer*>(commandBuffer);
 
         vk::SubmitInfo submitInfo{};
         submitInfo.commandBufferCount = 1;
@@ -555,9 +558,9 @@ namespace pnkr::renderer::rhi::vulkan
       vk::DescriptorSetLayout vkLayout = m_device.createDescriptorSetLayout(layoutInfo);
       
       DescriptorSetLayout layoutDesc;
-      layoutDesc.bindings.push_back({0, DescriptorType::CombinedImageSampler, MAX_BINDLESS_RESOURCES, ShaderStage::All});
-      layoutDesc.bindings.push_back({1, DescriptorType::StorageBuffer, MAX_BINDLESS_RESOURCES, ShaderStage::All});
-      layoutDesc.bindings.push_back({2, DescriptorType::CombinedImageSampler, MAX_BINDLESS_RESOURCES, ShaderStage::All});
+      layoutDesc.bindings.push_back({.binding=0, .type=DescriptorType::CombinedImageSampler, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
+      layoutDesc.bindings.push_back({.binding=1, .type=DescriptorType::StorageBuffer, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
+      layoutDesc.bindings.push_back({.binding=2, .type=DescriptorType::CombinedImageSampler, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
 
       m_bindlessLayout = std::make_unique<VulkanRHIDescriptorSetLayout>(this, vkLayout, layoutDesc);
 
@@ -590,8 +593,8 @@ namespace pnkr::renderer::rhi::vulkan
     BindlessHandle VulkanRHIDevice::registerBindlessTexture(RHITexture* texture,
                                                             RHISampler* sampler)
     {
-      auto* vkTex = static_cast<VulkanRHITexture*>(texture);
-      auto* vkSamp = static_cast<VulkanRHISampler*>(sampler);
+      auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+      auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
 
       uint32_t index = m_textureIndexCounter++;
 
@@ -615,8 +618,8 @@ namespace pnkr::renderer::rhi::vulkan
 
     BindlessHandle VulkanRHIDevice::registerBindlessCubemap(RHITexture* texture, RHISampler* sampler)
     {
-      auto* vkTex = static_cast<VulkanRHITexture*>(texture);
-      auto* vkSamp = static_cast<VulkanRHISampler*>(sampler);
+      auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+      auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
 
       uint32_t index = m_cubemapIndexCounter++;
 
@@ -640,7 +643,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     BindlessHandle VulkanRHIDevice::registerBindlessBuffer(RHIBuffer* buffer)
     {
-      auto* vkBuf = static_cast<VulkanRHIBuffer*>(buffer);
+      auto* vkBuf = dynamic_cast<VulkanRHIBuffer*>(buffer);
       uint32_t index = m_bufferIndexCounter++;
 
       vk::DescriptorBufferInfo bufferInfo{};

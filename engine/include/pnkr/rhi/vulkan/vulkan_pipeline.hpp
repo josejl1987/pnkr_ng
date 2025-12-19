@@ -41,6 +41,12 @@ namespace pnkr::renderer::rhi::vulkan
         RHIDescriptorSetLayout* descriptorSetLayout(uint32_t setIndex) const override;
         uint32_t descriptorSetLayoutCount() const override;
 
+        // Implicit conversion operators for cleaner Vulkan API usage
+        operator vk::Pipeline() const { return m_pipeline; }
+        operator VkPipeline() const { return m_pipeline; }
+        operator vk::PipelineLayout() const { return m_pipelineLayout; }
+        operator VkPipelineLayout() const { return m_pipelineLayout; }
+
     private:
         VulkanRHIDevice* m_device;
         vk::Pipeline m_pipeline;

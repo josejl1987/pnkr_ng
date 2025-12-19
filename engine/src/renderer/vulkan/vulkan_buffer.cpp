@@ -12,10 +12,12 @@ VulkanBuffer::VulkanBuffer(VmaAllocator allocator, vk::DeviceSize size,
                            VmaAllocationCreateFlags allocFlags)
     : m_allocator(allocator), m_size(size) {
 
-  if (!m_allocator)
+  if (m_allocator == nullptr) {
     throw std::runtime_error("[VulkanBuffer] allocator is null");
-  if (m_size == 0)
+}
+  if (m_size == 0) {
     throw std::runtime_error("[VulkanBuffer] size must be > 0");
+}
 
   VkBufferCreateInfo bufferInfo{};
   bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -26,7 +28,7 @@ VulkanBuffer::VulkanBuffer(VmaAllocator allocator, vk::DeviceSize size,
   VmaAllocationCreateInfo allocInfo{};
   allocInfo.usage = memoryUsage;
   allocInfo.flags = allocFlags;
-  VkBuffer rawBuffer;
+  VkBuffer rawBuffer = nullptr;
   VkResult res = vmaCreateBuffer(m_allocator, &bufferInfo, &allocInfo,
                                  &rawBuffer, &m_allocation, nullptr);
 
@@ -44,8 +46,9 @@ VulkanBuffer::VulkanBuffer(VulkanBuffer &&other) noexcept {
 }
 
 VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&other) noexcept {
-  if (this == &other)
+  if (this == &other) {
     return *this;
+}
 
   destroy();
 
@@ -67,10 +70,12 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&other) noexcept {
 VulkanBuffer VulkanBuffer::CreateDeviceLocalAndUpload(
     const VulkanDevice &device, const void *data, const vk::DeviceSize size,
     const vk::BufferUsageFlags finalUsage) {
-  if (!data)
+  if (data == nullptr) {
     throw std::runtime_error("[VulkanBuffer] upload: data is null");
-  if (size == 0)
+}
+  if (size == 0) {
     throw std::runtime_error("[VulkanBuffer] upload: size must be > 0");
+}
 
   // 1) Staging buffer (CPU-visible)
   VulkanBuffer staging(device.allocator(), size,
@@ -99,12 +104,12 @@ VulkanBuffer VulkanBuffer::CreateDeviceLocalAndUpload(
 }
 
 void VulkanBuffer::destroy() noexcept {
-  if (m_mapped) {
+  if (m_mapped != nullptr) {
     vmaUnmapMemory(m_allocator, m_allocation);
     m_mapped = nullptr;
   }
 
-  if (m_buffer != VK_NULL_HANDLE && m_allocation) {
+  if (m_buffer != VK_NULL_HANDLE && (m_allocation != nullptr)) {
     vmaDestroyBuffer(m_allocator, m_buffer, m_allocation);
     m_buffer = VK_NULL_HANDLE;
     m_allocation = nullptr;
@@ -112,14 +117,16 @@ void VulkanBuffer::destroy() noexcept {
 }
 
 void *VulkanBuffer::map() {
-  if (!m_allocation)
+  if (m_allocation == nullptr) {
     throw std::runtime_error("[VulkanBuffer] map: no allocation");
-  if (m_mapped)
+}
+  if (m_mapped != nullptr) {
     return m_mapped;
+}
 
   void *data = nullptr;
   VkResult res = vmaMapMemory(m_allocator, m_allocation, &data);
-  if (res != VK_SUCCESS || !data) {
+  if (res != VK_SUCCESS || (data == nullptr)) {
     throw std::runtime_error("[VulkanBuffer] vmaMapMemory failed");
   }
   m_mapped = data;
@@ -127,8 +134,9 @@ void *VulkanBuffer::map() {
 }
 
 void VulkanBuffer::unmap() {
-  if (!m_mapped)
+  if (m_mapped == nullptr) {
     return;
+}
   vmaUnmapMemory(m_allocator, m_allocation);
   m_mapped = nullptr;
 }

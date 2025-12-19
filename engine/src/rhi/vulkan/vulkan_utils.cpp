@@ -1,6 +1,10 @@
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
+#include "pnkr/core/common.hpp"
 
 #include <stdexcept>
+#include <vk_mem_alloc.h>
+
+using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
@@ -82,86 +86,116 @@ namespace pnkr::renderer::rhi::vulkan
     {
         vk::BufferUsageFlags flags{};
 
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(BufferUsage::TransferSrc))
+        if (hasFlag(usage, BufferUsage::TransferSrc)) {
             flags |= vk::BufferUsageFlagBits::eTransferSrc;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(BufferUsage::TransferDst))
+        }
+        if (hasFlag(usage, BufferUsage::TransferDst)) {
             flags |= vk::BufferUsageFlagBits::eTransferDst;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(BufferUsage::UniformBuffer))
+        }
+        if (hasFlag(usage, BufferUsage::UniformBuffer)) {
             flags |= vk::BufferUsageFlagBits::eUniformBuffer;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(BufferUsage::StorageBuffer))
+        }
+        if (hasFlag(usage, BufferUsage::StorageBuffer)) {
             flags |= vk::BufferUsageFlagBits::eStorageBuffer;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(BufferUsage::IndexBuffer))
+        }
+        if (hasFlag(usage, BufferUsage::IndexBuffer)) {
             flags |= vk::BufferUsageFlagBits::eIndexBuffer;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(BufferUsage::VertexBuffer))
+        }
+        if (hasFlag(usage, BufferUsage::VertexBuffer)) {
             flags |= vk::BufferUsageFlagBits::eVertexBuffer;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(BufferUsage::IndirectBuffer))
+        }
+        if (hasFlag(usage, BufferUsage::IndirectBuffer)) {
             flags |= vk::BufferUsageFlagBits::eIndirectBuffer;
+        }
+        if (hasFlag(usage, BufferUsage::ShaderDeviceAddress)) {
+            flags |= vk::BufferUsageFlagBits::eShaderDeviceAddress;
+        }
 
         return flags;
     }
 
     BufferUsage VulkanUtils::fromVkBufferUsage(vk::BufferUsageFlags flags)
     {
-        uint32_t usage = 0;
+        BufferUsage usage = BufferUsage::None;
 
-        if (flags & vk::BufferUsageFlagBits::eTransferSrc)
-            usage |= static_cast<uint32_t>(BufferUsage::TransferSrc);
-        if (flags & vk::BufferUsageFlagBits::eTransferDst)
-            usage |= static_cast<uint32_t>(BufferUsage::TransferDst);
-        if (flags & vk::BufferUsageFlagBits::eUniformBuffer)
-            usage |= static_cast<uint32_t>(BufferUsage::UniformBuffer);
-        if (flags & vk::BufferUsageFlagBits::eStorageBuffer)
-            usage |= static_cast<uint32_t>(BufferUsage::StorageBuffer);
-        if (flags & vk::BufferUsageFlagBits::eIndexBuffer)
-            usage |= static_cast<uint32_t>(BufferUsage::IndexBuffer);
-        if (flags & vk::BufferUsageFlagBits::eVertexBuffer)
-            usage |= static_cast<uint32_t>(BufferUsage::VertexBuffer);
-        if (flags & vk::BufferUsageFlagBits::eIndirectBuffer)
-            usage |= static_cast<uint32_t>(BufferUsage::IndirectBuffer);
+        if (flags & vk::BufferUsageFlagBits::eTransferSrc) {
+            usage |= BufferUsage::TransferSrc;
+        }
+        if (flags & vk::BufferUsageFlagBits::eTransferDst) {
+            usage |= BufferUsage::TransferDst;
+        }
+        if (flags & vk::BufferUsageFlagBits::eUniformBuffer) {
+            usage |= BufferUsage::UniformBuffer;
+        }
+        if (flags & vk::BufferUsageFlagBits::eStorageBuffer) {
+            usage |= BufferUsage::StorageBuffer;
+        }
+        if (flags & vk::BufferUsageFlagBits::eIndexBuffer) {
+            usage |= BufferUsage::IndexBuffer;
+        }
+        if (flags & vk::BufferUsageFlagBits::eVertexBuffer) {
+            usage |= BufferUsage::VertexBuffer;
+        }
+        if (flags & vk::BufferUsageFlagBits::eIndirectBuffer) {
+            usage |= BufferUsage::IndirectBuffer;
+        }
 
-        return static_cast<BufferUsage>(usage);
+        return usage;
     }
 
     vk::ImageUsageFlags VulkanUtils::toVkImageUsage(TextureUsage usage)
     {
         vk::ImageUsageFlags flags{};
 
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(TextureUsage::TransferSrc))
+        if (hasFlag(usage, TextureUsage::TransferSrc)) {
             flags |= vk::ImageUsageFlagBits::eTransferSrc;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(TextureUsage::TransferDst))
+        }
+        if (hasFlag(usage, TextureUsage::TransferDst)) {
             flags |= vk::ImageUsageFlagBits::eTransferDst;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(TextureUsage::Sampled))
+        }
+        if (hasFlag(usage, TextureUsage::Sampled)) {
             flags |= vk::ImageUsageFlagBits::eSampled;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(TextureUsage::Storage))
+        }
+        if (hasFlag(usage, TextureUsage::Storage)) {
             flags |= vk::ImageUsageFlagBits::eStorage;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(TextureUsage::ColorAttachment))
+        }
+        if (hasFlag(usage, TextureUsage::ColorAttachment)) {
             flags |= vk::ImageUsageFlagBits::eColorAttachment;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(TextureUsage::DepthStencilAttachment))
+        }
+        if (hasFlag(usage, TextureUsage::DepthStencilAttachment)) {
             flags |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
-        if (static_cast<uint32_t>(usage) & static_cast<uint32_t>(TextureUsage::InputAttachment))
+        }
+        if (hasFlag(usage, TextureUsage::InputAttachment)) {
             flags |= vk::ImageUsageFlagBits::eInputAttachment;
+        }
 
         return flags;
     }
 
     TextureUsage VulkanUtils::fromVkImageUsage(vk::ImageUsageFlags flags)
     {
-        uint32_t usage = 0;
+        TextureUsage usage = TextureUsage::None;
 
-        if (flags & vk::ImageUsageFlagBits::eTransferSrc)
-            usage |= static_cast<uint32_t>(TextureUsage::TransferSrc);
-        if (flags & vk::ImageUsageFlagBits::eTransferDst)
-            usage |= static_cast<uint32_t>(TextureUsage::TransferDst);
-        if (flags & vk::ImageUsageFlagBits::eSampled)
-            usage |= static_cast<uint32_t>(TextureUsage::Sampled);
-        if (flags & vk::ImageUsageFlagBits::eStorage)
-            usage |= static_cast<uint32_t>(TextureUsage::Storage);
-        if (flags & vk::ImageUsageFlagBits::eColorAttachment)
-            usage |= static_cast<uint32_t>(TextureUsage::ColorAttachment);
-        if (flags & vk::ImageUsageFlagBits::eDepthStencilAttachment)
-            usage |= static_cast<uint32_t>(TextureUsage::DepthStencilAttachment);
+        if (flags & vk::ImageUsageFlagBits::eTransferSrc) {
+            usage |= TextureUsage::TransferSrc;
+        }
+        if (flags & vk::ImageUsageFlagBits::eTransferDst) {
+            usage |= TextureUsage::TransferDst;
+        }
+        if (flags & vk::ImageUsageFlagBits::eSampled) {
+            usage |= TextureUsage::Sampled;
+        }
+        if (flags & vk::ImageUsageFlagBits::eStorage) {
+            usage |= TextureUsage::Storage;
+        }
+        if (flags & vk::ImageUsageFlagBits::eColorAttachment) {
+            usage |= TextureUsage::ColorAttachment;
+        }
+        if (flags & vk::ImageUsageFlagBits::eDepthStencilAttachment) {
+            usage |= TextureUsage::DepthStencilAttachment;
+        }
 
-        return static_cast<TextureUsage>(usage);
+        return usage;
     }
 
     VmaMemoryUsage VulkanUtils::toVmaMemoryUsage(MemoryUsage usage)
@@ -180,18 +214,24 @@ namespace pnkr::renderer::rhi::vulkan
     {
         vk::ShaderStageFlags flags{};
 
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Vertex))
+        if (hasFlag(stage, ShaderStage::Vertex)) {
             flags |= vk::ShaderStageFlagBits::eVertex;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Fragment))
+        }
+        if (hasFlag(stage, ShaderStage::Fragment)) {
             flags |= vk::ShaderStageFlagBits::eFragment;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Geometry))
+        }
+        if (hasFlag(stage, ShaderStage::Geometry)) {
             flags |= vk::ShaderStageFlagBits::eGeometry;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Compute))
+        }
+        if (hasFlag(stage, ShaderStage::Compute)) {
             flags |= vk::ShaderStageFlagBits::eCompute;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::TessControl))
+        }
+        if (hasFlag(stage, ShaderStage::TessControl)) {
             flags |= vk::ShaderStageFlagBits::eTessellationControl;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::TessEval))
+        }
+        if (hasFlag(stage, ShaderStage::TessEval)) {
             flags |= vk::ShaderStageFlagBits::eTessellationEvaluation;
+        }
 
         return flags;
     }
@@ -200,53 +240,70 @@ namespace pnkr::renderer::rhi::vulkan
     {
         uint32_t stage = 0;
 
-        if (flags & vk::ShaderStageFlagBits::eVertex)
+        if (flags & vk::ShaderStageFlagBits::eVertex) {
             stage |= static_cast<uint32_t>(ShaderStage::Vertex);
-        if (flags & vk::ShaderStageFlagBits::eFragment)
+}
+        if (flags & vk::ShaderStageFlagBits::eFragment) {
             stage |= static_cast<uint32_t>(ShaderStage::Fragment);
-        if (flags & vk::ShaderStageFlagBits::eGeometry)
+}
+        if (flags & vk::ShaderStageFlagBits::eGeometry) {
             stage |= static_cast<uint32_t>(ShaderStage::Geometry);
-        if (flags & vk::ShaderStageFlagBits::eCompute)
+}
+        if (flags & vk::ShaderStageFlagBits::eCompute) {
             stage |= static_cast<uint32_t>(ShaderStage::Compute);
-        if (flags & vk::ShaderStageFlagBits::eTessellationControl)
+}
+        if (flags & vk::ShaderStageFlagBits::eTessellationControl) {
             stage |= static_cast<uint32_t>(ShaderStage::TessControl);
-        if (flags & vk::ShaderStageFlagBits::eTessellationEvaluation)
+}
+        if (flags & vk::ShaderStageFlagBits::eTessellationEvaluation) {
             stage |= static_cast<uint32_t>(ShaderStage::TessEval);
+}
 
         return static_cast<ShaderStage>(stage);
     }
 
     vk::PipelineStageFlags2 VulkanUtils::toVkPipelineStage(ShaderStage stage)
     {
-        if (stage == ShaderStage::None)
+        if (stage == ShaderStage::None) {
             return vk::PipelineStageFlagBits2::eNone;
+}
         // Treat "All" as a generic sync point without injecting unsupported shader stages.
-        if (stage == ShaderStage::All)
+        if (stage == ShaderStage::All) {
             return vk::PipelineStageFlagBits2::eAllCommands;
+}
 
-        if (stage == ShaderStage::Host)
+        if (stage == ShaderStage::Host) {
             return vk::PipelineStageFlagBits2::eHost; // <--- Map to Host
+}
 
         vk::PipelineStageFlags2 flags{};
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Vertex))
+        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Vertex)) != 0u) {
             flags |= vk::PipelineStageFlagBits2::eVertexShader;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Fragment))
+}
+        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Fragment)) != 0u) {
             flags |= vk::PipelineStageFlagBits2::eFragmentShader;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Geometry))
+}
+        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Geometry)) != 0u) {
             flags |= vk::PipelineStageFlagBits2::eGeometryShader;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Compute))
+}
+        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Compute)) != 0u) {
             flags |= vk::PipelineStageFlagBits2::eComputeShader;
+}
 
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::TessEval))
+        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::TessEval)) != 0u) {
             flags |= vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::TessControl))
+}
+        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::TessControl)) != 0u) {
             flags |= vk::PipelineStageFlagBits2::eTessellationControlShader;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::RenderTarget))
+}
+        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::RenderTarget)) != 0u) {
             flags |= vk::PipelineStageFlagBits2::eColorAttachmentOutput |
                 vk::PipelineStageFlagBits2::eEarlyFragmentTests |
                 vk::PipelineStageFlagBits2::eLateFragmentTests;
-        if (static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Transfer))
+}
+        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Transfer)) != 0u) {
             flags |= vk::PipelineStageFlagBits2::eTransfer;
+}
 
         return flags;
     }
@@ -332,9 +389,12 @@ namespace pnkr::renderer::rhi::vulkan
 
     CullMode VulkanUtils::fromVkCullMode(vk::CullModeFlags flags)
     {
-        if (flags & vk::CullModeFlagBits::eFrontAndBack) return CullMode::FrontAndBack;
-        if (flags & vk::CullModeFlagBits::eFront) return CullMode::Front;
-        if (flags & vk::CullModeFlagBits::eBack) return CullMode::Back;
+        if (flags & vk::CullModeFlagBits::eFrontAndBack) { return CullMode::FrontAndBack;
+}
+        if (flags & vk::CullModeFlagBits::eFront) { return CullMode::Front;
+}
+        if (flags & vk::CullModeFlagBits::eBack) { return CullMode::Back;
+}
         return CullMode::None;
     }
 

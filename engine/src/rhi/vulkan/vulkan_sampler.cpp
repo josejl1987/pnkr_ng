@@ -20,7 +20,7 @@ namespace pnkr::renderer::rhi::vulkan
         
         // Anisotropic filtering
         samplerInfo.anisotropyEnable = VK_TRUE;
-        samplerInfo.maxAnisotropy = 16.0f;
+        samplerInfo.maxAnisotropy = 16.0F;
         
         // Border color
         samplerInfo.borderColor = vk::BorderColor::eIntOpaqueBlack;
@@ -36,8 +36,8 @@ namespace pnkr::renderer::rhi::vulkan
         samplerInfo.mipmapMode = minFilter == Filter::Linear 
             ? vk::SamplerMipmapMode::eLinear 
             : vk::SamplerMipmapMode::eNearest;
-        samplerInfo.mipLodBias = 0.0f;
-        samplerInfo.minLod = 0.0f;
+        samplerInfo.mipLodBias = 0.0F;
+        samplerInfo.minLod = 0.0F;
         samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
 
         m_sampler = m_device->device().createSampler(samplerInfo);

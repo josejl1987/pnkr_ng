@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vk_mem_alloc.h>
+
 #include "pnkr/rhi/rhi_types.hpp"
 #include <vulkan/vulkan.hpp>
 

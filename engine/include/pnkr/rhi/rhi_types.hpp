@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <type_traits>
 
 namespace pnkr::renderer::rhi
 {
@@ -14,6 +15,14 @@ namespace pnkr::renderer::rhi
         Metal,
         Auto // Auto-detect best available
     };
+
+    // Helper for enum class flag operations
+    template<typename T>
+    requires std::is_enum_v<T>
+    constexpr bool hasFlag(T value, T flag) {
+        return (static_cast<std::underlying_type_t<T>>(value) &
+                static_cast<std::underlying_type_t<T>>(flag)) != 0;
+    }
 
     enum class ResourceLayout
     {
@@ -76,7 +85,9 @@ namespace pnkr::renderer::rhi
         StorageBuffer = 1 << 3,
         IndexBuffer = 1 << 4,
         VertexBuffer = 1 << 5,
-        IndirectBuffer = 1 << 6
+        IndirectBuffer = 1 << 6,
+        ShaderDeviceAddress  = 1 << 7
+
     };
 
     // Texture usage flags
@@ -329,6 +340,21 @@ namespace pnkr::renderer::rhi
         VertexInputRate inputRate;
     };
 
+    // Descriptor set layout binding
+    struct DescriptorBinding
+    {
+        uint32_t binding;
+        DescriptorType type;
+        uint32_t count = 1;
+        ShaderStage stages;
+    };
+
+    struct DescriptorSetLayout
+    {
+        std::vector<DescriptorBinding> bindings;
+    };
+
+
     // A simple wrapper for an index into the global bindless arrays
     struct BindlessHandle {
         uint32_t index = 0xFFFFFFFF;
@@ -342,15 +368,69 @@ namespace pnkr::renderer::rhi
             static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
     }
 
+    inline BufferUsage operator&(BufferUsage a, BufferUsage b)
+    {
+        return static_cast<BufferUsage>(
+            static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+    }
+
+    inline BufferUsage& operator|=(BufferUsage& a, BufferUsage b)
+    {
+        a = a | b;
+        return a;
+    }
+
+    inline BufferUsage& operator&=(BufferUsage& a, BufferUsage b)
+    {
+        a = a & b;
+        return a;
+    }
+
     inline TextureUsage operator|(TextureUsage a, TextureUsage b)
     {
         return static_cast<TextureUsage>(
             static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
     }
 
+    inline TextureUsage operator&(TextureUsage a, TextureUsage b)
+    {
+        return static_cast<TextureUsage>(
+            static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+    }
+
+    inline TextureUsage& operator|=(TextureUsage& a, TextureUsage b)
+    {
+        a = a | b;
+        return a;
+    }
+
+    inline TextureUsage& operator&=(TextureUsage& a, TextureUsage b)
+    {
+        a = a & b;
+        return a;
+    }
+
     inline ShaderStage operator|(ShaderStage a, ShaderStage b)
     {
         return static_cast<ShaderStage>(
             static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+    }
+
+    inline ShaderStage operator&(ShaderStage a, ShaderStage b)
+    {
+        return static_cast<ShaderStage>(
+            static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+    }
+
+    inline ShaderStage& operator|=(ShaderStage& a, ShaderStage b)
+    {
+        a = a | b;
+        return a;
+    }
+
+    inline ShaderStage& operator&=(ShaderStage& a, ShaderStage b)
+    {
+        a = a & b;
+        return a;
     }
 } // namespace pnkr::renderer::rhi

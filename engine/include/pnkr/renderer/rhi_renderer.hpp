@@ -20,6 +20,8 @@
 
 namespace pnkr::renderer
 {
+    struct Vertex;
+
     // Frame context for recording commands
     struct RHIFrameContext
     {
@@ -48,10 +50,14 @@ namespace pnkr::renderer
         void drawFrame();
         void endFrame();
         void resize(int width, int height);
+        MeshHandle loadNoVertexPulling(const std::vector<Vertex>& vertices,
+                                       const std::vector<uint32_t>& indices);
+        MeshHandle loadVertexPulling(const std::vector<Vertex>& vertices,
+                                       const std::vector<uint32_t>& indices);
 
         // Resource creation
         MeshHandle createMesh(const std::vector<struct Vertex>& vertices,
-                             const std::vector<uint32_t>& indices);
+                              const std::vector<uint32_t>& indices, bool enableVertexPulling);
         
         TextureHandle createTexture(const unsigned char* data,
                                    int width, int height, int channels,
@@ -97,6 +103,8 @@ namespace pnkr::renderer
         [[nodiscard]] rhi::RHITexture* getTexture(TextureHandle handle) const;
         [[nodiscard]] uint32_t getTextureBindlessIndex(TextureHandle handle) const;
 
+        uint64_t getMeshVertexBufferAddress(MeshHandle handle) const;
+
         // Format queries
         rhi::Format getDrawColorFormat() const;
         rhi::Format getDrawDepthFormat() const;
@@ -128,10 +136,11 @@ namespace pnkr::renderer
 
         // Resources
         struct MeshData {
-            std::unique_ptr<rhi::RHIBuffer> vertexBuffer;
-            std::unique_ptr<rhi::RHIBuffer> indexBuffer;
-            uint32_t vertexCount;
-            uint32_t indexCount;
+            std::unique_ptr<rhi::RHIBuffer> m_vertexBuffer;
+            std::unique_ptr<rhi::RHIBuffer> m_indexBuffer;
+            uint32_t m_vertexCount;
+            uint32_t m_indexCount;
+            bool m_vertexPulling;
         };
         std::vector<MeshData> m_meshes;
 

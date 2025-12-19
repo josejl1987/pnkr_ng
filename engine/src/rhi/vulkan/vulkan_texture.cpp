@@ -3,7 +3,11 @@
 #include "pnkr/rhi/vulkan/vulkan_device.hpp"
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
+#include "pnkr/rhi/rhi_buffer.hpp"
 #include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
+
+using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
@@ -29,7 +33,7 @@ namespace pnkr::renderer::rhi::vulkan
         if (m_image)
         {
             vmaDestroyImage(m_device->allocator(),
-                            static_cast<VkImage>(m_image),
+                            m_image,
                             m_allocation);
         }
     }
@@ -69,10 +73,10 @@ namespace pnkr::renderer::rhi::vulkan
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-        VkImageCreateInfo cImageInfo = static_cast<VkImageCreateInfo>(imageInfo);
-        VkImage cImage;
+        auto cImageInfo = static_cast<VkImageCreateInfo>(imageInfo);
+        VkImage cImage = nullptr;
 
-        vk::Result result = static_cast<vk::Result>(
+        auto result = static_cast<vk::Result>(
             vmaCreateImage(m_device->allocator(), &cImageInfo, &allocInfo,
                            &cImage, &m_allocation, nullptr));
 
@@ -85,11 +89,11 @@ namespace pnkr::renderer::rhi::vulkan
         m_image = cImage;
 
         // Set debug name if provided
-        if (desc.debugName)
+        if (desc.debugName != nullptr)
         {
             vk::DebugUtilsObjectNameInfoEXT nameInfo{};
             nameInfo.objectType = vk::ObjectType::eImage;
-            nameInfo.objectHandle = reinterpret_cast<uint64_t>(static_cast<VkImage>(m_image));
+            nameInfo.objectHandle = u64((VkImage)m_image);
             nameInfo.pObjectName = desc.debugName;
 
             m_device->device().setDebugUtilsObjectNameEXT(nameInfo);
@@ -187,7 +191,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         // Transition image to transfer dst
         transitionLayout(vk::ImageLayout::eTransferDstOptimal,
-                         static_cast<VulkanRHICommandBuffer*>(cmdBuffer.get())->commandBuffer());
+                         dynamic_cast<VulkanRHICommandBuffer*>(cmdBuffer.get())->commandBuffer());
 
         // Copy buffer to image
         BufferTextureCopyRegion region{};
@@ -199,7 +203,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         // Transition to shader read optimal
         transitionLayout(vk::ImageLayout::eShaderReadOnlyOptimal,
-                         static_cast<VulkanRHICommandBuffer*>(cmdBuffer.get())->commandBuffer());
+                         dynamic_cast<VulkanRHICommandBuffer*>(cmdBuffer.get())->commandBuffer());
 
         cmdBuffer->end();
 
@@ -289,7 +293,7 @@ namespace pnkr::renderer::rhi::vulkan
         auto cmdBuffer = m_device->createCommandBuffer();
         cmdBuffer->begin();
 
-        vk::CommandBuffer cmd = static_cast<VulkanRHICommandBuffer*>(cmdBuffer.get())->commandBuffer();
+        vk::CommandBuffer cmd = dynamic_cast<VulkanRHICommandBuffer*>(cmdBuffer.get())->commandBuffer();
 
         vk::ImageMemoryBarrier2 barrier{};
         barrier.image = m_image;
@@ -300,8 +304,8 @@ namespace pnkr::renderer::rhi::vulkan
         barrier.subresourceRange.layerCount = m_arrayLayers;
         barrier.subresourceRange.levelCount = 1;
 
-        int32_t mipWidth = static_cast<int32_t>(m_extent.width);
-        int32_t mipHeight = static_cast<int32_t>(m_extent.height);
+        auto mipWidth = static_cast<int32_t>(m_extent.width);
+        auto mipHeight = static_cast<int32_t>(m_extent.height);
 
         for (uint32_t i = 1; i < m_mipLevels; i++)
         {

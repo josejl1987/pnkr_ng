@@ -3,15 +3,14 @@
 #include "pnkr/rhi/rhi_shader.hpp" // Use the RHI shader abstraction
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "pnkr/rhi/rhi_pipeline_builder.hpp"
+#include "generated/skybox.vert.h"
 namespace pnkr::renderer::scene {
 
     void Skybox::init(RHIRenderer& renderer, const std::vector<std::filesystem::path>& faces) {
         m_renderer = &renderer;
 
-        // 1. Load the cubemap texture
-        // 'false' for sRGB because skyboxes are often HDR or handle gamma manually in shader,
-        // but if these are standard JPG/PNGs, you might actually want 'true'.
-        // Let's assume Linear data for now.
+
         m_cubemapHandle = m_renderer->createCubemap(faces, false);
 
         if (!m_cubemapHandle) {
@@ -47,7 +46,7 @@ namespace pnkr::renderer::scene {
         // We use the RHI Pipeline Builder helper to make this clean
         rhi::RHIPipelineBuilder builder;
 
-        builder.setShaders(vertShader.get(), fragShader.get())
+        builder.setShaders(vertShader.get(), fragShader.get(), nullptr)
                .setTopology(rhi::PrimitiveTopology::TriangleList)
                .setPolygonMode(rhi::PolygonMode::Fill)
                // Cull Front because we are inside the cube
@@ -55,6 +54,7 @@ namespace pnkr::renderer::scene {
                // Depth: Lequal so it draws at the far plane (z=1.0)
                .enableDepthTest(false, rhi::CompareOp::LessOrEqual)
                .setNoBlend()
+
                .setColorFormat(m_renderer->getDrawColorFormat());
                // Note: If using dynamic rendering, depth format is also needed
                // Depending on RHI implementation, might need .setDepthFormat(...)
@@ -71,11 +71,13 @@ namespace pnkr::renderer::scene {
     }
 
     void Skybox::draw(rhi::RHICommandBuffer* cmd, const Camera& camera) {
-        if (!m_cubemapHandle || !m_pipeline || !m_renderer) return;
+        if (!m_cubemapHandle || !m_pipeline || (m_renderer == nullptr)) { return;
+}
 
         // 1. Get underlying RHI objects
         rhi::RHIPipeline* rhiPipe = m_renderer->getPipeline(m_pipeline);
-        if (!rhiPipe) return;
+        if (rhiPipe == nullptr) { return;
+}
 
         // 2. Bind Pipeline
         cmd->bindPipeline(rhiPipe);
@@ -90,7 +92,7 @@ namespace pnkr::renderer::scene {
         }
 
         // 4. Push Constants
-        SkyboxPushConstants pc{};
+        ShaderGen::SkyboxPushConstants pc{};
         pc.view = glm::mat4(glm::mat3(camera.view())); // Remove translation
         pc.proj = camera.proj();
         pc.textureIndex = m_renderer->getTextureBindlessIndex(m_cubemapHandle);

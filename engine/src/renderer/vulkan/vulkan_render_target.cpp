@@ -22,7 +22,7 @@ VulkanRenderTarget::VulkanRenderTarget(VmaAllocator allocator, [[maybe_unused]] 
 }
 
 vk::Viewport VulkanRenderTarget::viewport() const {
-    return vk::Viewport{0.0f, 0.0f, (float)m_width, (float)m_height, 0.0f, 1.0f};
+    return vk::Viewport{0.0F, 0.0F, (float)m_width, (float)m_height, 0.0F, 1.0F};
 }
 
 vk::Rect2D VulkanRenderTarget::scissor() const {

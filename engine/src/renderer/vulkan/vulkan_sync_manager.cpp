@@ -24,28 +24,32 @@ VulkanSyncManager::VulkanSyncManager(vk::Device device, uint32_t framesInFlight,
 }
 
 VulkanSyncManager::~VulkanSyncManager() {
-  if (!m_device)
+  if (!m_device) {
     return;
+}
   try {
     m_device.waitIdle();
   } catch (...) {
   }
 
   for (auto &sem : m_imageAvailableSemaphores) {
-    if (sem)
+    if (sem) {
       m_device.destroySemaphore(sem);
+}
   }
   for (auto &fence : m_inFlightFences) {
-    if (fence)
+    if (fence) {
       m_device.destroyFence(fence);
+}
   }
   destroyImageSemaphores();
 }
 
 void VulkanSyncManager::destroyImageSemaphores() {
   for (auto &sem : m_renderFinishedSemaphores) {
-    if (sem)
+    if (sem) {
       m_device.destroySemaphore(sem);
+}
   }
   m_renderFinishedSemaphores.clear();
 }
@@ -62,8 +66,9 @@ void VulkanSyncManager::updateSwapchainSize(uint32_t swapchainImageCount) {
 }
 
 void VulkanSyncManager::waitForFrame(uint32_t frameIndex) const {
-  if (frameIndex >= m_framesInFlight)
+  if (frameIndex >= m_framesInFlight) {
     return;
+}
 
   try {
     auto result = m_device.waitForFences(1, &m_inFlightFences[frameIndex],
@@ -80,8 +85,9 @@ void VulkanSyncManager::waitForFrame(uint32_t frameIndex) const {
 }
 
 void VulkanSyncManager::resetFrame(uint32_t frameIndex) const {
-  if (frameIndex >= m_framesInFlight)
+  if (frameIndex >= m_framesInFlight) {
     return;
+}
 
   try {
     (void)m_device.resetFences(1, &m_inFlightFences[frameIndex]);

@@ -105,7 +105,6 @@ namespace pnkr::renderer::rhi
 
         virtual std::unique_ptr<RHICommandBuffer> createCommandBuffer() = 0;
 
-        // Pipeline creation (will be detailed later)
         virtual std::unique_ptr<RHIPipeline> createGraphicsPipeline(
             const struct GraphicsPipelineDescriptor& desc) = 0;
 

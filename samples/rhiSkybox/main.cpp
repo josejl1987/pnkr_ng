@@ -17,7 +17,7 @@ class RHISkyboxApp : public samples::RhiSampleApp
 {
 public:
     RHISkyboxApp()
-        : samples::RhiSampleApp({"RHI Skybox", 800, 600, SDL_WINDOW_RESIZABLE, false})
+        : samples::RhiSampleApp({.title="RHI Skybox", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
     {
     }
 
@@ -32,7 +32,7 @@ public:
         // 3. Setup Camera
         auto& camera = m_scene->camera();
         float aspect = (float)m_window.width() / (float)m_window.height();
-        camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+        camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
 
         // Apply initial camera controller position to camera
         m_scene->cameraController().applyToCamera(camera);
@@ -80,7 +80,7 @@ public:
 
         // Update camera aspect ratio when window resizes
         float aspect = (float)m_window.width() / (float)m_window.height();
-        camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+        camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
     }
 
     void createSceneObjects()

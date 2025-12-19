@@ -1,4 +1,5 @@
 #include "pnkr/renderer/renderer.hpp"
+#include "pnkr/core/common.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
@@ -14,6 +15,9 @@
 #include "pnkr/renderer/vulkan/vulkan_descriptor.hpp"
 #include "pnkr/renderer/vulkan/vulkan_render_target.h"
 #include <array>
+#include <cstddef>
+
+using namespace pnkr::util;
 
 namespace pnkr::renderer
 {
@@ -85,7 +89,7 @@ namespace pnkr::renderer
 
         m_sync = std::make_unique<VulkanSyncManager>(
             m_device->device(), m_device->framesInFlight(),
-            static_cast<uint32_t>(m_swapchain->images().size()));
+            u32(m_swapchain->images().size()));
 
         m_descriptorAllocator = std::make_unique<VulkanDescriptorAllocator>(m_device->device());
         m_descriptorLayoutCache = std::make_unique<VulkanDescriptorLayoutCache>(m_device->device());
@@ -120,7 +124,7 @@ namespace pnkr::renderer
                                                     bool srgb)
     {
         // 1. Validate inputs
-        if (width <= 0 || height <= 0 || !pixels)
+        if (width <= 0 || height <= 0 || (pixels == nullptr))
         {
             throw std::runtime_error("Invalid texture data");
         }
@@ -137,18 +141,18 @@ namespace pnkr::renderer
                 throw std::runtime_error("Unsupported channel count for texture");
             }
 
-            rgbaPixels.resize(width * height * 4);
+            rgbaPixels.resize(sz(width * height * 4));
             for (int i = 0; i < width * height; ++i)
             {
-                const unsigned char r = pixels[i * channels + 0];
-                const unsigned char g = (channels >= 2) ? pixels[i * channels + 1] : r;
-                const unsigned char b = (channels >= 3) ? pixels[i * channels + 2] : r;
-                const unsigned char a = (channels >= 4) ? pixels[i * channels + 3] : 255;
+                const unsigned char r = pixels[(i * channels) + 0];
+                const unsigned char g = (channels >= 2) ? pixels[(i * channels) + 1] : r;
+                const unsigned char b = (channels >= 3) ? pixels[(i * channels) + 2] : r;
+                const unsigned char a = (channels >= 4) ? pixels[(i * channels) + 3] : 255;
 
-                rgbaPixels[i * 4 + 0] = r;
-                rgbaPixels[i * 4 + 1] = g;
-                rgbaPixels[i * 4 + 2] = b;
-                rgbaPixels[i * 4 + 3] = a;
+                rgbaPixels[(i * 4) + 0] = r;
+                rgbaPixels[(i * 4) + 1] = g;
+                rgbaPixels[(i * 4) + 2] = b;
+                rgbaPixels[(i * 4) + 3] = a;
             }
             srcData = rgbaPixels.data();
         }
@@ -173,7 +177,7 @@ namespace pnkr::renderer
                        vk::ShaderStageFlagBits::eFragment)
             .build(descriptorSet);
 
-        TextureHandle handle{static_cast<uint32_t>(m_textures.size())};
+        TextureHandle handle{u32(m_textures.size())};
         m_textures.push_back(std::move(texture));
         m_textureDescriptors.push_back(descriptorSet);
         m_textureBindlessIndices.push_back(bindlessIndex);
@@ -221,7 +225,7 @@ namespace pnkr::renderer
                        vk::ShaderStageFlagBits::eFragment)
             .build(descriptorSet);
 
-        TextureHandle handle{static_cast<uint32_t>(m_textures.size())};
+        TextureHandle handle{u32(m_textures.size())};
         m_textures.push_back(std::move(texture));
         m_textureDescriptors.push_back(descriptorSet);
         m_textureBindlessIndices.push_back(bindlessIndex); // NEW
@@ -253,7 +257,7 @@ namespace pnkr::renderer
 
     PipelineHandle Renderer::createPipeline(const VulkanPipeline::Config& cfg)
     {
-        PipelineHandle handle{static_cast<uint32_t>(m_pipelines.size())};
+        PipelineHandle handle{u32(m_pipelines.size())};
 
         PipelineConfig pipelineCfg = cfg;
 
@@ -276,18 +280,20 @@ namespace pnkr::renderer
 
     vk::PipelineLayout Renderer::pipelineLayout(PipelineHandle handle) const
     {
-        if (handle.id >= m_pipelines.size())
+        if (handle.id >= m_pipelines.size()) {
             throw std::runtime_error("[Renderer] Invalid pipeline handle");
+}
         return m_pipelines[handle.id]->layout();
     }
 
     MeshHandle Renderer::createMesh(const std::vector<Vertex>& vertices,
                                     const std::vector<uint32_t>& indices)
     {
-        if (vertices.empty() || indices.empty())
+        if (vertices.empty() || indices.empty()) {
             throw std::runtime_error("[Renderer] createMesh: empty data");
+}
 
-        MeshHandle handle{static_cast<uint32_t>(m_meshes.size())};
+        MeshHandle handle{u32(m_meshes.size())};
 
         m_meshes.push_back(std::make_unique<Mesh>(*m_device, vertices, indices));
 
@@ -297,24 +303,28 @@ namespace pnkr::renderer
 
     void Renderer::bindMesh(vk::CommandBuffer cmd, MeshHandle handle) const
     {
-        if (handle.id >= m_meshes.size())
+        if (handle.id >= m_meshes.size()) {
             throw std::runtime_error("[Renderer] Invalid mesh handle: out of range");
+}
 
         const auto& mesh = m_meshes[handle.id];
-        if (!mesh)
+        if (!mesh) {
             throw std::runtime_error("[Renderer] Invalid mesh handle: null mesh slot");
+}
 
         mesh->bind(cmd);
     }
 
     void Renderer::drawMesh(vk::CommandBuffer cmd, MeshHandle handle) const
     {
-        if (handle.id >= m_meshes.size())
+        if (handle.id >= m_meshes.size()) {
             throw std::runtime_error("[Renderer] Invalid mesh handle: out of range");
+}
 
         const auto& mesh = m_meshes[handle.id];
-        if (!mesh)
+        if (!mesh) {
             throw std::runtime_error("[Renderer] Invalid mesh handle: null mesh slot");
+}
 
         mesh->draw(cmd);
     }
@@ -328,8 +338,9 @@ namespace pnkr::renderer
     void Renderer::bindPipeline(vk::CommandBuffer cmd,
                                 PipelineHandle handle) const
     {
-        if (handle.id >= m_pipelines.size())
+        if (handle.id >= m_pipelines.size()) {
             throw std::runtime_error("[Renderer] Invalid pipeline handle");
+}
 
         cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
                          m_pipelines[handle.id]->pipeline());
@@ -342,7 +353,7 @@ namespace pnkr::renderer
             m_device->device().waitIdle();
         }
 
-        if (m_tracyCtx)
+        if (m_tracyCtx != nullptr)
         {
             PNKR_PROFILE_GPU_DESTROY(m_tracyCtx);
             m_tracyCtx = nullptr;
@@ -367,7 +378,7 @@ namespace pnkr::renderer
             m_descriptorLayoutCache->cleanup(); // if you implemented this
         }
 
-        m_descriptorAllocator.reset();
+        m_descriptorAllocator = nullptr;
         m_descriptorLayoutCache.reset();
 
         m_meshes.clear();
@@ -382,8 +393,9 @@ namespace pnkr::renderer
     {
         PNKR_PROFILE_FUNCTION();
 
-        if (m_frameInProgress)
+        if (m_frameInProgress) {
             return;
+}
         if (!m_recordCallback)
         {
             throw std::runtime_error(
@@ -415,7 +427,7 @@ namespace pnkr::renderer
         (void)m_commandBuffer->begin(frame);
 
         vk::CommandBuffer cmd = m_commandBuffer->cmd(frame);
-        PNKR_PROFILE_GPU_COLLECT(m_tracyCtx, static_cast<VkCommandBuffer>(cmd));
+        PNKR_PROFILE_GPU_COLLECT(m_tracyCtx, cmd);
 
         m_frameInProgress = true;
     }
@@ -435,20 +447,21 @@ namespace pnkr::renderer
     {
         PNKR_PROFILE_FUNCTION();
 
-        if (!m_frameInProgress)
+        if (!m_frameInProgress) {
             return;
+}
 
         const uint32_t frameIndex = m_commandBuffer->currentFrame();
         vk::CommandBuffer cmd = m_commandBuffer->cmd(frameIndex);
 
         {
-            PNKR_PROFILE_GPU_ZONE(m_tracyCtx, static_cast<VkCommandBuffer>(cmd), "Main Render Pass");
+            PNKR_PROFILE_GPU_ZONE(m_tracyCtx, cmd, "Main Render Pass");
 
             // Render scene into HDR target
             m_mainTarget->transitionToAttachment(cmd);
 
-            vk::ClearValue colorClear{vk::ClearColorValue{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}}};
-            vk::ClearValue depthClear{vk::ClearDepthStencilValue{1.0f, 0}};
+            vk::ClearValue colorClear{vk::ClearColorValue{std::array<float, 4>{0.0F, 0.0F, 0.0F, 1.0F}}};
+            vk::ClearValue depthClear{vk::ClearDepthStencilValue{1.0F, 0}};
             m_mainTarget->beginRendering(cmd, colorClear, depthClear);
 
             if (m_recordCallback)
@@ -675,8 +688,9 @@ namespace pnkr::renderer
 
     void Renderer::endFrame()
     {
-        if (!m_frameInProgress)
+        if (!m_frameInProgress) {
             return;
+}
 
         const uint32_t frame = m_commandBuffer->currentFrame();
 
@@ -712,8 +726,9 @@ namespace pnkr::renderer
 
     void Renderer::resize(int /*width*/, int /*height*/)
     {
-        if (!m_swapchain)
+        if (!m_swapchain) {
             return;
+}
 
         m_device->device().waitIdle();
 
@@ -734,14 +749,15 @@ namespace pnkr::renderer
         );
 
         m_sync->updateSwapchainSize(
-            static_cast<uint32_t>(m_swapchain->images().size()));
+            u32(m_swapchain->images().size()));
 
         if (m_swapchain->imageFormat() != oldFmt)
         {
             for (auto& pipe : m_pipelines)
             {
-                if (!pipe)
+                if (!pipe) {
                     continue;
+}
                 auto cfg = pipe->config();
                 pipe = std::make_unique<VulkanPipeline>(m_device->device(),
                                                         cfg);

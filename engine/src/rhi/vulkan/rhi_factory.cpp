@@ -24,9 +24,9 @@ switch (backend) {
             try {
                 // Initialize the Dynamic Dispatcher
                 static vk::detail::DynamicLoader dl;
-                PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
+                auto vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
 
-                if (!vkGetInstanceProcAddr) {
+                if (vkGetInstanceProcAddr == nullptr) {
                     throw std::runtime_error("Failed to load vkGetInstanceProcAddr from Vulkan loader");
                 }
 
@@ -49,7 +49,7 @@ switch (backend) {
                 // 1. Get SDL Extensions (Surface, Platform-specific)
                 uint32_t sdlExtCount = 0;
                 const char* const* sdlExts = SDL_Vulkan_GetInstanceExtensions(&sdlExtCount);
-                if (sdlExts) {
+                if (sdlExts != nullptr) {
                     for (uint32_t i = 0; i < sdlExtCount; i++) {
                         extensions.push_back(sdlExts[i]);
                     }
@@ -119,7 +119,7 @@ std::unique_ptr<RHIDevice> RHIFactory::createDevice(
 {
     switch (backend) {
         case RHIBackend::Vulkan: {
-            auto* vkPhysicalDevice = static_cast<vulkan::VulkanRHIPhysicalDevice*>(physicalDevice);
+            auto* vkPhysicalDevice = dynamic_cast<vulkan::VulkanRHIPhysicalDevice*>(physicalDevice);
 
             // Transfer ownership
             std::unique_ptr<vulkan::VulkanRHIPhysicalDevice> ownedPhysicalDevice(vkPhysicalDevice);
@@ -164,11 +164,11 @@ std::unique_ptr<RHIDevice> RHIFactory::createDeviceAuto(
     }
 
     // If no discrete GPU, use first device
-    if (!bestDevice && !devices.empty()) {
+    if ((bestDevice == nullptr) && !devices.empty()) {
         bestDevice = devices[0].release();
     }
 
-    if (!bestDevice) {
+    if (bestDevice == nullptr) {
         core::Logger::error("Failed to select physical device");
         return nullptr;
     }
@@ -183,7 +183,7 @@ std::unique_ptr<RHISwapchain> RHIFactory::createSwapchain(
     platform::Window& window,
     Format preferredFormat)
 {
-    if (!device)
+    if (device == nullptr)
     {
         core::Logger::error("createSwapchain: device is null");
         return nullptr;

@@ -13,32 +13,31 @@ Checks: >
   -modernize-use-trailing-return-type,
   -readability-magic-numbers
 
-# Treat all warnings as errors to enforce strictness
 WarningsAsErrors: '*'
 
+# Regex fixes:
+# 1. Use single quotes to treat it as a raw string (avoids needing double backslashes for everything).
+# 2. 'pnkr' was missing from your path (based on your previous query).
+# 3. Ensure the regex matches the full path, so start with .* if necessary or match absolute paths.
+HeaderFilterRegex: '.*f(engine|samples)/.*'
+
 CheckOptions:
-  - key: readability-identifier-naming.ClassCase
-    value: CamelCase
-  - key: readability-identifier-naming.StructCase
-    value: CamelCase
-  - key: readability-identifier-naming.TypedefCase
-    value: CamelCase
-  - key: readability-identifier-naming.EnumCase
-    value: CamelCase
-  - key: readability-identifier-naming.EnumConstantCase
-    value: CamelCase
+  # Class / Struct / Typedef / Enum
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.TypedefCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.EnumConstantCase: CamelCase
 
-  - key: readability-identifier-naming.FunctionCase
-    value: camelBack
-  - key: readability-identifier-naming.VariableCase
-    value: camelBack
-  - key: readability-identifier-naming.ParameterCase
-    value: camelBack
+  # Functions & Variables
+  readability-identifier-naming.FunctionCase: camelBack
+  readability-identifier-naming.VariableCase: camelBack
+  readability-identifier-naming.ParameterCase: camelBack
 
-  - key: readability-identifier-naming.MemberCase
-    value: camelBack
-  - key: readability-identifier-naming.MemberPrefix
-    value: m_
+  # Members (m_ prefix)
+  readability-identifier-naming.MemberCase: camelBack
+  readability-identifier-naming.MemberPrefix: m_
 
-  - key: readability-identifier-naming.GlobalConstantCase
-    value: UPPER_CASE
+  # Globals
+  readability-identifier-naming.GlobalConstantCase: UPPER_CASE
+...

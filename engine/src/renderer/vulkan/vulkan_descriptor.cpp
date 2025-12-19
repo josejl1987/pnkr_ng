@@ -2,6 +2,10 @@
 // Created by Jose on 12/14/2025.
 //
 
+#include <algorithm>
+
+#include <utility>
+
 #include "pnkr/renderer/vulkan/vulkan_descriptor.hpp"
 #include "pnkr/core/logger.hpp"
 
@@ -22,8 +26,10 @@ VulkanDescriptorAllocator::~VulkanDescriptorAllocator() {
     m_currentPool = nullptr;
   }
 
-  for (auto pool : m_freePools)  m_device.destroyDescriptorPool(pool);
-  for (auto pool : m_usedPools)  m_device.destroyDescriptorPool(pool);
+  for (auto pool : m_freePools) {  m_device.destroyDescriptorPool(pool);
+}
+  for (auto pool : m_usedPools) {  m_device.destroyDescriptorPool(pool);
+}
 
   m_freePools.clear();
   m_usedPools.clear();
@@ -127,7 +133,7 @@ vk::DescriptorSetLayout VulkanDescriptorLayoutCache::createLayout(
   for (uint32_t i = 0; i < info.bindingCount; i++) {
     layoutInfo.bindings.push_back(info.pBindings[i]);
 
-    if (static_cast<int32_t>(info.pBindings[i].binding) > lastBinding) {
+    if (std::cmp_greater(info.pBindings[i].binding, lastBinding)) {
       lastBinding = info.pBindings[i].binding;
     } else {
       isSorted = false;
@@ -135,7 +141,7 @@ vk::DescriptorSetLayout VulkanDescriptorLayoutCache::createLayout(
   }
 
   if (!isSorted) {
-    std::sort(layoutInfo.bindings.begin(), layoutInfo.bindings.end(),
+    std::ranges::sort(layoutInfo.bindings,
               [](const vk::DescriptorSetLayoutBinding& a,
                  const vk::DescriptorSetLayoutBinding& b) {
                 return a.binding < b.binding;

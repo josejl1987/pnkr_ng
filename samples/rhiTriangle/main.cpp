@@ -16,7 +16,7 @@ class RHITriangleApp : public samples::RhiSampleApp
 public:
     // Initialize SampleApp with createRenderer=false to use RHIRenderer instead
     RHITriangleApp()
-        : samples::RhiSampleApp({"RHI Triangle", 800, 600, SDL_WINDOW_RESIZABLE, false})
+        : samples::RhiSampleApp({.title="RHI Triangle", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
     {
     }
 
@@ -30,14 +30,14 @@ public:
         // Create triangle mesh
         // Note: pnkr::renderer::Vertex has {pos, color, normal, texCoord}
         std::vector<renderer::Vertex> vertices = {
-            {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-            {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
-            {{0.0f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 1.0f}}
+            {.m_position={-0.5F, -0.5F, 0.0F}, .m_color={1.0F, 0.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord={0.0F, 0.0F}},
+            {.m_position={0.5F, -0.5F, 0.0F}, .m_color={0.0F, 1.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord={1.0F, 0.0F}},
+            {.m_position={0.0F, 0.5F, 0.0F}, .m_color={0.0F, 0.0F, 1.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord={0.5F, 1.0F}}
         };
 
         std::vector<uint32_t> indices = {0, 1, 2};
 
-        m_triangleMesh = m_renderer->createMesh(vertices, indices);
+        m_triangleMesh = m_renderer->createMesh(vertices, indices, false);
 
         // Create pipeline
         createPipeline();
@@ -59,21 +59,21 @@ public:
 
         // Shaders
         desc.shaders.push_back({
-            renderer::rhi::ShaderStage::Vertex,
-            vertSpirv,
-            "main"
+            .stage=renderer::rhi::ShaderStage::Vertex,
+            .spirvCode=vertSpirv,
+            .entryPoint="main"
         });
         desc.shaders.push_back({
-            renderer::rhi::ShaderStage::Fragment,
-            fragSpirv,
-            "main"
+            .stage=renderer::rhi::ShaderStage::Fragment,
+            .spirvCode=fragSpirv,
+            .entryPoint="main"
         });
 
         // Vertex input
         desc.vertexBindings.push_back({
-            0, // binding
-            sizeof(renderer::Vertex),
-            renderer::rhi::VertexInputRate::Vertex
+            .binding=0, // binding
+            .stride=sizeof(renderer::Vertex),
+            .inputRate=renderer::rhi::VertexInputRate::Vertex
         });
 
         // Use correct member names: m_color, m_texCoord
@@ -140,7 +140,7 @@ private:
     MeshHandle m_triangleMesh;
     PipelineHandle m_pipeline;
 
-    std::vector<uint32_t> loadSpirv(const std::string& filename)
+    static std::vector<uint32_t> loadSpirv(const std::string& filename)
     {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
         if (!file.is_open())

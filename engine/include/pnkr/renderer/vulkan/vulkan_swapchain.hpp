@@ -13,7 +13,7 @@ class VulkanSwapchain {
 public:
   VulkanSwapchain(vk::PhysicalDevice physicalDevice, vk::Device device,
                   vk::SurfaceKHR surface, uint32_t graphicsQueueFamily,
-                  uint32_t presentQueueFamily, pnkr::platform::Window &window,
+                  uint32_t presentQueueFamily, platform::Window &window,
                   VmaAllocator allocator);
 
   ~VulkanSwapchain();
@@ -72,7 +72,7 @@ private:
   void createSwapchain(vk::PhysicalDevice physicalDevice, vk::Device device,
                        vk::SurfaceKHR surface, uint32_t graphicsQueueFamily,
                        uint32_t presentQueueFamily,
-                       pnkr::platform::Window &window);
+                       platform::Window &window);
 
   void createImageViews(vk::Device device);
 
@@ -81,7 +81,7 @@ private:
   static vk::PresentModeKHR
   choosePresentMode(const std::vector<vk::PresentModeKHR> &modes);
   static vk::Extent2D chooseExtent(const vk::SurfaceCapabilitiesKHR &caps,
-                                   pnkr::platform::Window &window);
+                                   platform::Window &window);
 
   vk::SwapchainKHR m_swapchain{nullptr};
   vk::Format m_format{};

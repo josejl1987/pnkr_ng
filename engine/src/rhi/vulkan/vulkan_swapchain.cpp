@@ -3,6 +3,7 @@
 #include "pnkr/rhi/vulkan/vulkan_device.hpp"
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
 #include "pnkr/platform/window.hpp"
 
 #include <SDL3/SDL_vulkan.h>
@@ -10,23 +11,27 @@
 #include <limits>
 #include <stdexcept>
 
+#include "pnkr/rhi/rhi_command_buffer.hpp"
+
+using namespace pnkr::util;
+
 namespace pnkr::renderer::rhi::vulkan
 {
     namespace
     {
         struct SwapchainSupport
         {
-            vk::SurfaceCapabilitiesKHR caps{};
-            std::vector<vk::SurfaceFormatKHR> formats;
-            std::vector<vk::PresentModeKHR> presentModes;
+            vk::SurfaceCapabilitiesKHR m_caps;
+            std::vector<vk::SurfaceFormatKHR> m_formats;
+            std::vector<vk::PresentModeKHR> m_presentModes;
         };
 
         SwapchainSupport querySwapchainSupport(vk::PhysicalDevice pd, vk::SurfaceKHR surface)
         {
             SwapchainSupport s{};
-            s.caps = pd.getSurfaceCapabilitiesKHR(surface);
-            s.formats = pd.getSurfaceFormatsKHR(surface);
-            s.presentModes = pd.getSurfacePresentModesKHR(surface);
+            s.m_caps = pd.getSurfaceCapabilitiesKHR(surface);
+            s.m_formats = pd.getSurfaceFormatsKHR(surface);
+            s.m_presentModes = pd.getSurfacePresentModesKHR(surface);
             return s;
         }
     }
@@ -34,8 +39,9 @@ namespace pnkr::renderer::rhi::vulkan
     VulkanRHISwapchain::VulkanRHISwapchain(VulkanRHIDevice* device, platform::Window& window, Format preferredFormat)
         : m_device(device), m_window(&window)
     {
-        if (!m_device)
+        if (m_device == nullptr) {
             throw std::runtime_error("[VulkanRHISwapchain] device is null");
+}
 
         createSurface();
 
@@ -53,8 +59,9 @@ namespace pnkr::renderer::rhi::vulkan
 
     VulkanRHISwapchain::~VulkanRHISwapchain()
     {
-        if (!m_device)
+        if (m_device == nullptr) {
             return;
+}
 
         // Ensure GPU is idle before tearing down WSI objects.
         try { m_device->device().waitIdle(); }
@@ -91,22 +98,24 @@ namespace pnkr::renderer::rhi::vulkan
 
     vk::SurfaceFormatKHR VulkanRHISwapchain::chooseSurfaceFormat(
         const std::vector<vk::SurfaceFormatKHR>& formats,
-        Format preferred) const
+        Format preferred) 
     {
         const vk::Format preferredVk = VulkanUtils::toVkFormat(preferred);
 
         // Prefer exact match (format + srgb nonlinear).
         for (const auto& f : formats)
         {
-            if (f.format == preferredVk && f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear)
+            if (f.format == preferredVk && f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
                 return f;
+}
         }
 
         // Otherwise, prefer an sRGB colorspace with a common 8-bit format.
         for (const auto& f : formats)
         {
-            if (f.colorSpace != vk::ColorSpaceKHR::eSrgbNonlinear)
+            if (f.colorSpace != vk::ColorSpaceKHR::eSrgbNonlinear) {
                 continue;
+}
 
             if (f.format == vk::Format::eB8G8R8A8Srgb ||
                 f.format == vk::Format::eB8G8R8A8Unorm ||
@@ -121,7 +130,7 @@ namespace pnkr::renderer::rhi::vulkan
         return formats.empty() ? vk::SurfaceFormatKHR{} : formats[0];
     }
 
-    vk::PresentModeKHR VulkanRHISwapchain::choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) const
+    vk::PresentModeKHR VulkanRHISwapchain::choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) 
     {
         // Keep it simple for now: vsync on.
         // FIFO is guaranteed by spec.
@@ -132,10 +141,11 @@ namespace pnkr::renderer::rhi::vulkan
     vk::Extent2D VulkanRHISwapchain::chooseExtent(
         const vk::SurfaceCapabilitiesKHR& caps,
         uint32_t width,
-        uint32_t height) const
+        uint32_t height) 
     {
-        if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max())
+        if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
             return caps.currentExtent;
+}
 
         vk::Extent2D actual{};
         actual.width = std::clamp(width, caps.minImageExtent.width, caps.maxImageExtent.width);
@@ -145,26 +155,30 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHISwapchain::createSwapchain(Format preferredFormat, uint32_t width, uint32_t height)
     {
-        if (!m_surface)
+        if (!m_surface) {
             throw std::runtime_error("[VulkanRHISwapchain] createSwapchain: surface not initialized");
+}
 
         auto pd = m_device->vkPhysicalDevice();
         auto dev = m_device->device();
 
         const auto support = querySwapchainSupport(pd, m_surface);
-        if (support.formats.empty())
+        if (support.m_formats.empty()) {
             throw std::runtime_error("[VulkanRHISwapchain] Surface has no supported formats");
-        if (support.presentModes.empty())
+}
+        if (support.m_presentModes.empty()) {
             throw std::runtime_error("[VulkanRHISwapchain] Surface has no supported present modes");
+}
 
-        const vk::SurfaceFormatKHR surfaceFormat = chooseSurfaceFormat(support.formats, preferredFormat);
-        const vk::PresentModeKHR presentMode = choosePresentMode(support.presentModes);
-        const vk::Extent2D extent = chooseExtent(support.caps, width, height);
+        const vk::SurfaceFormatKHR surfaceFormat = chooseSurfaceFormat(support.m_formats, preferredFormat);
+        const vk::PresentModeKHR presentMode = choosePresentMode(support.m_presentModes);
+        const vk::Extent2D extent = chooseExtent(support.m_caps, width, height);
 
         // Image count: prefer min+1, clamp to max.
-        uint32_t imageCount = support.caps.minImageCount + 1;
-        if (support.caps.maxImageCount > 0 && imageCount > support.caps.maxImageCount)
-            imageCount = support.caps.maxImageCount;
+        uint32_t imageCount = support.m_caps.minImageCount + 1;
+        if (support.m_caps.maxImageCount > 0 && imageCount > support.m_caps.maxImageCount) {
+            imageCount = support.m_caps.maxImageCount;
+}
 
         vk::SwapchainCreateInfoKHR sci{};
         sci.surface = m_surface;
@@ -180,7 +194,7 @@ namespace pnkr::renderer::rhi::vulkan
         // Current RHI device does not expose a dedicated present queue; assume graphics queue presents.
         sci.imageSharingMode = vk::SharingMode::eExclusive;
 
-        sci.preTransform = support.caps.currentTransform;
+        sci.preTransform = support.m_caps.currentTransform;
 
         const vk::CompositeAlphaFlagBitsKHR preferredAlpha[] = {
             vk::CompositeAlphaFlagBitsKHR::eOpaque,
@@ -191,7 +205,7 @@ namespace pnkr::renderer::rhi::vulkan
         sci.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
         for (auto a : preferredAlpha)
         {
-            if (support.caps.supportedCompositeAlpha & a)
+            if (support.m_caps.supportedCompositeAlpha & a)
             {
                 sci.compositeAlpha = a;
                 break;
@@ -229,7 +243,7 @@ namespace pnkr::renderer::rhi::vulkan
         // Wrap into non-owning RHI textures.
         m_wrapped.clear();
         m_wrapped.reserve(m_images.size());
-        const Extent3D ext3{m_extent.width, m_extent.height, 1};
+        const Extent3D ext3{.width=m_extent.width, .height=m_extent.height, .depth=1};
 
         for (size_t i = 0; i < m_images.size(); ++i)
         {
@@ -242,23 +256,26 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHISwapchain::destroySwapchain()
     {
-        if (!m_device)
+        if (m_device == nullptr) {
             return;
+}
 
         auto dev = m_device->device();
 
         // Per-swapchain-image semaphores must be destroyed alongside the swapchain.
         for (auto s : m_renderFinished)
         {
-            if (s)
+            if (s) {
                 dev.destroySemaphore(s);
+}
         }
         m_renderFinished.clear();
 
         for (auto& view : m_views)
         {
-            if (view)
+            if (view) {
                 dev.destroyImageView(view);
+}
         }
         m_views.clear();
 
@@ -309,14 +326,19 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHISwapchain::destroySyncObjects()
     {
-        if (!m_device)
+        if (m_device == nullptr) {
             return;
+}
 
         auto dev = m_device->device();
 
         // NOTE: m_renderFinished is per swapchain image and is destroyed in destroySwapchain().
-        for (auto& s : m_imageAvailable) if (s) dev.destroySemaphore(s);
-        for (auto& f : m_inFlightFences) if (f) dev.destroyFence(f);
+        for (auto& s : m_imageAvailable) { if (s) { dev.destroySemaphore(s);
+}
+}
+        for (auto& f : m_inFlightFences) { if (f) { dev.destroyFence(f);
+}
+}
 
         m_imageAvailable.clear();
         m_inFlightFences.clear();
@@ -324,11 +346,13 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHISwapchain::recreate(uint32_t width, uint32_t height)
     {
-        if (!m_device)
+        if (m_device == nullptr) {
             return;
+}
 
-        if (width == 0 || height == 0)
+        if (width == 0 || height == 0) {
             return;
+}
 
         m_device->device().waitIdle();
 
@@ -344,10 +368,12 @@ namespace pnkr::renderer::rhi::vulkan
 
     bool VulkanRHISwapchain::beginFrame(uint32_t frameIndex, RHICommandBuffer* cmd, SwapchainFrame& out)
     {
-        if (!m_swapchain || !m_surface)
+        if (!m_swapchain || !m_surface) {
             return false;
-        if (!cmd)
+}
+        if (cmd == nullptr) {
             return false;
+}
 
         const uint32_t frame = frameIndex % m_framesInFlight;
 
@@ -355,8 +381,9 @@ namespace pnkr::renderer::rhi::vulkan
 
         // Throttle CPU and ensure per-frame resources are available.
         auto res = dev.waitForFences(1, &m_inFlightFences[frame], VK_TRUE, UINT64_MAX);
-        if (res != vk::Result::eSuccess)
+        if (res != vk::Result::eSuccess) {
             throw std::runtime_error("failed to acquire fences");
+}
 
         // Now it is safe to recycle the command buffer.
         cmd->reset();
@@ -446,8 +473,9 @@ namespace pnkr::renderer::rhi::vulkan
 
     bool VulkanRHISwapchain::endFrame(uint32_t frameIndex, RHICommandBuffer* cmd)
     {
-        if (!m_swapchain || !cmd)
+        if (!m_swapchain || (cmd == nullptr)) {
             return false;
+}
 
         const uint32_t frame = frameIndex % m_framesInFlight;
         auto dev = m_device->device();
@@ -476,7 +504,7 @@ namespace pnkr::renderer::rhi::vulkan
             throw std::runtime_error("failed to acquire fences");
         }
 
-        vk::CommandBuffer vkCmd = vk::CommandBuffer(static_cast<VkCommandBuffer>(cmd->nativeHandle()));
+        auto vkCmd = vk::CommandBuffer(getVkCommandBuffer(cmd->nativeHandle()));
 
         vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
         vk::SubmitInfo submit{};

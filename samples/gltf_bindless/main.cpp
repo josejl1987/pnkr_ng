@@ -32,9 +32,9 @@ namespace ShaderGen {
 
 using namespace pnkr;
 
-class RHIGltfBindlessApp : public samples::RhiSampleApp {
+class RHIVertexPullingApp : public samples::RhiSampleApp {
 public:
-    RHIGltfBindlessApp()
+    RHIVertexPullingApp()
         : samples::RhiSampleApp({"RHI Bindless GLTF", 1280, 720, SDL_WINDOW_RESIZABLE, false}) {}
 
     renderer::scene::Camera m_camera;
@@ -100,7 +100,7 @@ public:
 
     void createPipeline() {
         // Use renderer::rhi::Shader
-        auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex, getShaderPath("gltf_bindless.vert.spv"));
+        auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex, getShaderPath("vertex_pulling.vert.spv"));
         auto fs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Fragment, getShaderPath("gltf_bindless.frag.spv"));
 
         auto builder = renderer::rhi::RHIPipelineBuilder()
@@ -151,6 +151,6 @@ public:
 };
 
 int main(int argc, char** argv) {
-    RHIGltfBindlessApp app;
+    RHIVertexPullingApp app;
     return app.run();
 }

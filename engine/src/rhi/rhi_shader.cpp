@@ -1,9 +1,11 @@
 #include "pnkr/rhi/rhi_shader.hpp"
 
 #include "pnkr/core/logger.hpp"
+#include <algorithm>
 #include <fstream>
 #include <spirv_cross/spirv_cross.hpp>
 #include <algorithm>
+#include <utility>
 
 #include "pnkr/rhi/rhi_types.hpp"
 
@@ -11,22 +13,29 @@ namespace pnkr::renderer::rhi {
 
 
     static VertexSemantic parseSemanticName(std::string name) {
-        std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-        if (name.find("pos") != std::string::npos)      return VertexSemantic::Position;
-        if (name.find("color") != std::string::npos)    return VertexSemantic::Color;
-        if (name.find("norm") != std::string::npos)     return VertexSemantic::Normal;
+        std::ranges::transform(name, name.begin(), ::tolower);
+        if (name.find("pos") != std::string::npos) {      return VertexSemantic::Position;
+}
+        if (name.find("color") != std::string::npos) {    return VertexSemantic::Color;
+}
+        if (name.find("norm") != std::string::npos) {     return VertexSemantic::Normal;
+}
         if (name.find("uv") != std::string::npos ||
-            name.find("coord") != std::string::npos)    return VertexSemantic::TexCoord;
-        if (name.find("tangent") != std::string::npos)  return VertexSemantic::Tangent;
-        if (name.find("weight") != std::string::npos)   return VertexSemantic::Weights;
-        if (name.find("bone") != std::string::npos)     return VertexSemantic::BoneIds;
+            name.find("coord") != std::string::npos) {    return VertexSemantic::TexCoord;
+}
+        if (name.find("tangent") != std::string::npos) {  return VertexSemantic::Tangent;
+}
+        if (name.find("weight") != std::string::npos) {   return VertexSemantic::Weights;
+}
+        if (name.find("bone") != std::string::npos) {     return VertexSemantic::BoneIds;
+}
         return VertexSemantic::Unknown;
     }
 
-    Shader::Shader(ShaderStage stage, const std::vector<uint32_t>& spirvCode, const ReflectionConfig& config)
+    Shader::Shader(ShaderStage stage, const std::vector<uint32_t>& spirvCode, ReflectionConfig  config)
         : m_stage(stage)
         , m_code(spirvCode)
-        , m_config(config)
+        , m_config(std::move(config))
     {
         reflect();
     }
@@ -84,13 +93,14 @@ namespace pnkr::renderer::rhi {
                     }
                 }
 
-                if (set >= m_reflection.descriptorSets.size()) m_reflection.descriptorSets.resize(set + 1);
+                if (set >= m_reflection.descriptorSets.size()) { m_reflection.descriptorSets.resize(set + 1);
+}
 
                 m_reflection.descriptorSets[set].bindings.push_back({
-                    binding,
-                    type,
-                    count, // Use calculated count, not hardcoded 1
-                    m_stage
+                    .binding=binding,
+                    .type=type,
+                    .count=count, // Use calculated count, not hardcoded 1
+                    .stages=m_stage
                 });
             }
         };
@@ -105,12 +115,12 @@ namespace pnkr::renderer::rhi {
             const auto& type = comp.get_type(resource.base_type_id);
 
 
-            uint32_t size = (uint32_t)comp.get_declared_struct_size(type);
+            auto size = (uint32_t)comp.get_declared_struct_size(type);
 
             m_reflection.pushConstants.push_back({
-                m_stage,
-                0,
-                size
+                .stages=m_stage,
+                .offset=0,
+                .size=size
             });
         }
 
@@ -118,8 +128,8 @@ namespace pnkr::renderer::rhi {
         if (m_stage == ShaderStage::Vertex) {
             for (const auto& input : res.stage_inputs) {
                 m_reflection.inputAttributes.push_back({
-                    comp.get_decoration(input.id, spv::DecorationLocation),
-                    parseSemanticName(comp.get_name(input.id))
+                    .location=comp.get_decoration(input.id, spv::DecorationLocation),
+                    .semantic=parseSemanticName(comp.get_name(input.id))
                 });
             }
         }

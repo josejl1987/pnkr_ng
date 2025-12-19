@@ -34,7 +34,7 @@ namespace pnkr::renderer {
                                           bool srgb = true);
 
         static VulkanImage createFromMemory(const VulkanDevice& vulkan_device,
-                                            const unsigned char* src_data,
+                                            const unsigned char* pixels,
                                             int width,
                                             int height,
                                             bool srgb);

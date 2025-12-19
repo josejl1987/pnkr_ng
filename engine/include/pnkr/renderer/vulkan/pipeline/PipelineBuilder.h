@@ -97,7 +97,7 @@ private:
     uint32_t m_pushConstantSize = 0;
     std::vector<vk::DescriptorSetLayout> m_descriptorLayouts;
     vk::ShaderStageFlags m_pushConstantStages;
-    bool m_useBindless;
+    bool m_useBindless{};
 };
 
 } // namespace pnkr::renderer

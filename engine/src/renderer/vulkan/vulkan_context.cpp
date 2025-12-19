@@ -5,21 +5,24 @@
 #include "pnkr/renderer/vulkan/vulkan_context.hpp"
 
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
 #include "pnkr/platform/window.hpp"
 
 #include <SDL3/SDL_vulkan.h>
 #include <vector>
 
+using namespace pnkr::util;
+
 namespace pnkr::renderer {
 #ifndef NDEBUG
-static VKAPI_ATTR vk::Bool32 VKAPI_CALL DebugCallback(
+static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
     vk::DebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-    vk::DebugUtilsMessageTypeFlagsEXT,
-    const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *) {
+    vk::DebugUtilsMessageTypeFlagsEXT /*unused*/,
+    const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void * /*unused*/) {
   using core::Logger;
 
   const char *msg =
-      pCallbackData->pMessage ? pCallbackData->pMessage : "(null)";
+      (pCallbackData->pMessage != nullptr) ? pCallbackData->pMessage : "(null)";
 
   if (messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eError) {
     Logger::error("[Vulkan] {}", msg);
@@ -41,7 +44,7 @@ void VulkanContext::initDispatcherPreInstance() {
   auto getInstanceProcAddr =
       m_dynamicLoader.getProcAddress<PFN_vkGetInstanceProcAddr>(
           "vkGetInstanceProcAddr");
-  if (!getInstanceProcAddr) {
+  if (getInstanceProcAddr == nullptr) {
     throw std::runtime_error("Failed to load vkGetInstanceProcAddr");
   }
 
@@ -65,7 +68,7 @@ void VulkanContext::initDispatcherPostDevice(vk::Device device) {
   auto getDeviceProcAddr =
       m_dynamicLoader.getProcAddress<PFN_vkGetDeviceProcAddr>(
           "vkGetDeviceProcAddr");
-  if (!getDeviceProcAddr) {
+  if (getDeviceProcAddr == nullptr) {
     throw std::runtime_error("Failed to load vkGetDeviceProcAddr");
   }
 
@@ -114,7 +117,7 @@ void VulkanContext::createInstance(const platform::Window &window) {
   // Query required instance extensions from SDL.
   unsigned int extCount = 0;
   const char *const *sdlExts = SDL_Vulkan_GetInstanceExtensions(&extCount);
-  if (!sdlExts || extCount == 0) {
+  if ((sdlExts == nullptr) || extCount == 0) {
     throw std::runtime_error(
         "SDL_Vulkan_GetInstanceExtensions returned no extensions");
   }
@@ -153,14 +156,14 @@ void VulkanContext::createInstance(const platform::Window &window) {
       vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
       vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
       vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
-  debugCreateInfo.pfnUserCallback = DebugCallback;
+  debugCreateInfo.pfnUserCallback = debugCallback;
 #endif
 
   vk::InstanceCreateInfo createInfo{};
   createInfo.pApplicationInfo = &appInfo;
-  createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+  createInfo.enabledExtensionCount = u32(extensions.size());
   createInfo.ppEnabledExtensionNames = extensions.data();
-  createInfo.enabledLayerCount = static_cast<uint32_t>(layers.size());
+  createInfo.enabledLayerCount = u32(layers.size());
   createInfo.ppEnabledLayerNames = layers.empty() ? nullptr : layers.data();
 
 #ifndef NDEBUG
@@ -199,7 +202,7 @@ void VulkanContext::setupDebugMessenger() {
   createInfo.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
                            vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
                            vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
-  createInfo.pfnUserCallback = DebugCallback;
+  createInfo.pfnUserCallback = debugCallback;
 
   m_debugMessenger = m_instance.createDebugUtilsMessengerEXT(
       createInfo, nullptr, VULKAN_HPP_DEFAULT_DISPATCHER);

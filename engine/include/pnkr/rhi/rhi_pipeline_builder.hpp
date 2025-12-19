@@ -14,7 +14,7 @@ namespace pnkr::renderer::rhi
 
         // --- Shaders (Auto-Reflection) ---
         // Clears existing shaders and merges reflection data from the provided shaders.
-        RHIPipelineBuilder& setShaders(const Shader* vert, const Shader* frag);
+        RHIPipelineBuilder& setShaders(const Shader* vert, const Shader* frag, const Shader* geom);
         RHIPipelineBuilder& setComputeShader(const Shader* comp);
 
 
@@ -61,6 +61,7 @@ namespace pnkr::renderer::rhi
         // --- Build ---
         [[nodiscard]] GraphicsPipelineDescriptor buildGraphics() const;
         [[nodiscard]] ComputePipelineDescriptor buildCompute() const;
+        void setGeometryShader(Shader* get);
 
     private:
         GraphicsPipelineDescriptor m_gfxDesc;

@@ -2,7 +2,7 @@
 
 layout(location = 0) out vec3 v_TexCoord;
 
-layout(push_constant) uniform Constants {
+layout(push_constant) uniform SkyboxPushConstants {
     mat4 view;
     mat4 proj;
     uint textureIndex;

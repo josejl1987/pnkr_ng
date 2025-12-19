@@ -42,7 +42,7 @@ namespace pnkr::platform
             }
 
             // 2. Pass to Input system
-            if (input)
+            if (input != nullptr)
             {
                 input->processEvent(event);
             }

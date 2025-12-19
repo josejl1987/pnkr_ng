@@ -20,6 +20,8 @@
 #include "geometry/mesh.h"
 #include "pnkr/renderer/vulkan/pipeline/compute_pipeline.hpp"
 #include "geometry/Vertex.h"
+#include "pnkr/core/common.hpp"
+#include "pnkr/core/logger.hpp"
 #include "vulkan/bindless/bindless_manager.hpp"
 #include "vulkan/image/vulkan_image.hpp"
 #include "vulkan/image/vulkan_sampler.hpp"
@@ -49,7 +51,7 @@ namespace pnkr::renderer
         explicit Renderer(platform::Window& window,
                           [[maybe_unused]] const RendererConfig& config);
         void createTextureDescriptorSetLayout();
-        TextureHandle createTextureFromPixels(const unsigned char* data,
+        TextureHandle createTextureFromPixels(const unsigned char* pixels,
                                               int width,
                                               int height,
                                               int channels,
@@ -99,7 +101,7 @@ namespace pnkr::renderer
             cmd.pushConstants(pipelineLayout(pipe),
                               stages,
                               offset,
-                              static_cast<uint32_t>(sizeof(T)),
+                              util::u32(sizeof(T)),
                               &data);
         }
 
@@ -129,8 +131,8 @@ namespace pnkr::renderer
 
         [[nodiscard]] vk::Format getSwapchainColorFormat() const { return m_swapchain->imageFormat(); }
 
-        void bindPipeline(vk::CommandBuffer cmd, const ComputePipeline& pipeline);
-        void dispatch(vk::CommandBuffer cmd, uint32_t groupX, uint32_t groupY, uint32_t groupZ);
+        static void bindPipeline(vk::CommandBuffer cmd, const ComputePipeline& pipeline);
+        static void dispatch(vk::CommandBuffer cmd, uint32_t groupX, uint32_t groupY, uint32_t groupZ);
 
         using PostProcessCallback = std::function<void(vk::CommandBuffer cmd, uint32_t swapchainImageIndex,
                                                        const vk::Extent2D& extent)>;

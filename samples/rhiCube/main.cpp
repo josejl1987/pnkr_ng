@@ -19,7 +19,7 @@ class RHICubeApp : public samples::RhiSampleApp
 {
 public:
     RHICubeApp()
-        : samples::RhiSampleApp({"RHI Cube", 800, 600, SDL_WINDOW_RESIZABLE, false})
+        : samples::RhiSampleApp({.title="RHI Cube", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
     {
     }
 
@@ -31,13 +31,13 @@ public:
         m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
 
         // 2. Setup Camera
-        m_camera.lookAt({0.0f, 2.0f, 4.0f}, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
+        m_camera.lookAt({0.0F, 2.0F, 4.0F}, {0.F, 0.F, 0.F}, {0.F, 1.F, 0.F});
         float aspect = (float)m_window.width() / (float)m_window.height();
-        m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+        m_camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
 
         // 3. Create Geometry
         auto cubeData = samples::GeometryUtils::getCube();
-        m_cubeMesh = m_renderer->createMesh(cubeData.vertices, cubeData.indices);
+        m_cubeMesh = m_renderer->createMesh(cubeData.vertices, cubeData.indices, false);
 
         // 4. Create Pipeline
         createPipeline();
@@ -53,14 +53,14 @@ public:
     {
         // Define Vertex Input manually for RHI
         std::vector<renderer::rhi::VertexInputBinding> bindings = {
-            { 0, sizeof(renderer::Vertex), renderer::rhi::VertexInputRate::Vertex }
+            { .binding=0, .stride=sizeof(renderer::Vertex), .inputRate=renderer::rhi::VertexInputRate::Vertex }
         };
 
         std::vector<renderer::rhi::VertexInputAttribute> attribs = {
-            {0, 0, renderer::rhi::Format::R32G32B32_SFLOAT, offsetof(renderer::Vertex, m_position)},
-            {1, 0, renderer::rhi::Format::R32G32B32_SFLOAT, offsetof(renderer::Vertex, m_color)},
-            {2, 0, renderer::rhi::Format::R32G32B32_SFLOAT, offsetof(renderer::Vertex, m_normal)},
-            {3, 0, renderer::rhi::Format::R32G32_SFLOAT,    offsetof(renderer::Vertex, m_texCoord)}
+            {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_position)},
+            {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_color)},
+            {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_normal)},
+            {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT,    .offset=offsetof(renderer::Vertex, m_texCoord)}
         };
 
         auto vs = renderer::rhi::Shader::load(
@@ -76,7 +76,7 @@ public:
         // Builder merges reflection data automatically
         auto desc = renderer::rhi::RHIPipelineBuilder()
             .setName("CubePipeline")
-            .setShaders(vs.get(), fs.get())
+            .setShaders(vs.get(), fs.get(), nullptr)
             .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
             .setCullMode(renderer::rhi::CullMode::Back)
             .useVertexType<renderer::Vertex>()
@@ -98,12 +98,12 @@ public:
 
     void recordFrame(const renderer::RHIFrameContext& ctx)
     {
-        static float timeVal = 0.0f;
+        static float timeVal = 0.0F;
         timeVal += ctx.deltaTime;
 
         // 1. Calculate Transform
         renderer::scene::Transform xform;
-        xform.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0f, 1.0f, 0.0f});
+        xform.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0F, 1.0F, 0.0F});
 
         // 2. Prepare Data
         ShaderGen::PushConstants pc{};
@@ -141,7 +141,7 @@ public:
 
             if (event.window.data2 > 0) {
                 float aspect = (float)event.window.data1 / (float)event.window.data2;
-                m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+                m_camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
             }
         }
     }
@@ -152,7 +152,7 @@ private:
     PipelineHandle m_pipeline;
 
     // Helper to load SPIR-V
-    std::vector<uint32_t> loadSpirv(const std::string& filename)
+    static std::vector<uint32_t> loadSpirv(const std::string& filename)
     {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
         if (!file.is_open()) {

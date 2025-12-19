@@ -11,13 +11,13 @@
 #include <fastgltf/tools.hpp>
 #include <fastgltf/glm_element_traits.hpp>
 
-
 #include <cstdint>
 #include <functional>
 #include <variant>
 
 #include <filesystem>
 #include <fstream>
+#include <stb_image.h>
 #include <optional>
 #include <string>
 #include <vector>
@@ -25,6 +25,8 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/vec4.hpp>
+
+#include "pnkr/core/common.hpp"
 
 namespace pnkr::renderer::scene
 {
@@ -52,64 +54,64 @@ namespace pnkr::renderer::scene
 
     static std::vector<std::uint8_t> readFileBytes(const std::filesystem::path& p)
     {
-        std::ifstream f(p, std::ios::binary);
-        if (!f) return {};
+        std::ifstream file(p, std::ios::binary);
+        if (!file) { return {};
+}
 
-        f.seekg(0, std::ios::end);
-        const auto sz = static_cast<size_t>(f.tellg());
-        f.seekg(0, std::ios::beg);
+        file.seekg(0, std::ios::end);
+        const auto size = static_cast<size_t>(file.tellg());
+        file.seekg(0, std::ios::beg);
 
-        std::vector<std::uint8_t> out(sz);
-        if (sz) f.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(sz));
+        std::vector<std::uint8_t> out(size);
+        if (size != 0u) { file.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(size));
+}
         return out;
     }
 
-    static std::optional<std::size_t> pickImageIndex(const fastgltf::Texture& tex)
+    static std::optional<std::size_t> pickImageIndex(const fastgltf::Texture& texture)
     {
         // Prefer standard images first, then extension-backed images.
-        if (tex.imageIndex.has_value()) return tex.imageIndex.value();
-        if (tex.webpImageIndex.has_value()) return tex.webpImageIndex.value();
-        if (tex.ddsImageIndex.has_value()) return tex.ddsImageIndex.value();
-        if (tex.basisuImageIndex.has_value()) return tex.basisuImageIndex.value();
+        if (texture.imageIndex.has_value()) { return texture.imageIndex.value();
+}
+        if (texture.webpImageIndex.has_value()) { return texture.webpImageIndex.value();
+}
+        if (texture.ddsImageIndex.has_value()) { return texture.ddsImageIndex.value();
+}
+        if (texture.basisuImageIndex.has_value()) { return texture.basisuImageIndex.value();
+}
         return std::nullopt;
     }
 
-    static fastgltf::URIView getUriView(const fastgltf::sources::URI& u)
+    static fastgltf::URIView getUriView(const fastgltf::sources::URI& uri)
     {
         // fastgltf has had a few API variations here; keep this resilient.
-        if constexpr (requires { u.uri; }) {
+        if constexpr (requires { uri.uri; }) {
             // In some versions, u.uri is a fastgltf::URI / URIView-like.
-            if constexpr (requires { u.uri.string(); }) {
-                return fastgltf::URIView{u.uri.string()};
-            } else if constexpr (requires { u.uri.c_str(); }) {
-                return fastgltf::URIView{std::string_view{u.uri.c_str()}};
+            if constexpr (requires { uri.uri.string(); }) {
+                return fastgltf::URIView{uri.uri.string()};
+            } else if constexpr (requires { uri.uri.c_str(); }) {
+                return fastgltf::URIView{std::string_view{uri.uri.c_str()}};
             } else {
                 return fastgltf::URIView{};
             }
-        } else if constexpr (requires { u.uri; }) {
-            return u.uri;
+        } else if constexpr (requires { uri.uri; }) {
+            return uri.uri;
         } else {
             return fastgltf::URIView{};
         }
     }
 
-    template <class T>
-    static void assignFromBytesLike(std::vector<std::uint8_t>& dst, const T& src)
-    {
-        if constexpr (requires { src.data(); src.size(); }) {
-            const auto* p = reinterpret_cast<const std::uint8_t*>(src.data());
-            dst.assign(p, p + src.size());
-        }
-    }
-
-static std::vector<std::uint8_t> base64Decode(std::string_view in)
+    static std::vector<std::uint8_t> base64Decode(std::string_view in)
 {
     static constexpr std::array<std::uint8_t, 256> kDec = [] {
         std::array<std::uint8_t, 256> t{};
         t.fill(0xFF);
-        for (int i = 'A'; i <= 'Z'; ++i) t[static_cast<std::uint8_t>(i)] = static_cast<std::uint8_t>(i - 'A');
-        for (int i = 'a'; i <= 'z'; ++i) t[static_cast<std::uint8_t>(i)] = static_cast<std::uint8_t>(26 + i - 'a');
-        for (int i = '0'; i <= '9'; ++i) t[static_cast<std::uint8_t>(i)] = static_cast<std::uint8_t>(52 + i - '0');
+        for (int i = 'A'; i <= 'Z'; ++i) { t[static_cast<std::uint8_t>(i)] = static_cast<std::uint8_t>(i - 'A');
+}
+        for (int i = 'a'; i <= 'z'; ++i) { t[static_cast<std::uint8_t>(i)] = static_cast<std::uint8_t>(26 + i - 'a');
+}
+        for (int i = '0'; i <= '9'; ++i) { t[static_cast<std::uint8_t>(i)] = static_cast<std::uint8_t>(52 + i - '0');
+}
         t[static_cast<std::uint8_t>('+')] = 62;
         t[static_cast<std::uint8_t>('/')] = 63;
         return t;
@@ -123,22 +125,23 @@ static std::vector<std::uint8_t> base64Decode(std::string_view in)
     int pad = 0;
 
     for (unsigned char c : in) {
-        if (std::isspace(c)) continue;
+        if (std::isspace(c) != 0) { continue;
+}
         if (c == '=') { pad++; continue; }
 
         const std::uint8_t v = kDec[c];
-        if (v == 0xFF) continue; // ignore non-base64 chars defensively
+        if (v == 0xFF) { continue; // ignore non-base64 chars defensively
+}
 
         buf = (buf << 6) | v;
         bits += 6;
 
         if (bits >= 8) {
             bits -= 8;
-            out.push_back(static_cast<std::uint8_t>((buf >> bits) & 0xFFu));
+            out.push_back(static_cast<std::uint8_t>((buf >> bits) & 0xFFU));
         }
     }
 
-    // Trim padding bytes if present
     if (pad > 0 && out.size() >= static_cast<size_t>(pad)) {
         out.resize(out.size() - static_cast<size_t>(pad));
     }
@@ -149,10 +152,12 @@ static std::vector<std::uint8_t> base64Decode(std::string_view in)
 static std::vector<std::uint8_t> decodeDataUriBytes(std::string_view uri)
 {
     // Expected form: data:[<mime>][;base64],<payload>
-    if (!uri.starts_with("data:")) return {};
+    if (!uri.starts_with("data:")) { return {};
+}
 
     const auto comma = uri.find(',');
-    if (comma == std::string_view::npos) return {};
+    if (comma == std::string_view::npos) { return {};
+}
 
     const std::string_view meta = uri.substr(5, comma - 5);
     const std::string_view payload = uri.substr(comma + 1);
@@ -213,7 +218,8 @@ static std::vector<std::uint8_t> extractImageBytes(
 
         [&](const fastgltf::sources::URI& uriSrc) {
             const auto uri = getUriView(uriSrc);
-            if (!uri.valid()) return;
+            if (!uri.valid()) { return;
+}
 
             if (uri.isDataUri()) {
                 bytes = decodeDataUriBytes(uri.string());
@@ -236,7 +242,7 @@ static std::vector<std::uint8_t> extractImageBytes(
 }
 
 
-    std::unique_ptr<Model> Model::load(RHIRenderer& renderer, const std::filesystem::path& path)
+    std::unique_ptr<Model> Model::load(RHIRenderer& renderer, const std::filesystem::path& path, bool vertexPulling)
     {
         // Enable common texture extensions so assets using them do not fail parsing.
         fastgltf::Parser parser(
@@ -289,10 +295,12 @@ static std::vector<std::uint8_t> extractImageBytes(
                 continue;
             }
 
-            int w = 0, h = 0, comp = 0;
+            int w = 0;
+            int h = 0;
+            int comp = 0;
             stbi_uc* pixels = stbi_load_from_memory(
-                reinterpret_cast<const stbi_uc*>(encoded.data()),
-                static_cast<int>(encoded.size()),
+                encoded.data(),
+                util::u32(encoded.size()),
                 &w, &h, &comp, 4);
 
             if (!pixels)
@@ -316,23 +324,26 @@ static std::vector<std::uint8_t> extractImageBytes(
             MaterialData md{};
             const auto& pbr = mat.pbrData;
 
-            md.baseColorFactor = glm::make_vec4(pbr.baseColorFactor.data());
+            md.m_baseColorFactor = glm::make_vec4(pbr.baseColorFactor.data());
 
             if (pbr.baseColorTexture.has_value())
             {
                 const size_t texIdx = pbr.baseColorTexture.value().textureIndex;
-                if (texIdx < model->m_textures.size())
-                    md.baseColorTexture = model->m_textures[texIdx];
+                if (texIdx < model->m_textures.size()) {
+                    md.m_baseColorTexture = model->m_textures[texIdx];
+}
             }
 
             model->m_materials.push_back(md);
         }
-        if (model->m_materials.empty())
+        if (model->m_materials.empty()) {
             model->m_materials.push_back({});
+}
 
         // --- Nodes & Meshes ---
         model->m_nodes.resize(gltf.nodes.size());
-        for (auto& n : model->m_nodes) n.parentIndex = -1;
+        for (auto& n : model->m_nodes) { n.m_parentIndex = -1;
+}
 
         // Pass 1: fill node basics + children lists
         for (size_t i = 0; i < gltf.nodes.size(); ++i)
@@ -340,22 +351,24 @@ static std::vector<std::uint8_t> extractImageBytes(
             const auto& gNode = gltf.nodes[i];
             auto& myNode = model->m_nodes[i];
 
-            myNode.name = gNode.name;
-            myNode.localTransform = toTransform(gNode);
+            myNode.m_name = gNode.name;
+            myNode.m_localTransform = toTransform(gNode);
 
-            myNode.children.clear();
-            myNode.children.reserve(gNode.children.size());
-            for (const auto& childIdx : gNode.children)
-                myNode.children.push_back(static_cast<int>(childIdx));
+            myNode.m_children.clear();
+            myNode.m_children.reserve(gNode.children.size());
+            for (const auto& childIdx : gNode.children) {
+                myNode.m_children.push_back(util::u32(childIdx));
+}
         }
 
         // Pass 2: set parents (ensures children nodes exist)
         for (size_t i = 0; i < model->m_nodes.size(); ++i)
         {
-            for (int child : model->m_nodes[i].children)
+            for (int child : model->m_nodes[i].m_children)
             {
-                if (child >= 0 && static_cast<size_t>(child) < model->m_nodes.size())
-                    model->m_nodes[child].parentIndex = static_cast<int>(i);
+                if (child >= 0 && util::sz(child) < model->m_nodes.size()) {
+                    model->m_nodes[child].m_parentIndex = util::sz(i);
+}
             }
         }
 
@@ -365,8 +378,9 @@ static std::vector<std::uint8_t> extractImageBytes(
             const auto& gNode = gltf.nodes[i];
             auto& myNode = model->m_nodes[i];
 
-            if (!gNode.meshIndex.has_value())
+            if (!gNode.meshIndex.has_value()) {
                 continue;
+}
 
             const auto& gMesh = gltf.meshes[gNode.meshIndex.value()];
             for (const auto& gPrim : gMesh.primitives)
@@ -374,9 +388,10 @@ static std::vector<std::uint8_t> extractImageBytes(
                 std::vector<Vertex> vertices;
                 std::vector<uint32_t> indices;
 
-                auto itPos = gPrim.findAttribute("POSITION");
-                if (itPos == gPrim.attributes.end())
+                const auto *itPos = gPrim.findAttribute("POSITION");
+                if (itPos == gPrim.attributes.end()) {
                     continue;
+}
 
                 const auto& posAccessor = gltf.accessors[itPos->accessorIndex];
                 vertices.resize(posAccessor.count);
@@ -385,13 +400,13 @@ static std::vector<std::uint8_t> extractImageBytes(
                                                              [&](glm::vec3 pos, size_t idx)
                                                              {
                                                                  vertices[idx].m_position = pos;
-                                                                 vertices[idx].m_color = glm::vec3(1.0f);
-                                                                 vertices[idx].m_normal = glm::vec3(0.0f, 1.0f, 0.0f);
-                                                                 vertices[idx].m_texCoord = glm::vec2(0.0f);
-                                                                 vertices[idx].m_tangent = glm::vec4(0.0f); // Init tangent
+                                                                 vertices[idx].m_color = glm::vec3(1.0F);
+                                                                 vertices[idx].m_normal = glm::vec3(0.0F, 1.0F, 0.0F);
+                                                                 vertices[idx].m_texCoord = glm::vec2(0.0F);
+                                                                 vertices[idx].m_tangent = glm::vec4(0.0F); // Init tangent
                                                              });
 
-                if (auto it = gPrim.findAttribute("NORMAL"); it != gPrim.attributes.end()) {
+                if (const auto *it = gPrim.findAttribute("NORMAL"); it != gPrim.attributes.end()) {
                     fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[it->accessorIndex],
                                                                  [&](glm::vec3 norm, size_t idx)
                                                                  {
@@ -399,7 +414,7 @@ static std::vector<std::uint8_t> extractImageBytes(
                                                                  });
                 }
 
-                if (auto it = gPrim.findAttribute("TEXCOORD_0"); it != gPrim.attributes.end()) {
+                if (const auto *it = gPrim.findAttribute("TEXCOORD_0"); it != gPrim.attributes.end()) {
                     fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[it->accessorIndex],
                                                                  [&](glm::vec2 uv, size_t idx)
                                                                  {
@@ -408,7 +423,7 @@ static std::vector<std::uint8_t> extractImageBytes(
                 }
 
                 // Load Tangents
-                if (auto it = gPrim.findAttribute("TANGENT"); it != gPrim.attributes.end()) {
+                if (const auto *it = gPrim.findAttribute("TANGENT"); it != gPrim.attributes.end()) {
                     fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[it->accessorIndex],
                                                                  [&](glm::vec4 tan, size_t idx)
                                                                  {
@@ -436,25 +451,28 @@ static std::vector<std::uint8_t> extractImageBytes(
                 else
                 {
                     indices.resize(vertices.size());
-                    for (size_t k = 0; k < vertices.size(); ++k)
-                        indices[k] = static_cast<std::uint32_t>(k);
+                    for (size_t k = 0; k < vertices.size(); ++k) {
+                        indices[k] = util::u32(k);
+}
                 }
 
                 MeshPrimitive prim{};
-                prim.mesh = renderer.createMesh(vertices, indices);
-                prim.materialIndex = gPrim.materialIndex.has_value()
-                                         ? static_cast<std::uint32_t>(gPrim.materialIndex.value())
+                prim.m_mesh = renderer.createMesh(vertices, indices, vertexPulling);
+                prim.m_materialIndex = gPrim.materialIndex.has_value()
+                                         ? util::u32(gPrim.materialIndex.value())
                                          : 0;
+                prim.m_vertexBufferAddress = renderer.getMeshVertexBufferAddress(prim.m_mesh);
 
-                myNode.meshPrimitives.push_back(prim);
+                myNode.m_meshPrimitives.push_back(prim);
             }
         }
 
         model->m_rootNodes.clear();
         for (size_t i = 0; i < model->m_nodes.size(); ++i)
         {
-            if (model->m_nodes[i].parentIndex == -1)
+            if (model->m_nodes[i].m_parentIndex == -1) {
                 model->m_rootNodes.push_back(static_cast<int>(i));
+}
         }
 
         model->updateTransforms();
@@ -468,24 +486,28 @@ static std::vector<std::uint8_t> extractImageBytes(
         {
             auto& node = m_nodes[nodeIdx];
 
-            const glm::mat4 localMat = node.localTransform.mat4();
+            const glm::mat4 localMat = node.m_localTransform.mat4();
             const glm::mat4 worldMat = parentMat * localMat;
 
-            glm::vec3 s{}, t{}, skew{};
+            glm::vec3 s{};
+            glm::vec3 t{};
+            glm::vec3 skew{};
             glm::vec4 p{};
             glm::quat r{};
 
             glm::decompose(worldMat, s, r, t, skew, p);
 
-            node.worldTransform.m_translation = t;
-            node.worldTransform.m_rotation = r;
-            node.worldTransform.m_scale = s;
+            node.m_worldTransform.m_translation = t;
+            node.m_worldTransform.m_rotation = r;
+            node.m_worldTransform.m_scale = s;
 
-            for (int child : node.children)
+            for (int child : node.m_children) {
                 updateNode(child, worldMat);
+}
         };
 
-        for (int root : m_rootNodes)
-            updateNode(root, glm::mat4(1.0f));
+        for (int root : m_rootNodes) {
+            updateNode(root, glm::mat4(1.0F));
+}
     }
 } // namespace pnkr::renderer::scene

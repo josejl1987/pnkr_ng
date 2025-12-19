@@ -8,21 +8,21 @@
 namespace pnkr::renderer {
 namespace {
 struct SwapchainSupport {
-  vk::SurfaceCapabilitiesKHR caps{};
-  std::vector<vk::SurfaceFormatKHR> formats;
-  std::vector<vk::PresentModeKHR> presentModes;
+  vk::SurfaceCapabilitiesKHR m_caps;
+  std::vector<vk::SurfaceFormatKHR> m_formats;
+  std::vector<vk::PresentModeKHR> m_presentModes;
 };
 
-static SwapchainSupport QuerySwapchainSupport(vk::PhysicalDevice pd,
+SwapchainSupport querySwapchainSupport(vk::PhysicalDevice pd,
                                               vk::SurfaceKHR surface) {
   SwapchainSupport s{};
-  s.caps = pd.getSurfaceCapabilitiesKHR(surface);
-  s.formats = pd.getSurfaceFormatsKHR(surface);
-  s.presentModes = pd.getSurfacePresentModesKHR(surface);
+  s.m_caps = pd.getSurfaceCapabilitiesKHR(surface);
+  s.m_formats = pd.getSurfaceFormatsKHR(surface);
+  s.m_presentModes = pd.getSurfacePresentModesKHR(surface);
   return s;
 }
 
-static bool Contains(const std::vector<vk::PresentModeKHR> &modes,
+bool contains(const std::vector<vk::PresentModeKHR> &modes,
                      vk::PresentModeKHR m) {
   return std::ranges::find(modes, m) != modes.end();
 }
@@ -33,8 +33,8 @@ VulkanSwapchain::VulkanSwapchain(vk::PhysicalDevice physicalDevice,
                                  uint32_t graphicsQueueFamily,
                                  uint32_t presentQueueFamily,
                                  platform::Window &window,
-                                 VmaAllocator allocator) {
-  m_allocator = allocator;
+                                 VmaAllocator allocator) : m_allocator(allocator) {
+  
   recreate(physicalDevice, device, surface, graphicsQueueFamily,
            presentQueueFamily, window);
 }
@@ -51,12 +51,15 @@ void VulkanSwapchain::recreate(vk::PhysicalDevice physicalDevice,
                                platform::Window &window)
 
 {
-  if (!physicalDevice)
+  if (!physicalDevice) {
     throw std::runtime_error("[VulkanSwapchain] physicalDevice is null");
-  if (!device)
+}
+  if (!device) {
     throw std::runtime_error("[VulkanSwapchain] device is null");
-  if (!surface)
+}
+  if (!surface) {
     throw std::runtime_error("[VulkanSwapchain] surface is null");
+}
 
   // If recreating: destroy old swapchain + views first.
   destroy(device ? device : m_device);
@@ -73,12 +76,14 @@ void VulkanSwapchain::recreate(vk::PhysicalDevice physicalDevice,
 }
 
 void VulkanSwapchain::destroy(vk::Device device) {
-  if (!device)
+  if (!device) {
     return;
+}
 
   for (auto &iv : m_imageViews) {
-    if (iv)
+    if (iv) {
       device.destroyImageView(iv);
+}
   }
   m_imageViews.clear();
 
@@ -98,26 +103,28 @@ void VulkanSwapchain::createSwapchain(vk::PhysicalDevice physicalDevice,
                                       uint32_t graphicsQueueFamily,
                                       uint32_t presentQueueFamily,
                                       platform::Window &window) {
-  const auto support = QuerySwapchainSupport(physicalDevice, surface);
+  const auto support = querySwapchainSupport(physicalDevice, surface);
 
-  if (support.formats.empty())
+  if (support.m_formats.empty()) {
     throw std::runtime_error(
         "[VulkanSwapchain] Surface has no supported formats");
-  if (support.presentModes.empty())
+}
+  if (support.m_presentModes.empty()) {
     throw std::runtime_error(
         "[VulkanSwapchain] Surface has no supported present modes");
+}
 
   const vk::SurfaceFormatKHR surfaceFormat =
-      chooseSurfaceFormat(support.formats);
+      chooseSurfaceFormat(support.m_formats);
   const vk::PresentModeKHR presentMode =
-      choosePresentMode(support.presentModes);
-  const vk::Extent2D extent = chooseExtent(support.caps, window);
+      choosePresentMode(support.m_presentModes);
+  const vk::Extent2D extent = chooseExtent(support.m_caps, window);
 
   // Image count: prefer min+1, clamp to max.
-  uint32_t imageCount = support.caps.minImageCount + 1;
-  if (support.caps.maxImageCount > 0 &&
-      imageCount > support.caps.maxImageCount) {
-    imageCount = support.caps.maxImageCount;
+  uint32_t imageCount = support.m_caps.minImageCount + 1;
+  if (support.m_caps.maxImageCount > 0 &&
+      imageCount > support.m_caps.maxImageCount) {
+    imageCount = support.m_caps.maxImageCount;
   }
 
   vk::SwapchainCreateInfoKHR sci{};
@@ -141,7 +148,7 @@ void VulkanSwapchain::createSwapchain(vk::PhysicalDevice physicalDevice,
     sci.imageSharingMode = vk::SharingMode::eExclusive;
   }
 
-  sci.preTransform = support.caps.currentTransform;
+  sci.preTransform = support.m_caps.currentTransform;
 
   // Composite alpha: pick first supported option in a sensible order.
   const vk::CompositeAlphaFlagBitsKHR preferredAlpha[] = {
@@ -151,7 +158,7 @@ void VulkanSwapchain::createSwapchain(vk::PhysicalDevice physicalDevice,
       vk::CompositeAlphaFlagBitsKHR::ePostMultiplied};
   sci.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
   for (auto a : preferredAlpha) {
-    if (support.caps.supportedCompositeAlpha & a) {
+    if (support.m_caps.supportedCompositeAlpha & a) {
       sci.compositeAlpha = a;
       break;
     }
@@ -243,10 +250,12 @@ vk::PresentModeKHR VulkanSwapchain::choosePresentMode(
 
   if (!wantVsync) {
     // Prefer MAILBOX (triple-buffer style), else IMMEDIATE (tears), else FIFO.
-    if (Contains(modes, vk::PresentModeKHR::eMailbox))
+    if (contains(modes, vk::PresentModeKHR::eMailbox)) {
       return vk::PresentModeKHR::eMailbox;
-    if (Contains(modes, vk::PresentModeKHR::eImmediate))
+}
+    if (contains(modes, vk::PresentModeKHR::eImmediate)) {
       return vk::PresentModeKHR::eImmediate;
+}
   }
 
   // FIFO is guaranteed by Vulkan spec for WSI surfaces; present if vsync on.
@@ -262,8 +271,8 @@ VulkanSwapchain::chooseExtent(const vk::SurfaceCapabilitiesKHR &caps,
   }
 
   // Otherwise, clamp to allowed min/max extents.
-  const uint32_t w = static_cast<uint32_t>(window.width());
-  const uint32_t h = static_cast<uint32_t>(window.height());
+  const auto w = static_cast<uint32_t>(window.width());
+  const auto h = static_cast<uint32_t>(window.height());
 
   vk::Extent2D actual{};
   actual.width =
@@ -277,9 +286,10 @@ vk::Result VulkanSwapchain::acquireNextImage(uint64_t timeoutNs,
                                              vk::Semaphore imageAvailable,
                                              vk::Fence fence,
                                              uint32_t &outImageIndex) {
-  if (!m_device || !m_swapchain)
+  if (!m_device || !m_swapchain) {
     throw std::runtime_error(
         "[VulkanSwapchain] acquireNextImage: swapchain/device not initialized");
+}
 
   // If you pass a fence here, it will be signaled when the presentation engine
   // is done with the image acquisition step. Many engines pass VK_NULL_HANDLE
@@ -298,9 +308,10 @@ vk::Result VulkanSwapchain::acquireNextImage(uint64_t timeoutNs,
 
 vk::Result VulkanSwapchain::present(vk::Queue presentQueue, uint32_t imageIndex,
                                     vk::Semaphore renderFinished) {
-  if (!m_swapchain)
+  if (!m_swapchain) {
     throw std::runtime_error(
         "[VulkanSwapchain] present: swapchain not initialized");
+}
 
   vk::PresentInfoKHR presentInfo{};
   presentInfo.waitSemaphoreCount = 1;
@@ -316,8 +327,9 @@ vk::Result VulkanSwapchain::present(vk::Queue presentQueue, uint32_t imageIndex,
 
   try {
     const vk::Result r = presentQueue.presentKHR(presentInfo);
-    if (r == vk::Result::eSuccess)
+    if (r == vk::Result::eSuccess) {
       return presentResult;
+}
     return r;
   } catch (const vk::OutOfDateKHRError &) {
     return vk::Result::eErrorOutOfDateKHR;
@@ -332,9 +344,10 @@ void VulkanSwapchain::createDepthResources() {
     return;
   }
 
-  if (!m_device || !m_allocator)
+  if (!m_device || (m_allocator == nullptr)) {
     throw std::runtime_error(
         "[VulkanSwapchain] createDepthResources: device/allocator not set");
+}
 
   // Destroy old if any
   destroyDepthResources();
@@ -361,8 +374,9 @@ void VulkanSwapchain::createDepthResources() {
   VkResult res =
       vmaCreateImage(m_allocator, &rawIci, &aci, &raw, &m_depthAlloc, nullptr);
 
-  if (res != VK_SUCCESS || raw == VK_NULL_HANDLE)
+  if (res != VK_SUCCESS || raw == VK_NULL_HANDLE) {
     throw std::runtime_error("[VulkanSwapchain] vmaCreateImage(depth) failed");
+}
 
   m_depthImage = vk::Image(raw);
 
@@ -383,17 +397,17 @@ void VulkanSwapchain::createDepthResources() {
 }
 
 void VulkanSwapchain::destroyDepthResources() {
-  if (!m_device)
+  if (!m_device) {
     return;
+}
 
   if (m_depthView) {
     m_device.destroyImageView(m_depthView);
     m_depthView = nullptr;
   }
 
-  if (m_depthImage && m_allocator && m_depthAlloc) {
-    vmaDestroyImage(m_allocator, static_cast<VkImage>(m_depthImage),
-                    m_depthAlloc);
+  if (m_depthImage && (m_allocator != nullptr) && (m_depthAlloc != nullptr)) {
+    vmaDestroyImage(m_allocator, m_depthImage, m_depthAlloc);
   }
 
   m_depthImage = nullptr;

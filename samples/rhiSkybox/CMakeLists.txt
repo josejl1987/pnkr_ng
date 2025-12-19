@@ -16,21 +16,7 @@ set_target_properties(pnkr_skybox PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
-# --- Shaders ---
-# Uses ShaderTools.cmake to compile and generate C++ structs
-add_shader_target("shaders/skybox.vert")
-add_dependencies(pnkr_skybox ${LAST_GENERATED_TARGET})
 
-add_shader_target("shaders/skybox.frag")
-add_dependencies(pnkr_skybox ${LAST_GENERATED_TARGET})
-
-# Include generated headers
-target_include_directories(pnkr_skybox PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-
-# Rebuild if shader headers change
-set_source_files_properties(main.cpp PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/skybox.vert.h"
-)
 
 # --- Copy Assets ---
 add_custom_command(TARGET pnkr_skybox POST_BUILD

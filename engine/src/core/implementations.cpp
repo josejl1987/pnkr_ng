@@ -6,3 +6,6 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image.h>
 #include <stb_image_write.h>
+
+#define VMA_IMPLEMENTATION
+#include  <vma/vk_mem_alloc.h>

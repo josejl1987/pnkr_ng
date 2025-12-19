@@ -133,7 +133,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         std::unique_ptr<VulkanRHIPhysicalDevice> m_physicalDevice;
         vk::Device m_device;
-        VmaAllocator m_allocator;
+        VmaAllocator m_allocator{};
 
         // Queue families and queues
         uint32_t m_graphicsQueueFamily = VK_QUEUE_FAMILY_IGNORED;

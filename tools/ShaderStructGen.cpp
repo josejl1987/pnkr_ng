@@ -1,4 +1,5 @@
 // tools/ShaderStructGen.cpp
+#include <algorithm>
 #include <spirv_cross.hpp>
 #include <fstream>
 #include <vector>
@@ -11,8 +12,14 @@
 // -----------------------------------------------------------------------------
 // Helper: Get C++ type name
 // -----------------------------------------------------------------------------
-std::string get_cpp_type_name(spirv_cross::Compiler& comp, const spirv_cross::SPIRType& type)
+std::string getCppTypeName(spirv_cross::Compiler& comp, const spirv_cross::SPIRType& type)
 {
+
+    if (type.storage == spv::StorageClassPhysicalStorageBuffer)
+    {
+        return "uint64_t";
+    }
+
     if (type.basetype == spirv_cross::SPIRType::Struct)
     {
         std::string name = comp.get_name(type.self);
@@ -28,29 +35,69 @@ std::string get_cpp_type_name(spirv_cross::Compiler& comp, const spirv_cross::SP
         return name;
     }
 
+    if (type.width == 64)
+    {
+        if (type.basetype == spirv_cross::SPIRType::UInt) return "uint64_t";
+        if (type.basetype == spirv_cross::SPIRType::Int)  return "int64_t";
+        if (type.basetype == spirv_cross::SPIRType::Float) return "double";
+    }
+
     if (type.basetype == spirv_cross::SPIRType::Float)
     {
-        if (type.columns == 4 && type.vecsize == 4) return "glm::mat4";
-        if (type.columns == 3 && type.vecsize == 3) return "glm::mat3";
-        if (type.vecsize == 4) return "glm::vec4";
-        if (type.vecsize == 3) return "glm::vec3";
-        if (type.vecsize == 2) return "glm::vec2";
+        if (type.columns == 4 && type.vecsize == 4)
+        {
+            return "glm::mat4";
+        }
+        if (type.columns == 3 && type.vecsize == 3)
+        {
+            return "glm::mat3";
+        }
+        if (type.vecsize == 4)
+        {
+            return "glm::vec4";
+        }
+        if (type.vecsize == 3)
+        {
+            return "glm::vec3";
+        }
+        if (type.vecsize == 2)
+        {
+            return "glm::vec2";
+        }
         return "float";
     }
 
     if (type.basetype == spirv_cross::SPIRType::Int)
     {
-        if (type.vecsize == 4) return "glm::ivec4";
-        if (type.vecsize == 3) return "glm::ivec3";
-        if (type.vecsize == 2) return "glm::ivec2";
+        if (type.vecsize == 4)
+        {
+            return "glm::ivec4";
+        }
+        if (type.vecsize == 3)
+        {
+            return "glm::ivec3";
+        }
+        if (type.vecsize == 2)
+        {
+            return "glm::ivec2";
+        }
         return "int32_t";
     }
 
     if (type.basetype == spirv_cross::SPIRType::UInt)
     {
-        if (type.vecsize == 4) return "glm::uvec4";
-        if (type.vecsize == 3) return "glm::uvec3";
-        if (type.vecsize == 2) return "glm::uvec2";
+        if (type.vecsize == 4)
+        {
+            return "glm::uvec4";
+        }
+        if (type.vecsize == 3)
+        {
+            return "glm::uvec3";
+        }
+        if (type.vecsize == 2)
+        {
+            return "glm::uvec2";
+        }
         return "uint32_t";
     }
 
@@ -65,39 +112,47 @@ std::string get_cpp_type_name(spirv_cross::Compiler& comp, const spirv_cross::SP
 // -----------------------------------------------------------------------------
 // Core Generator Function
 // -----------------------------------------------------------------------------
-void generate_struct(spirv_cross::Compiler& comp, uint32_t type_id, std::ofstream& out,
-                     std::set<uint32_t>& emittedTypes)
+void generateStruct(spirv_cross::Compiler& comp, uint32_t typeId, std::ofstream& out,
+                    std::set<uint32_t>& emittedTypes)
 {
-    if (emittedTypes.count(type_id)) return;
-    emittedTypes.insert(type_id);
+    if (emittedTypes.contains(typeId) != 0u)
+    {
+        return;
+    }
+    emittedTypes.insert(typeId);
 
-    auto& type = comp.get_type(type_id);
+    const auto& type = comp.get_type(typeId);
+
+    if (type.storage == spv::StorageClassPhysicalStorageBuffer)
+    {
+        return;
+    }
 
     // Recursively generate nested structs
-    for (auto& member_type_id : type.member_types)
+    for (const auto& memberTypeId : type.member_types)
     {
-        auto& member_type = comp.get_type(member_type_id);
-        if (member_type.basetype == spirv_cross::SPIRType::Struct)
+        const auto& memberType = comp.get_type(memberTypeId);
+        if (memberType.basetype == spirv_cross::SPIRType::Struct)
         {
-            generate_struct(comp, member_type_id, out, emittedTypes);
+            generateStruct(comp, memberTypeId, out, emittedTypes);
         }
     }
 
-    std::string structName = get_cpp_type_name(comp, type);
+    std::string structName = getCppTypeName(comp, type);
     size_t totalSize = comp.get_declared_struct_size(type);
 
-    out << "// SPIR-V ID: " << type_id << " | Size: " << totalSize << " bytes\n";
+    out << "// SPIR-V ID: " << typeId << " | Size: " << totalSize << " bytes\n";
     out << "struct " << structName << " {\n";
 
     struct Member
     {
-        uint32_t index;
-        uint32_t offset;
-        uint32_t size;
-        uint32_t matrixStride;
-        uint32_t arrayStride;
-        std::string name;
-        spirv_cross::SPIRType type;
+        uint32_t m_index;
+        uint32_t m_offset;
+        uint32_t m_size;
+        uint32_t m_matrixStride;
+        uint32_t m_arrayStride;
+        std::string m_name;
+        spirv_cross::SPIRType m_type;
     };
     std::vector<Member> members;
 
@@ -117,24 +172,27 @@ void generate_struct(spirv_cross::Compiler& comp, uint32_t type_id, std::ofstrea
             matStride = comp.type_struct_member_matrix_stride(type, i);
         }
 
-        Member m = {
-            i,
-            comp.type_struct_member_offset(type, i),
-            (uint32_t)comp.get_declared_struct_member_size(type, i),
-            matStride,
-            arrStride,
-            comp.get_member_name(type.self, i),
-            memberType
+        Member member = {
+            .m_index = i,
+            .m_offset = comp.type_struct_member_offset(type, i),
+            .m_size = (uint32_t)comp.get_declared_struct_member_size(type, i),
+            .m_matrixStride = matStride,
+            .m_arrayStride = arrStride,
+            .m_name = comp.get_member_name(type.self, i),
+            .m_type = memberType
         };
 
-        if (m.name.empty()) m.name = "member_" + std::to_string(i);
-        members.push_back(m);
+        if (member.m_name.empty())
+        {
+            member.m_name = "member_" + std::to_string(i);
+        }
+        members.push_back(member);
     }
 
     // Sort by memory offset
-    std::sort(members.begin(), members.end(), [](const Member& a, const Member& b)
+    std::ranges::sort(members, [](const Member& a, const Member& b)
     {
-        return a.offset < b.offset;
+        return a.m_offset < b.m_offset;
     });
 
     uint32_t currentOffset = 0;
@@ -142,29 +200,29 @@ void generate_struct(spirv_cross::Compiler& comp, uint32_t type_id, std::ofstrea
     for (const auto& m : members)
     {
         // Padding
-        if (m.offset > currentOffset)
+        if (m.m_offset > currentOffset)
         {
-            out << "    uint8_t _pad_" << currentOffset << "[" << (m.offset - currentOffset) << "];\n";
+            out << "    uint8_t _pad_" << currentOffset << "[" << (m.m_offset - currentOffset) << "];\n";
         }
 
-        std::string cppType = get_cpp_type_name(comp, m.type);
+        std::string cppType = getCppTypeName(comp, m.m_type);
 
         // Output Field
-        if (!m.type.array.empty())
+        if (!m.m_type.array.empty())
         {
-            uint32_t arraySize = m.type.array[0];
-            if (m.arrayStride > 0 && arraySize > 1)
+            uint32_t arraySize = m.m_type.array[0];
+            if (m.m_arrayStride > 0 && arraySize > 1)
             {
-                out << "    // Array Stride: " << m.arrayStride << "\n";
+                out << "    // Array Stride: " << m.m_arrayStride << "\n";
             }
-            out << "    " << cppType << " " << m.name << "[" << arraySize << "];\n";
+            out << "    " << cppType << " " << m.m_name << "[" << arraySize << "];\n";
         }
         else
         {
-            out << "    " << cppType << " " << m.name << ";\n";
+            out << "    " << cppType << " " << m.m_name << ";\n";
         }
 
-        currentOffset = m.offset + m.size;
+        currentOffset = m.m_offset + m.m_size;
     }
 
     // Tail Padding
@@ -197,7 +255,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::cout << "[ShaderStructGen] Processing: " << argv[1] << std::endl;
+    std::cout << "[ShaderStructGen] Processing: " << argv[1] << '\n';
 
     // 1. Robust File Loading
     std::ifstream file(argv[1], std::ios::binary | std::ios::ate);
@@ -220,15 +278,15 @@ int main(int argc, char* argv[])
     }
 
     file.seekg(0, std::ios::beg);
-    std::vector<uint32_t> spirv_binary(fileSize / 4);
-    if (!file.read((char*)spirv_binary.data(), fileSize))
+    std::vector<uint32_t> spirvBinary(fileSize / 4);
+    if (!file.read((char*)spirvBinary.data(), fileSize))
     {
         std::cerr << "Error: Failed to read file content.\n";
         return 1;
     }
 
     // 2. Initialize Compiler
-    spirv_cross::Compiler comp(spirv_binary);
+    spirv_cross::Compiler comp(spirvBinary);
     spirv_cross::ShaderResources resources;
     try
     {
@@ -261,15 +319,15 @@ int main(int argc, char* argv[])
     {
         for (const auto& res : resources.push_constant_buffers)
         {
-            generate_struct(comp, res.base_type_id, out, emittedTypes);
+            generateStruct(comp, res.base_type_id, out, emittedTypes);
         }
         for (const auto& res : resources.uniform_buffers)
         {
-            generate_struct(comp, res.base_type_id, out, emittedTypes);
+            generateStruct(comp, res.base_type_id, out, emittedTypes);
         }
         for (const auto& res : resources.storage_buffers)
         {
-            generate_struct(comp, res.base_type_id, out, emittedTypes);
+            generateStruct(comp, res.base_type_id, out, emittedTypes);
         }
     }
     catch (const std::exception& e)
@@ -281,7 +339,7 @@ int main(int argc, char* argv[])
     }
 
     out << "} // namespace ShaderGen\n";
-    std::cout << "[ShaderStructGen] Success -> " << argv[2] << std::endl;
+    std::cout << "[ShaderStructGen] Success -> " << argv[2] << '\n';
 
     return 0;
 }

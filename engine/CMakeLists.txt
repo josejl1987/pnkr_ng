@@ -166,7 +166,7 @@ target_compile_definitions(pnkr_engine
 
 # Unity build to reduce per-TU header parsing overhead
 set_target_properties(pnkr_engine PROPERTIES
-  UNITY_BUILD ON
+  UNITY_BUILD OFF
   UNITY_BUILD_BATCH_SIZE 8
 )
 set_source_files_properties(src/core/implementations.cpp PROPERTIES UNITY_BUILD OFF)
@@ -292,3 +292,20 @@ install(TARGETS pnkr_engine
   RUNTIME DESTINATION bin
 )
 install(DIRECTORY include/ DESTINATION include)
+
+
+# --- Shaders ---
+# Uses ShaderTools.cmake to compile and generate C++ structs
+add_shader_target("shaders/skybox.vert")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/skybox.frag")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+# Include generated headers
+target_include_directories(pnkr_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
+# Rebuild if shader headers change
+set_source_files_properties( src/renderer/scene/Skybox.cpp PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/skybox.vert.h"
+)

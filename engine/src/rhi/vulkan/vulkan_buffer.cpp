@@ -1,7 +1,10 @@
 #include "pnkr/rhi/vulkan/vulkan_buffer.hpp"
 
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
+
+using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
@@ -23,10 +26,10 @@ namespace pnkr::renderer::rhi::vulkan
         allocInfo.usage = VulkanUtils::toVmaMemoryUsage(desc.memoryUsage);
 
         // VMA still uses C types, need to convert
-        VkBufferCreateInfo cBufferInfo = static_cast<VkBufferCreateInfo>(bufferInfo);
-        VkBuffer cBuffer;
+        auto cBufferInfo = static_cast<VkBufferCreateInfo>(bufferInfo);
+        VkBuffer cBuffer = nullptr;
 
-        vk::Result result = static_cast<vk::Result>(
+        auto result = static_cast<vk::Result>(
             vmaCreateBuffer(m_allocator, &cBufferInfo, &allocInfo,
                           &cBuffer, &m_allocation, nullptr));
 
@@ -38,10 +41,10 @@ namespace pnkr::renderer::rhi::vulkan
         m_buffer = cBuffer;
 
         // Debug naming with vulkan-hpp
-        if (desc.debugName) {
+        if (desc.debugName != nullptr) {
             vk::DebugUtilsObjectNameInfoEXT nameInfo{};
             nameInfo.objectType = vk::ObjectType::eBuffer;
-            nameInfo.objectHandle = reinterpret_cast<uint64_t>(static_cast<VkBuffer>(m_buffer));
+            nameInfo.objectHandle = u64((VkBuffer)m_buffer);
             nameInfo.pObjectName = desc.debugName;
 
                 m_device.setDebugUtilsObjectNameEXT(nameInfo);
@@ -51,19 +54,19 @@ namespace pnkr::renderer::rhi::vulkan
 
     VulkanRHIBuffer::~VulkanRHIBuffer()
     {
-        if (m_mappedData) {
+        if (m_mappedData != nullptr) {
             unmap();
         }
-        vmaDestroyBuffer(m_allocator, static_cast<VkBuffer>(m_buffer), m_allocation);
+        vmaDestroyBuffer(m_allocator, m_buffer, m_allocation);
     }
 
     void* VulkanRHIBuffer::map()
     {
-        if (m_mappedData) {
+        if (m_mappedData != nullptr) {
             return m_mappedData;
         }
 
-        vk::Result result = static_cast<vk::Result>(
+        auto result = static_cast<vk::Result>(
             vmaMapMemory(m_allocator, m_allocation, &m_mappedData));
 
         if (result != vk::Result::eSuccess) {
@@ -76,7 +79,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHIBuffer::unmap()
     {
-        if (m_mappedData) {
+        if (m_mappedData != nullptr) {
             vmaUnmapMemory(m_allocator, m_allocation);
             m_mappedData = nullptr;
         }
@@ -85,7 +88,7 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHIBuffer::uploadData(const void* data, uint64_t size, uint64_t offset)
     {
         void* mapped = map();
-        if (!mapped) {
+        if (mapped == nullptr) {
             core::Logger::error("Failed to map buffer for upload");
             return;
         }
@@ -94,4 +97,10 @@ namespace pnkr::renderer::rhi::vulkan
         unmap();
     }
 
+    uint64_t VulkanRHIBuffer::getDeviceAddress() const
+    {
+        vk::BufferDeviceAddressInfo addressInfo{};
+        addressInfo.buffer = m_buffer;
+        return m_device.getBufferAddress(addressInfo);
+    }
 } // namespace pnkr::renderer::rhi::vulkan

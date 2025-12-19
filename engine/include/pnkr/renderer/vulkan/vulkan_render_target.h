@@ -39,7 +39,7 @@ namespace pnkr::renderer {
                             vk::ClearValue colorClear = vk::ClearValue{vk::ClearColorValue{std::array<float, 4>{0.1f, 0.1f, 0.1f, 1.0f}}},
                             vk::ClearValue depthClear = vk::ClearValue{vk::ClearDepthStencilValue{1.0f, 0}});
 
-        void endRendering(vk::CommandBuffer cmd);
+        static void endRendering(vk::CommandBuffer cmd);
 
         // Transition layouts for drawing
         void transitionToAttachment(vk::CommandBuffer cmd);

@@ -6,7 +6,7 @@
 #include <vector>
 
 namespace pnkr::renderer {
-static constexpr const char *kDeviceExtensions[] = {
+static constexpr const char *K_DEVICE_EXTENSIONS[] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 void VulkanDevice::create_upload_pool() {
@@ -18,12 +18,12 @@ void VulkanDevice::create_upload_pool() {
   m_uploadPool = m_device.createCommandPool(poolInfo);
 }
 
-VulkanDevice::VulkanDevice(VulkanContext &vk_context) : m_context(vk_context) {
-  pickPhysicalDevice(vk_context.instance(), vk_context.surface());
-  createLogicalDevice(vk_context.surface());
+VulkanDevice::VulkanDevice(VulkanContext &vkContext) : m_context(vkContext) {
+  pickPhysicalDevice(vkContext.instance(), vkContext.surface());
+  createLogicalDevice(vkContext.surface());
 
   core::Logger::info("VulkanDevice created.");
-  vk_context.initDispatcherPostDevice(m_device);
+  vkContext.initDispatcherPostDevice(m_device);
 
   createAllocator();
 
@@ -33,8 +33,9 @@ VulkanDevice::VulkanDevice(VulkanContext &vk_context) : m_context(vk_context) {
 }
 
 void VulkanDevice::createAllocator() {
-  if (m_allocator)
+  if (m_allocator != nullptr) {
     return; // optional guard
+}
 
   const auto &dld = m_context.dispatcher();
 
@@ -66,11 +67,11 @@ void VulkanDevice::createAllocator() {
   funcs.vkCmdCopyBuffer = dld.vkCmdCopyBuffer;
 
   // Defensive: fail fast (avoids VMA asserts)
-  if (!funcs.vkGetPhysicalDeviceProperties ||
-      !funcs.vkGetPhysicalDeviceMemoryProperties || !funcs.vkAllocateMemory ||
-      !funcs.vkFreeMemory || !funcs.vkMapMemory || !funcs.vkUnmapMemory ||
-      !funcs.vkBindBufferMemory || !funcs.vkGetBufferMemoryRequirements ||
-      !funcs.vkCreateBuffer || !funcs.vkDestroyBuffer) {
+  if ((funcs.vkGetPhysicalDeviceProperties == nullptr) ||
+      (funcs.vkGetPhysicalDeviceMemoryProperties == nullptr) || (funcs.vkAllocateMemory == nullptr) ||
+      (funcs.vkFreeMemory == nullptr) || (funcs.vkMapMemory == nullptr) || (funcs.vkUnmapMemory == nullptr) ||
+      (funcs.vkBindBufferMemory == nullptr) || (funcs.vkGetBufferMemoryRequirements == nullptr) ||
+      (funcs.vkCreateBuffer == nullptr) || (funcs.vkDestroyBuffer == nullptr)) {
     throw std::runtime_error("[VulkanDevice] VMA function table is incomplete. "
                              "Did you call initDispatcherPostDevice()?");
   }
@@ -82,7 +83,7 @@ void VulkanDevice::createAllocator() {
   info.pVulkanFunctions = &funcs;
 
   VkResult r = vmaCreateAllocator(&info, &m_allocator);
-  if (r != VK_SUCCESS || !m_allocator) {
+  if (r != VK_SUCCESS || (m_allocator == nullptr)) {
     throw std::runtime_error("[VulkanDevice] vmaCreateAllocator failed");
   }
 }
@@ -96,7 +97,7 @@ VulkanDevice::~VulkanDevice() {
       m_uploadPool = nullptr;
     }
 
-    if (m_allocator) {
+    if (m_allocator != nullptr) {
       vmaDestroyAllocator(m_allocator);
       m_allocator = nullptr;
     }
@@ -111,8 +112,9 @@ bool VulkanDevice::supportsDeviceExtensions(vk::PhysicalDevice pd) {
       nullptr, VULKAN_HPP_DEFAULT_DISPATCHER);
 
   std::set<std::string> required;
-  for (auto *ext : kDeviceExtensions)
+  for (const auto *ext : K_DEVICE_EXTENSIONS) {
     required.insert(ext);
+}
 
   for (const auto &e : available) {
     required.erase(e.extensionName);
@@ -134,12 +136,13 @@ QueueFamilyIndices VulkanDevice::findQueueFamilies(vk::PhysicalDevice pd,
     const vk::Bool32 presentSupported =
         pd.getSurfaceSupportKHR(i, surface, VULKAN_HPP_DEFAULT_DISPATCHER);
 
-    if (presentSupported) {
+    if (presentSupported != 0u) {
       out.present = i;
     }
 
-    if (out.complete())
+    if (out.complete()) {
       break;
+}
   }
 
   return out;
@@ -187,10 +190,12 @@ void VulkanDevice::pickPhysicalDevice(vk::Instance instance,
 
   for (const auto &pd : devices) {
     const auto indices = findQueueFamilies(pd, surface);
-    if (!indices.complete())
+    if (!indices.complete()) {
       continue;
-    if (!supportsDeviceExtensions(pd))
+}
+    if (!supportsDeviceExtensions(pd)) {
       continue;
+}
 
     // For swapchain we’ll later also require at least one surface format +
     // present mode, but we can defer that until VulkanSwapchain.
@@ -214,7 +219,7 @@ void VulkanDevice::createLogicalDevice(vk::SurfaceKHR /*surface*/) {
   std::vector<vk::DeviceQueueCreateInfo> queueInfos;
   std::set<uint32_t> uniqueFamilies = {m_indices.graphics, m_indices.present};
 
-  float priority = 1.0f;
+  float priority = 1.0F;
   queueInfos.reserve(uniqueFamilies.size());
   for (uint32_t family : uniqueFamilies) {
     vk::DeviceQueueCreateInfo qci{};
@@ -230,12 +235,12 @@ void VulkanDevice::createLogicalDevice(vk::SurfaceKHR /*surface*/) {
   featuresCore.shaderStorageImageWriteWithoutFormat = VK_TRUE;
 
   vk::PhysicalDeviceVulkan12Features features12{};
-  features12.runtimeDescriptorArray = true;
-  features12.shaderSampledImageArrayNonUniformIndexing = true;
-  features12.descriptorBindingPartiallyBound = true; // Often needed for bindless
-  features12.descriptorBindingVariableDescriptorCount = true;
-  features12.descriptorBindingSampledImageUpdateAfterBind = true; // Essential for bindless
-  features12.descriptorBindingStorageBufferUpdateAfterBind = true; // Essential for bindless
+  features12.runtimeDescriptorArray = 1u;
+  features12.shaderSampledImageArrayNonUniformIndexing = 1u;
+  features12.descriptorBindingPartiallyBound = 1u; // Often needed for bindless
+  features12.descriptorBindingVariableDescriptorCount = 1u;
+  features12.descriptorBindingSampledImageUpdateAfterBind = 1u; // Essential for bindless
+  features12.descriptorBindingStorageBufferUpdateAfterBind = 1u; // Essential for bindless
 
   vk::PhysicalDeviceVulkan13Features features13{};
   features13.dynamicRendering = VK_TRUE;
@@ -250,8 +255,8 @@ void VulkanDevice::createLogicalDevice(vk::SurfaceKHR /*surface*/) {
   dci.queueCreateInfoCount = static_cast<uint32_t>(queueInfos.size());
   dci.pQueueCreateInfos = queueInfos.data();
   dci.enabledExtensionCount =
-      static_cast<uint32_t>(std::size(kDeviceExtensions));
-  dci.ppEnabledExtensionNames = kDeviceExtensions;
+      static_cast<uint32_t>(std::size(K_DEVICE_EXTENSIONS));
+  dci.ppEnabledExtensionNames = K_DEVICE_EXTENSIONS;
 
   m_device = m_physicalDevice.createDevice(dci, nullptr,
                                            VULKAN_HPP_DEFAULT_DISPATCHER);

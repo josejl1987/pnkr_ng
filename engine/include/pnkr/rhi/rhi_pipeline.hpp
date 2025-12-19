@@ -62,19 +62,6 @@ namespace pnkr::renderer::rhi
         uint32_t size;
     };
 
-    // Descriptor set layout binding
-    struct DescriptorBinding
-    {
-        uint32_t binding;
-        DescriptorType type;
-        uint32_t count = 1;
-        ShaderStage stages;
-    };
-
-    struct DescriptorSetLayout
-    {
-        std::vector<DescriptorBinding> bindings;
-    };
 
     // Graphics pipeline descriptor
     struct GraphicsPipelineDescriptor

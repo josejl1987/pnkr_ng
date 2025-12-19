@@ -47,6 +47,12 @@ namespace pnkr::renderer::rhi::vulkan
         VmaAllocation allocation() const { return m_allocation; }
         vk::ImageLayout currentLayout() const { return m_currentLayout; }
 
+        // Implicit conversion operators for cleaner Vulkan API usage
+        operator vk::Image() const { return m_image; }
+        operator VkImage() const { return m_image; }
+        operator vk::ImageView() const { return m_imageView; }
+        operator VkImageView() const { return m_imageView; }
+
         // Layout transition (internal use)
         void transitionLayout(vk::ImageLayout newLayout, vk::CommandBuffer cmd);
 
@@ -54,7 +60,7 @@ namespace pnkr::renderer::rhi::vulkan
         VulkanRHIDevice* m_device;
         vk::Image m_image;
         vk::ImageView m_imageView;
-        VmaAllocation m_allocation;
+        VmaAllocation m_allocation{};
 
         Extent3D m_extent;
         Format m_format;

@@ -10,7 +10,7 @@ namespace pnkr::renderer {
 
 class VulkanContext {
 public:
-  explicit VulkanContext(const pnkr::platform::Window &window);
+  explicit VulkanContext(const platform::Window &window);
   ~VulkanContext();
 
   VulkanContext(const VulkanContext &) = delete;
@@ -28,9 +28,9 @@ public:
   void initDispatcherPostDevice(vk::Device device);
 
 private:
-  void createInstance(const pnkr::platform::Window &window);
+  void createInstance(const platform::Window &window);
   void setupDebugMessenger();
-  void createSurface(const pnkr::platform::Window &window);
+  void createSurface(const platform::Window &window);
   void initDispatcherPreInstance();
   void initDispatcherPostInstance();
 
@@ -41,7 +41,7 @@ private:
 
 #ifndef NDEBUG
   vk::DebugUtilsMessengerEXT m_debugMessenger{};
-  void (*(*m_vkGetInstanceProcAddr)(VkInstance_T *, const char *))();
+  void (*(*m_vkGetInstanceProcAddr)(VkInstance_T *, const char *))(){};
 #endif
 };
 

@@ -68,6 +68,10 @@ namespace pnkr::renderer::rhi::vulkan
         vk::CommandBuffer commandBuffer() const { return m_commandBuffer; }
         bool isRecording() const { return m_recording; }
 
+        // Implicit conversion operators for cleaner Vulkan API usage
+        operator vk::CommandBuffer() const { return m_commandBuffer; }
+        operator VkCommandBuffer() const { return m_commandBuffer; }
+
     private:
         VulkanRHIDevice* m_device;
         vk::CommandBuffer m_commandBuffer;

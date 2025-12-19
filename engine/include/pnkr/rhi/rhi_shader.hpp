@@ -38,7 +38,7 @@ namespace pnkr::renderer::rhi {
 
     class Shader {
     public:
-        Shader(ShaderStage stage, const std::vector<uint32_t>& spirvCode, const ReflectionConfig& config = {});
+        Shader(ShaderStage stage, const std::vector<uint32_t>& spirvCode, ReflectionConfig  config = {});
         static std::unique_ptr<Shader> load(ShaderStage stage, const std::filesystem::path& path, const ReflectionConfig& config = {});
 
         [[nodiscard]] ShaderStage stage() const { return m_stage; }

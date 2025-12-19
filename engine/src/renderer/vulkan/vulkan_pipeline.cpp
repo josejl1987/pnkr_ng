@@ -11,7 +11,7 @@ namespace pnkr::renderer
 {
     namespace
     {
-        std::vector<std::uint32_t> ReadSpirvU32(const char* path)
+        std::vector<std::uint32_t> readSpirvU32(const char* path)
         {
             std::ifstream file(path, std::ios::ate | std::ios::binary);
             if (!file.is_open())
@@ -43,9 +43,9 @@ namespace pnkr::renderer
             return words;
         }
 
-        vk::ShaderModule CreateShaderModule(vk::Device device, const char* path)
+        vk::ShaderModule createShaderModule(vk::Device device, const char* path)
         {
-            const auto code = ReadSpirvU32(path);
+            const auto code = readSpirvU32(path);
 
             vk::ShaderModuleCreateInfo smci{};
             smci.codeSize = code.size() * sizeof(std::uint32_t);
@@ -91,8 +91,9 @@ namespace pnkr::renderer
 
     void VulkanPipeline::reset() noexcept
     {
-        if (!m_device)
+        if (!m_device) {
             return;
+}
 
         if (m_pipeline)
         {
@@ -125,8 +126,9 @@ namespace pnkr::renderer
 
     VulkanPipeline& VulkanPipeline::operator=(VulkanPipeline&& other) noexcept
     {
-        if (this == &other)
+        if (this == &other) {
             return *this;
+}
 
         reset();
 
@@ -142,8 +144,8 @@ namespace pnkr::renderer
 
     void VulkanPipeline::createShaderModules(const Config& config)
     {
-        m_vert = CreateShaderModule(m_device, config.m_vertSpvPath.string().c_str());
-        m_frag = CreateShaderModule(m_device, config.m_fragSpvPath.string().c_str());
+        m_vert = createShaderModule(m_device, config.m_vertSpvPath.string().c_str());
+        m_frag = createShaderModule(m_device, config.m_fragSpvPath.string().c_str());
     }
 
     void VulkanPipeline::createPipelineLayout()
@@ -211,7 +213,7 @@ namespace pnkr::renderer
         // NOTE: Vulkan screen-space Y is inverted vs OpenGL
         raster.frontFace = config.m_frontFace;
         raster.depthBiasEnable = VK_FALSE;
-        raster.lineWidth = 1.0f;
+        raster.lineWidth = 1.0F;
 
         vk::PipelineMultisampleStateCreateInfo msaa{};
         msaa.rasterizationSamples = vk::SampleCountFlagBits::e1;

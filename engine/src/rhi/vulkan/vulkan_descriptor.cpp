@@ -6,6 +6,9 @@
 #include "pnkr/rhi/vulkan/vulkan_device.hpp"
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
+
+using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
@@ -27,7 +30,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     VulkanRHIDescriptorSetLayout::~VulkanRHIDescriptorSetLayout()
     {
-        if (m_device && m_layout && m_ownsLayout)
+        if ((m_device != nullptr) && m_layout && m_ownsLayout)
         {
             m_device->device().destroyDescriptorSetLayout(m_layout);
             m_layout = nullptr;
@@ -64,7 +67,7 @@ namespace pnkr::renderer::rhi::vulkan
                                               uint64_t offset,
                                               uint64_t range)
     {
-        if (!buffer)
+        if (buffer == nullptr)
         {
             core::Logger::error("updateBuffer: buffer is null");
             return;
@@ -81,7 +84,7 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         vk::DescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = vk::Buffer(static_cast<VkBuffer>(buffer->nativeHandle()));
+        bufferInfo.buffer = vk::Buffer(getVkBufferFromRHI(buffer->nativeHandle()));
         bufferInfo.offset = offset;
         bufferInfo.range = range;
 
@@ -107,12 +110,12 @@ namespace pnkr::renderer::rhi::vulkan
             core::Logger::error("updateTexture: binding {} is not an image descriptor", binding);
             return;
         }
-        if (!texture)
+        if (texture == nullptr)
         {
             core::Logger::error("updateTexture: texture is null");
             return;
         }
-        if (type == DescriptorType::CombinedImageSampler && !sampler)
+        if (type == DescriptorType::CombinedImageSampler && (sampler == nullptr))
         {
             core::Logger::error("updateTexture: sampler is null");
             return;

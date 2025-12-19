@@ -6,6 +6,9 @@
 
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/renderer/vulkan/vulkan_buffer.hpp"
+#include "pnkr/core/common.hpp"
+
+using namespace pnkr::util;
 
 namespace pnkr::renderer {
 class VulkanDevice;
@@ -20,7 +23,7 @@ pnkr::renderer::Mesh::Mesh(VulkanDevice &device,
       m_indexBuffer(VulkanBuffer::CreateDeviceLocalAndUpload(
           device, indices.data(), indices.size() * sizeof(std::uint32_t),
           vk::BufferUsageFlagBits::eIndexBuffer)),
-      m_indexCount(static_cast<std::uint32_t>(indices.size())) {}
+      m_indexCount(u32(indices.size())) {}
 
 void pnkr::renderer::Mesh::bind(vk::CommandBuffer cmd) const {
   vk::DeviceSize offsets[] = {0};

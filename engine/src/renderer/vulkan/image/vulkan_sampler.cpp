@@ -18,16 +18,16 @@ namespace pnkr::renderer {
         samplerInfo.addressModeU = addressMode;
         samplerInfo.addressModeV = addressMode;
         samplerInfo.addressModeW = addressMode;
-        samplerInfo.anisotropyEnable = false;
-        samplerInfo.maxAnisotropy = 16.0f;
+        samplerInfo.anisotropyEnable = 0u;
+        samplerInfo.maxAnisotropy = 16.0F;
         samplerInfo.borderColor = vk::BorderColor::eIntOpaqueBlack;
         samplerInfo.unnormalizedCoordinates = VK_FALSE;
         samplerInfo.compareEnable = VK_FALSE;
         samplerInfo.compareOp = vk::CompareOp::eAlways;
         samplerInfo.mipmapMode = vk::SamplerMipmapMode::eLinear;
-        samplerInfo.mipLodBias = 0.0f;
-        samplerInfo.minLod = 0.0f;
-        samplerInfo.maxLod = 0.0f;
+        samplerInfo.mipLodBias = 0.0F;
+        samplerInfo.minLod = 0.0F;
+        samplerInfo.maxLod = 0.0F;
 
         m_sampler = device.createSampler(samplerInfo);
     }

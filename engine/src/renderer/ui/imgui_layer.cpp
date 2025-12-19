@@ -19,7 +19,7 @@ void ImGuiLayer::init(pnkr::renderer::Renderer& renderer, pnkr::platform::Window
     m_renderer = &renderer;
 
     // 1. Create Descriptor Pool for ImGui
-    vk::DescriptorPoolSize pool_sizes[] = {
+    vk::DescriptorPoolSize poolSizes[] = {
         { vk::DescriptorType::eSampler, 1000 },
         { vk::DescriptorType::eCombinedImageSampler, 1000 },
         { vk::DescriptorType::eSampledImage, 1000 },
@@ -33,13 +33,13 @@ void ImGuiLayer::init(pnkr::renderer::Renderer& renderer, pnkr::platform::Window
         { vk::DescriptorType::eInputAttachment, 1000 }
     };
 
-    vk::DescriptorPoolCreateInfo pool_info = {};
-    pool_info.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-    pool_info.maxSets = 1000 * 2;
-    pool_info.poolSizeCount = (uint32_t)std::size(pool_sizes);
-    pool_info.pPoolSizes = pool_sizes;
+    vk::DescriptorPoolCreateInfo poolInfo = {};
+    poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
+    poolInfo.maxSets = 1000 * 2;
+    poolInfo.poolSizeCount = (uint32_t)std::size(poolSizes);
+    poolInfo.pPoolSizes = poolSizes;
 
-    m_descriptorPool = renderer.device().createDescriptorPool(pool_info);
+    m_descriptorPool = renderer.device().createDescriptorPool(poolInfo);
 
     // 2. Initialize ImGui Context
     IMGUI_CHECKVERSION();
@@ -53,34 +53,34 @@ void ImGuiLayer::init(pnkr::renderer::Renderer& renderer, pnkr::platform::Window
     ImGui_ImplSDL3_InitForVulkan(window->get());
 
     // 4. Initialize Vulkan Backend with Dynamic Rendering
-    ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = renderer.instance();
-    init_info.PhysicalDevice = renderer.physicalDevice();
-    init_info.Device = renderer.device();
-    init_info.QueueFamily = renderer.graphicsQueueFamilyIndex();
-    init_info.Queue = renderer.graphicsQueue();
-    init_info.PipelineCache = nullptr;
-    init_info.DescriptorPool = m_descriptorPool;
-    init_info.Subpass = 0;
-    init_info.MinImageCount = 2;
-    init_info.ImageCount = 3; 
-    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    init_info.Allocator = nullptr;
-    init_info.CheckVkResultFn = nullptr;
+    ImGui_ImplVulkan_InitInfo initInfo = {};
+    initInfo.Instance = renderer.instance();
+    initInfo.PhysicalDevice = renderer.physicalDevice();
+    initInfo.Device = renderer.device();
+    initInfo.QueueFamily = renderer.graphicsQueueFamilyIndex();
+    initInfo.Queue = renderer.graphicsQueue();
+    initInfo.PipelineCache = nullptr;
+    initInfo.DescriptorPool = m_descriptorPool;
+    initInfo.Subpass = 0;
+    initInfo.MinImageCount = 2;
+    initInfo.ImageCount = 3; 
+    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.Allocator = nullptr;
+    initInfo.CheckVkResultFn = nullptr;
 
-    init_info.UseDynamicRendering = true;
+    initInfo.UseDynamicRendering = true;
 
     // Must match the format of the Swapchain where UI is rendered
-    const VkFormat swapchainFormat = static_cast<VkFormat>(renderer.getSwapchainColorFormat());
+    const auto swapchainFormat = static_cast<VkFormat>(renderer.getSwapchainColorFormat());
 
-    VkPipelineRenderingCreateInfoKHR pipeline_rendering_create_info = {};
-    pipeline_rendering_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
-    pipeline_rendering_create_info.colorAttachmentCount = 1;
-    pipeline_rendering_create_info.pColorAttachmentFormats = &swapchainFormat;
+    VkPipelineRenderingCreateInfoKHR pipelineRenderingCreateInfo = {};
+    pipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+    pipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    pipelineRenderingCreateInfo.pColorAttachmentFormats = &swapchainFormat;
 
-    init_info.PipelineRenderingCreateInfo = pipeline_rendering_create_info;
+    initInfo.PipelineRenderingCreateInfo = pipelineRenderingCreateInfo;
 
-    ImGui_ImplVulkan_Init(&init_info);
+    ImGui_ImplVulkan_Init(&initInfo);
 
     // 5. Upload Fonts using a temporary command buffer
     vk::CommandPool cmdPool = renderer.commandPool();
@@ -110,7 +110,7 @@ void ImGuiLayer::init(pnkr::renderer::Renderer& renderer, pnkr::platform::Window
 }
 
 void ImGuiLayer::shutdown() {
-    if (m_renderer) {
+    if (m_renderer != nullptr) {
         m_renderer->device().waitIdle();
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplSDL3_Shutdown();
