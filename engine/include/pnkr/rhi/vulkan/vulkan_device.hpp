@@ -97,6 +97,7 @@ namespace pnkr::renderer::rhi::vulkan
         BindlessHandle registerBindlessTexture(RHITexture* texture, RHISampler* sampler) override;
         BindlessHandle registerBindlessCubemap(RHITexture* texture, RHISampler* sampler) override;
         BindlessHandle registerBindlessBuffer(RHIBuffer* buffer) override;
+        BindlessHandle registerBindlessStorageImage(RHITexture* texture) override;
         // To bind the global set to a command buffer
         void* getBindlessDescriptorSetNative() override;
         RHIDescriptorSetLayout* getBindlessDescriptorSetLayout() override;
@@ -125,6 +126,7 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t m_textureIndexCounter = 0;
         uint32_t m_bufferIndexCounter = 0;
         uint32_t m_cubemapIndexCounter = 0;
+        uint32_t m_storageImageIndexCounter = 0;
     
         static constexpr uint32_t MAX_BINDLESS_RESOURCES = 100000;
 

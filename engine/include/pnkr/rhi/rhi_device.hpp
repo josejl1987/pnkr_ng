@@ -136,6 +136,7 @@ namespace pnkr::renderer::rhi
         // Bindless Registration
         virtual BindlessHandle registerBindlessTexture(RHITexture* texture, RHISampler* sampler) = 0;
         virtual BindlessHandle registerBindlessCubemap(RHITexture* texture, RHISampler* sampler) = 0;
+        virtual BindlessHandle registerBindlessStorageImage(RHITexture* texture) = 0;
         virtual BindlessHandle registerBindlessBuffer(RHIBuffer* buffer) = 0;
 
         // To bind the global set to a command buffer

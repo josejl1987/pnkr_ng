@@ -54,11 +54,10 @@ namespace pnkr::renderer::scene
                .setTopology(rhi::PrimitiveTopology::TriangleList)
                .setPolygonMode(rhi::PolygonMode::Fill)
                // Cull Front because we are inside the cube
-               .setCullMode(rhi::CullMode::Front, false)
+               .setCullMode(rhi::CullMode::Front, true)
                // Depth: Lequal so it draws at the far plane (z=1.0)
                .enableDepthTest(false, rhi::CompareOp::LessOrEqual)
                .setNoBlend()
-
                .setColorFormat(m_renderer->getDrawColorFormat());
         // Note: If using dynamic rendering, depth format is also needed
         // Depending on RHI implementation, might need .setDepthFormat(...)

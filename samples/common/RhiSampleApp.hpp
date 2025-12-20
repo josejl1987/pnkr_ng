@@ -61,6 +61,10 @@ namespace pnkr::samples
         {
         }
 
+        virtual void onImGui()
+        {
+        }
+
         void initUI();
 
         [[nodiscard]] std::filesystem::path getShaderPath(const std::filesystem::path& filename) const;
@@ -168,6 +172,9 @@ namespace pnkr::samples
                         }
                     }
                     ImGui::End();
+
+                    onImGui();
+
                     m_imgui.endFrame();
                 }
 

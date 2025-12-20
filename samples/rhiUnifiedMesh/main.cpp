@@ -361,7 +361,7 @@ public:
             .setShaders(vs.get(), fs.get(), gs.get())
             .useVertexType<renderer::Vertex>()
             .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
-            .setCullMode(renderer::rhi::CullMode::Back)
+            .setCullMode(renderer::rhi::CullMode::Back, true)
             .enableDepthTest()
             .setColorFormat(m_renderer->getDrawColorFormat())
             .setDepthFormat(m_renderer->getDrawDepthFormat())
