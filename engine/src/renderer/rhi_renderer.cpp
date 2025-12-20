@@ -12,6 +12,18 @@ using namespace pnkr::util;
 
 namespace pnkr::renderer
 {
+    namespace
+    {
+        struct GPUVertex
+        {
+            glm::vec4 pos;
+            glm::vec4 color;
+            glm::vec4 normal;
+            glm::vec4 uv;
+            glm::vec4 tangent;
+        };
+    }
+
     RHIRenderer::RHIRenderer(platform::Window& window, const RendererConfig& config)
         : m_window(window)
     {
@@ -137,21 +149,36 @@ namespace pnkr::renderer
             return;
         }
 
-        if (!m_recordCallback)
+        if (!m_recordCallback && !m_computeRecordCallback)
         {
             core::Logger::warn("No record callback set");
-            return;
-        }
-
-        if ((m_backbuffer == nullptr) || !m_depthTarget)
-        {
-            core::Logger::error("drawFrame: missing backbuffer or depth target");
             return;
         }
 
         if (m_activeCommandBuffer == nullptr)
         {
             core::Logger::error("drawFrame: command buffer not available");
+            return;
+        }
+
+        RHIFrameContext context{};
+        context.commandBuffer = m_activeCommandBuffer;
+        context.frameIndex = m_frameIndex;
+        context.deltaTime = m_deltaTime;
+
+        if (m_computeRecordCallback)
+        {
+            m_computeRecordCallback(context);
+        }
+
+        if (!m_recordCallback)
+        {
+            return;
+        }
+
+        if ((m_backbuffer == nullptr) || !m_depthTarget)
+        {
+            core::Logger::error("drawFrame: missing backbuffer or depth target");
             return;
         }
 
@@ -224,11 +251,6 @@ namespace pnkr::renderer
         m_activeCommandBuffer->setScissor(scissor);
 
         // Call user record callback
-        RHIFrameContext context{};
-        context.commandBuffer = m_activeCommandBuffer;
-        context.frameIndex = m_frameIndex;
-        context.deltaTime = m_deltaTime;
-
         m_recordCallback(context);
 
         m_activeCommandBuffer->endRendering();
@@ -292,7 +314,7 @@ namespace pnkr::renderer
         uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
         mesh.m_vertexBuffer = m_device->createBuffer({
             .size = vertexBufferSize,
-            .usage = rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::TransferDst,
+            .usage = rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::TransferDst | rhi::BufferUsage::ShaderDeviceAddress,
             .memoryUsage = rhi::MemoryUsage::GPUOnly,
             .data = vertices.data(),
             .debugName = "VertexBuffer"
@@ -325,13 +347,28 @@ namespace pnkr::renderer
         MeshData mesh{};
 
         mesh.m_vertexPulling = true;
+        std::vector<GPUVertex> gpuVertices;
+        gpuVertices.reserve(vertices.size());
+
+        for (const auto& v : vertices)
+        {
+            GPUVertex gv{};
+            gv.pos = glm::vec4(v.m_position, 1.0f);
+            gv.color = glm::vec4(v.m_color, 1.0f);
+            gv.normal = glm::vec4(v.m_normal, 0.0f);
+            gv.tangent = v.m_tangent;
+            gv.uv.x = v.m_texCoord.x;
+            gv.uv.y = v.m_texCoord.y;
+            gpuVertices.push_back(gv);
+        }
+
         // Create vertex buffer
-        uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+        uint64_t vertexBufferSize = gpuVertices.size() * sizeof(GPUVertex);
         mesh.m_vertexBuffer = m_device->createBuffer({
             .size = vertexBufferSize,
             .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress | rhi::BufferUsage::TransferDst,
             .memoryUsage = rhi::MemoryUsage::GPUOnly,
-            .data = vertices.data(),
+            .data = gpuVertices.data(),
             .debugName = "VertexPullingVertexBuffer"
         });
 
@@ -637,6 +674,18 @@ namespace pnkr::renderer
 
         const auto& mesh = m_meshes[handle.id];
         cmd->drawIndexed(mesh.m_indexCount, 1, 0, 0, 0);
+    }
+
+    void RHIRenderer::drawMeshInstanced(rhi::RHICommandBuffer* cmd, MeshHandle handle, uint32_t instanceCount)
+    {
+        if (handle.id >= m_meshes.size())
+        {
+            core::Logger::error("Invalid mesh handle.id: {}", handle.id);
+            return;
+        }
+
+        const auto& mesh = m_meshes[handle.id];
+        cmd->drawIndexed(mesh.m_indexCount, instanceCount, 0, 0, 0);
     }
 
     void RHIRenderer::bindDescriptorSet(rhi::RHICommandBuffer* cmd,

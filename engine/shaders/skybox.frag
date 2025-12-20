@@ -10,20 +10,15 @@ layout(push_constant) uniform Constants {
     uint textureIndex;
 } pc;
 
-// RHI Bindless layout:
-// Binding 0: sampler2D array (textures)
-// Binding 1: storage buffers
-// Binding 2: samplerCube array (cubemaps)
 layout(set = 1, binding = 2) uniform samplerCube globalCubemaps[];
-
 void main() {
     vec3 dir = normalize(v_TexCoord);
 
-    // Sample the cubemap if we have a valid texture index
     if (pc.textureIndex != 0xFFFFFFFFu && pc.textureIndex < 100000) {
+        // Texture will be right-side up because we didn't flip the sample
         outColor = texture(globalCubemaps[nonuniformEXT(pc.textureIndex)], dir);
     } else {
-        // Fallback: procedural sky gradient
+        // Procedural sky: dir.y will now be 1.0 at the top
         float t = 0.5 * (dir.y + 1.0);
         vec3 skyColor = mix(vec3(0.5, 0.7, 1.0), vec3(1.0, 1.0, 1.0), t);
         outColor = vec4(skyColor, 1.0);

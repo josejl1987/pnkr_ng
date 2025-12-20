@@ -10,128 +10,197 @@
 #include <filesystem>
 
 // -----------------------------------------------------------------------------
-// Helper: Get C++ type name
+// Std430 alignment helpers
 // -----------------------------------------------------------------------------
-std::string getCppTypeName(spirv_cross::Compiler& comp, const spirv_cross::SPIRType& type)
+static uint32_t baseAlignmentStd430(const spirv_cross::SPIRType& t)
 {
-    if (type.storage == spv::StorageClassPhysicalStorageBuffer)
+    // Scalars
+    if (t.columns == 1 && t.vecsize == 1)
     {
-        return "uint64_t";
+        return (t.width == 64) ? 8u : 4u;
+    }
+
+    // Vectors
+    if (t.columns == 1)
+    {
+        if (t.vecsize == 2)
+        {
+            return (t.width == 64) ? 16u : 8u;
+        }
+        if (t.vecsize == 3 || t.vecsize == 4)
+        {
+            return (t.width == 64) ? 32u : 16u;
+        }
+    }
+
+    // Matrices: treated as array of column vectors.
+    if (t.columns > 1)
+    {
+        spirv_cross::SPIRType col = t;
+        col.columns = 1;
+        col.vecsize = t.vecsize;
+        return baseAlignmentStd430(col);
+    }
+
+    return 16u;
+}
+
+static uint32_t typeAlignmentStd430(spirv_cross::Compiler& comp, const spirv_cross::SPIRType& type)
+{
+    if (!type.array.empty())
+    {
+        spirv_cross::SPIRType element = type;
+        element.array.clear();
+        return typeAlignmentStd430(comp, element);
     }
 
     if (type.basetype == spirv_cross::SPIRType::Struct)
     {
-        std::string name = comp.get_name(type.self);
-        if (name.empty())
+        uint32_t structAlign = 1u;
+        for (const auto& memberTypeId : type.member_types)
         {
-            return "Struct_" + std::to_string(type.self);
+            const auto& memberType = comp.get_type(memberTypeId);
+            structAlign = std::max(structAlign, typeAlignmentStd430(comp, memberType));
         }
-        size_t dot = name.find_last_of('.');
-        if (dot != std::string::npos)
-        {
-            return name.substr(dot + 1);
-        }
-        return name;
+        return structAlign;
     }
 
-    if (type.width == 64)
-    {
-        if (type.basetype == spirv_cross::SPIRType::UInt) return "uint64_t";
-        if (type.basetype == spirv_cross::SPIRType::Int) return "int64_t";
-        if (type.basetype == spirv_cross::SPIRType::Float) return "double";
-    }
-
-    if (type.basetype == spirv_cross::SPIRType::Float)
-    {
-        if (type.columns == 4 && type.vecsize == 4)
-        {
-            return "glm::mat4";
-        }
-        if (type.columns == 3 && type.vecsize == 3)
-        {
-            return "glm::mat3";
-        }
-        if (type.vecsize == 4)
-        {
-            return "glm::vec4";
-        }
-        if (type.vecsize == 3)
-        {
-            return "glm::vec3";
-        }
-        if (type.vecsize == 2)
-        {
-            return "glm::vec2";
-        }
-        return "float";
-    }
-
-    if (type.basetype == spirv_cross::SPIRType::Int)
-    {
-        if (type.vecsize == 4)
-        {
-            return "glm::ivec4";
-        }
-        if (type.vecsize == 3)
-        {
-            return "glm::ivec3";
-        }
-        if (type.vecsize == 2)
-        {
-            return "glm::ivec2";
-        }
-        return "int32_t";
-    }
-
-    if (type.basetype == spirv_cross::SPIRType::UInt)
-    {
-        if (type.vecsize == 4)
-        {
-            return "glm::uvec4";
-        }
-        if (type.vecsize == 3)
-        {
-            return "glm::uvec3";
-        }
-        if (type.vecsize == 2)
-        {
-            return "glm::uvec2";
-        }
-        return "uint32_t";
-    }
-
-    if (type.basetype == spirv_cross::SPIRType::Boolean)
-    {
-        return "uint32_t /* bool */";
-    }
-
-    return "uint8_t"; // Fallback
+    return baseAlignmentStd430(type);
 }
 
+static size_t roundUp(size_t value, size_t alignment)
+{
+    if (alignment == 0u)
+    {
+        return value;
+    }
+    return (value + (alignment - 1u)) & ~(alignment - 1u);
+}
+
+// -----------------------------------------------------------------------------
+// Helper: Get C++ type name
+// -----------------------------------------------------------------------------
+// Helper to turn SPIR-V enum into a readable string for error messages
+std::string spirvTypeToString(const spirv_cross::SPIRType& type) {
+    std::string base;
+    switch (type.basetype) {
+        case spirv_cross::SPIRType::Void:   base = "void"; break;
+        case spirv_cross::SPIRType::Boolean:base = "bool"; break;
+        case spirv_cross::SPIRType::SByte:  base = "int8"; break;
+        case spirv_cross::SPIRType::UByte:  base = "uint8"; break;
+        case spirv_cross::SPIRType::Short:  base = "int16"; break;
+        case spirv_cross::SPIRType::UShort: base = "uint16"; break;
+        case spirv_cross::SPIRType::Int:    base = "int32"; break;
+        case spirv_cross::SPIRType::UInt:   base = "uint32"; break;
+        case spirv_cross::SPIRType::Int64:  base = "int64"; break;
+        case spirv_cross::SPIRType::UInt64: base = "uint64"; break;
+        case spirv_cross::SPIRType::Half:   base = "float16"; break;
+        case spirv_cross::SPIRType::Float:  base = "float32"; break;
+        case spirv_cross::SPIRType::Double: base = "float64"; break;
+        case spirv_cross::SPIRType::Struct: base = "struct"; break;
+        case spirv_cross::SPIRType::Image:  base = "image"; break;
+        case spirv_cross::SPIRType::SampledImage: base = "sampler"; break;
+        case spirv_cross::SPIRType::Sampler:base = "samplerState"; break;
+        default: base = "unknown"; break;
+    }
+
+    std::stringstream ss;
+    ss << base << " (width: " << type.width << ", vec: " << type.vecsize << ", col: " << type.columns << ")";
+    return ss.str();
+}
+
+std::string getCppTypeName(spirv_cross::Compiler& comp, const spirv_cross::SPIRType& type)
+{
+    // 1. Physical Storage Buffer Pointers / Buffer References
+    if (type.pointer || type.storage == spv::StorageClassPhysicalStorageBuffer)
+    {
+        return "uint64_t";
+    }
+
+    // 2. 64-bit Scalars
+    if (type.width == 64 && type.columns == 1 && type.vecsize == 1)
+    {
+        if (type.basetype == spirv_cross::SPIRType::UInt || type.basetype == spirv_cross::SPIRType::UInt64) return "uint64_t";
+        if (type.basetype == spirv_cross::SPIRType::Int || type.basetype == spirv_cross::SPIRType::Int64) return "int64_t";
+        if (type.basetype == spirv_cross::SPIRType::Float || type.basetype == spirv_cross::SPIRType::Double) return "double";
+    }
+
+    // 3. Structs
+    if (type.basetype == spirv_cross::SPIRType::Struct)
+    {
+        std::string name = comp.get_name(type.self);
+        if (name.empty()) name = comp.get_name(type.basetype);
+        if (name.empty()) return "Struct_" + std::to_string(type.self);
+
+        size_t dot = name.find_last_of('.');
+        return (dot != std::string::npos) ? name.substr(dot + 1) : name;
+    }
+
+    // 4. Matrices (Floating Point)
+    if (type.columns > 1 && type.basetype == spirv_cross::SPIRType::Float)
+    {
+        if (type.width == 32)
+        {
+            if (type.columns == 4 && type.vecsize == 4) return "glm::mat4";
+            if (type.columns == 3 && type.vecsize == 3) return "glm::mat3";
+            if (type.columns == 2 && type.vecsize == 2) return "glm::mat2";
+        }
+    }
+
+    // 5. Vectors (32-bit)
+    if (type.vecsize > 1 && type.columns == 1 && type.width == 32)
+    {
+        std::string prefix = "";
+        if (type.basetype == spirv_cross::SPIRType::UInt) prefix = "u";
+        else if (type.basetype == spirv_cross::SPIRType::Int) prefix = "i";
+        else if (type.basetype == spirv_cross::SPIRType::Boolean) prefix = "b";
+        else if (type.basetype != spirv_cross::SPIRType::Float) {
+             // If it's a vector but not a common type, fall through to error
+        }
+        else {
+            return "glm::vec" + std::to_string(type.vecsize);
+        }
+        return "glm::" + prefix + "vec" + std::to_string(type.vecsize);
+    }
+
+    // 6. 32-bit Scalars
+    if (type.vecsize == 1 && type.columns == 1 && type.width == 32)
+    {
+        if (type.basetype == spirv_cross::SPIRType::Float) return "float";
+        if (type.basetype == spirv_cross::SPIRType::UInt) return "uint32_t";
+        if (type.basetype == spirv_cross::SPIRType::Int) return "int32_t";
+        if (type.basetype == spirv_cross::SPIRType::Boolean) return "uint32_t /* bool */";
+    }
+
+    // 7. No mapping found: Throw detailed error
+    std::string errorMsg = "Could not map SPIR-V type to C++: " + spirvTypeToString(type);
+    throw std::runtime_error(errorMsg);
+}
 // -----------------------------------------------------------------------------
 // Core Generator Function
 // -----------------------------------------------------------------------------
 void generateStruct(spirv_cross::Compiler& comp, uint32_t typeId, std::ofstream& out,
                     std::set<uint32_t>& emittedTypes)
 {
-    if (emittedTypes.contains(typeId) != 0u)
+    const auto& type = comp.get_type(typeId);
+
+    // Skip types that are pointers (we represent these as uint64_t inline)
+    if (type.pointer || type.storage == spv::StorageClassPhysicalStorageBuffer)
+    {
+        return;
+    }
+
+    if (emittedTypes.contains(typeId))
     {
         return;
     }
     emittedTypes.insert(typeId);
 
-    const auto& type = comp.get_type(typeId);
-
-    if (type.storage == spv::StorageClassPhysicalStorageBuffer)
-    {
-        return;
-    }
-
-    // Recursively generate nested structs
+    // Recursively generate nested structs (only if they are NOT pointers)
     for (const auto& memberTypeId : type.member_types)
     {
         const auto& memberType = comp.get_type(memberTypeId);
-        if (memberType.basetype == spirv_cross::SPIRType::Struct)
+        if (memberType.basetype == spirv_cross::SPIRType::Struct && !memberType.pointer)
         {
             generateStruct(comp, memberTypeId, out, emittedTypes);
         }
@@ -140,11 +209,10 @@ void generateStruct(spirv_cross::Compiler& comp, uint32_t typeId, std::ofstream&
     std::string structName = getCppTypeName(comp, type);
     size_t reflectedSize = comp.get_declared_struct_size(type);
 
-    // Round the size up to the struct alignment (C++ tail padding behavior)
-    // VULKAN FIX: Round up to nearest 16 bytes to match C++ alignment/padding
-    size_t totalSize = (reflectedSize + 15) & ~15;
+    uint32_t structAlign = typeAlignmentStd430(comp, type);
+    size_t totalSize = roundUp(reflectedSize, structAlign);
     out << "// SPIR-V ID: " << typeId << " | Size: " << totalSize << " bytes\n";
-    out << "struct " << structName << " {\n";
+    out << "struct alignas(16) " << structName << " {\n";
 
     struct Member
     {
@@ -208,6 +276,10 @@ void generateStruct(spirv_cross::Compiler& comp, uint32_t typeId, std::ofstream&
         }
 
         std::string cppType = getCppTypeName(comp, m.m_type);
+        if (structName == "PushData" && cppType == "uint8_t")
+        {
+            throw std::runtime_error("Unmapped type in PushData. Refusing uint8_t fallback.");
+        }
 
         // Output Field
         if (!m.m_type.array.empty())
@@ -243,6 +315,13 @@ void generateStruct(spirv_cross::Compiler& comp, uint32_t typeId, std::ofstream&
         out << "static_assert(sizeof(" << structName << ") == " << totalSize
             << ", \"Size mismatch for " << structName << "\");\n\n";
     }
+
+    for (const auto& m : members)
+    {
+        out << "static_assert(offsetof(" << structName << ", " << m.m_name << ") == "
+            << m.m_offset << ", \"Offset mismatch for " << structName << "::" << m.m_name << "\");\n";
+    }
+    out << "\n";
 }
 
 // -----------------------------------------------------------------------------

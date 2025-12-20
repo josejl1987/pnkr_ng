@@ -54,7 +54,7 @@ namespace pnkr::renderer::scene
                .setTopology(rhi::PrimitiveTopology::TriangleList)
                .setPolygonMode(rhi::PolygonMode::Fill)
                // Cull Front because we are inside the cube
-               .setCullMode(rhi::CullMode::Front, true)
+               .setCullMode(rhi::CullMode::Front, false)
                // Depth: Lequal so it draws at the far plane (z=1.0)
                .enableDepthTest(false, rhi::CompareOp::LessOrEqual)
                .setNoBlend()

@@ -264,46 +264,59 @@ namespace pnkr::renderer::rhi::vulkan
 
     vk::PipelineStageFlags2 VulkanUtils::toVkPipelineStage(ShaderStage stage)
     {
-        if (stage == ShaderStage::None) {
+        if (stage == ShaderStage::None)
+        {
             return vk::PipelineStageFlagBits2::eNone;
-}
-        // Treat "All" as a generic sync point without injecting unsupported shader stages.
-        if (stage == ShaderStage::All) {
+        }
+        if (stage == ShaderStage::Host)
+        {
+            return vk::PipelineStageFlagBits2::eHost;
+        }
+        if (stage == ShaderStage::All)
+        {
             return vk::PipelineStageFlagBits2::eAllCommands;
-}
-
-        if (stage == ShaderStage::Host) {
-            return vk::PipelineStageFlagBits2::eHost; // <--- Map to Host
-}
+        }
 
         vk::PipelineStageFlags2 flags{};
-        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Vertex)) != 0u) {
+        if (hasFlag(stage, ShaderStage::Vertex))
+        {
             flags |= vk::PipelineStageFlagBits2::eVertexShader;
-}
-        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Fragment)) != 0u) {
+        }
+        if (hasFlag(stage, ShaderStage::Fragment))
+        {
             flags |= vk::PipelineStageFlagBits2::eFragmentShader;
-}
-        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Geometry)) != 0u) {
+        }
+        if (hasFlag(stage, ShaderStage::Geometry))
+        {
             flags |= vk::PipelineStageFlagBits2::eGeometryShader;
-}
-        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Compute)) != 0u) {
+        }
+        if (hasFlag(stage, ShaderStage::Compute))
+        {
             flags |= vk::PipelineStageFlagBits2::eComputeShader;
-}
+        }
 
-        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::TessEval)) != 0u) {
+        if (hasFlag(stage, ShaderStage::TessEval))
+        {
             flags |= vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
-}
-        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::TessControl)) != 0u) {
+        }
+        if (hasFlag(stage, ShaderStage::TessControl))
+        {
             flags |= vk::PipelineStageFlagBits2::eTessellationControlShader;
-}
-        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::RenderTarget)) != 0u) {
+        }
+        if (hasFlag(stage, ShaderStage::RenderTarget))
+        {
             flags |= vk::PipelineStageFlagBits2::eColorAttachmentOutput |
                 vk::PipelineStageFlagBits2::eEarlyFragmentTests |
                 vk::PipelineStageFlagBits2::eLateFragmentTests;
-}
-        if ((static_cast<uint32_t>(stage) & static_cast<uint32_t>(ShaderStage::Transfer)) != 0u) {
+        }
+        if (hasFlag(stage, ShaderStage::Transfer))
+        {
             flags |= vk::PipelineStageFlagBits2::eTransfer;
-}
+        }
+        if (hasFlag(stage, ShaderStage::Host))
+        {
+            flags |= vk::PipelineStageFlagBits2::eHost;
+        }
 
         return flags;
     }
@@ -593,9 +606,9 @@ namespace pnkr::renderer::rhi::vulkan
     {
         return vk::Viewport{
             viewport.x,
-            viewport.y,
+            viewport.y + viewport.height,
             viewport.width,
-            viewport.height,
+            -viewport.height,
             viewport.minDepth,
             viewport.maxDepth
         };

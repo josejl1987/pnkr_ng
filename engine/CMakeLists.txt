@@ -63,6 +63,8 @@ add_library(pnkr_engine STATIC
         src/renderer/scene/RHIScene.cpp
         include/pnkr/renderer/scene/Skybox.hpp
         src/renderer/scene/Skybox.cpp
+        src/renderer/scene/InfiniteGrid.cpp
+
         include/pnkr/renderer/debug/LineCanvas3D.hpp
         src/renderer/debug/LineCanvas3D.cpp
         include/pnkr/renderer/debug/DebugLayer.hpp
@@ -166,7 +168,7 @@ target_compile_definitions(pnkr_engine
 
 # Unity build to reduce per-TU header parsing overhead
 set_target_properties(pnkr_engine PROPERTIES
-  UNITY_BUILD OFF
+  UNITY_BUILD ON
   UNITY_BUILD_BATCH_SIZE 8
 )
 set_source_files_properties(src/core/implementations.cpp PROPERTIES UNITY_BUILD OFF)
@@ -302,10 +304,29 @@ add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 add_shader_target("shaders/skybox.frag")
 add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 
+
+add_shader_target("shaders/grid/grid.vert")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/grid/grid.frag")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
 # Include generated headers
 target_include_directories(pnkr_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 # Rebuild if shader headers change
 set_source_files_properties( src/renderer/scene/Skybox.cpp PROPERTIES
         OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/skybox.vert.h"
+)
+
+set_source_files_properties( src/renderer/scene/InfiniteGrid.cpp PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/grid.vert.h"
+)
+
+add_custom_command(TARGET pnkr_engine POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/shaders"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+    "${CMAKE_BINARY_DIR}/bin/shaders"
+  COMMENT "Copying engine SPIR-V shaders to runtime output directory"
 )

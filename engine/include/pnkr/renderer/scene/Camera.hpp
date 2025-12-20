@@ -14,11 +14,18 @@ namespace pnkr::renderer::scene {
 
     class Camera {
     public:
+
+
         void lookAt(const glm::vec3& eye,
                     const glm::vec3& center,
                     const glm::vec3& up = glm::vec3(0.f, 1.f, 0.f))
         {
             m_view = glm::lookAt(eye, center, up);
+
+
+            m_eye = eye;
+            m_center = center;
+            m_up = up;
         }
 
         // fovyRad in radians
@@ -34,9 +41,19 @@ namespace pnkr::renderer::scene {
 
         glm::mat4 viewProj() const noexcept { return m_proj * m_view; }
 
+        const glm::vec3& position() const noexcept { return m_eye; }
+        const glm::vec3& target() const noexcept { return m_center; }
+        const glm::vec3& up() const noexcept { return m_up; }
+
     private:
         glm::mat4 m_view{1.0f};
         glm::mat4 m_proj{1.0f};
+
+        glm::vec3 m_up;
+
+        glm::vec3 m_center;
+
+        glm::vec3 m_eye;
     };
 
 } // namespace pnkr::renderer

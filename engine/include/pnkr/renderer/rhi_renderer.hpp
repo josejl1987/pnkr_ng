@@ -76,11 +76,17 @@ namespace pnkr::renderer
 
         // Command recording
         void setRecordFunc(const RHIRecordFunc& callback);
+        void setComputeRecordFunc(const RHIRecordFunc& callback) { m_computeRecordCallback = callback; }
 
         // Drawing commands (to be used within record callback)
         void bindPipeline(rhi::RHICommandBuffer* cmd, PipelineHandle handle);
+        void bindComputePipeline(rhi::RHICommandBuffer* cmd, PipelineHandle handle)
+        {
+            bindPipeline(cmd, handle); // Pipelines know their bind point
+        }
         void bindMesh(rhi::RHICommandBuffer* cmd, MeshHandle handle);
         void drawMesh(rhi::RHICommandBuffer* cmd, MeshHandle handle);
+        void drawMeshInstanced(rhi::RHICommandBuffer* cmd, MeshHandle handle, uint32_t instanceCount);
         void bindDescriptorSet(rhi::RHICommandBuffer* cmd,
                                PipelineHandle handle,
                                uint32_t setIndex,
@@ -172,6 +178,7 @@ namespace pnkr::renderer
 
         // Frame state
         RHIRecordFunc m_recordCallback;
+        RHIRecordFunc m_computeRecordCallback;
         bool m_frameInProgress = false;
         float m_deltaTime = 0.0f;
         uint32_t m_frameIndex = 0;

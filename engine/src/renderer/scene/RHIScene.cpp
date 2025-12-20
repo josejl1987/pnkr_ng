@@ -1,5 +1,6 @@
 #include "pnkr/renderer/scene/RHIScene.hpp"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/renderer/scene/Skybox.hpp"
 
 namespace pnkr::renderer::scene {
 
@@ -24,6 +25,11 @@ namespace pnkr::renderer::scene {
         // Render skybox first (before opaque objects)
         if (m_skybox) {
             renderSkybox(cmd);
+        }
+
+        if (m_grid)
+        {
+            renderGrid(cmd);
         }
 
         // Render all objects
@@ -61,4 +67,23 @@ namespace pnkr::renderer::scene {
         }
     }
 
+    void RHIScene::initGrid()
+    {
+        m_grid = std::make_unique<InfiniteGrid>();
+        m_grid->init(m_renderer);
+
+    }
+
+    void RHIScene::renderGrid(rhi::RHICommandBuffer* cmd) const
+    {
+        if (m_show_grid) {
+            // Render skybox with camera
+            m_grid->draw(cmd,  m_camera);
+        }
+    }
+
+    void RHIScene::enableGrid(bool enable)
+    {
+        m_show_grid = enable;
+    }
 } // namespace pnkr::renderer::scene

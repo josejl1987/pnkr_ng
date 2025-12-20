@@ -22,7 +22,7 @@ namespace pnkr::renderer {
     VertexInputDescription m_vertexInput;
     mutable vk::Format m_depthFormat = vk::Format::eUndefined;
     vk::CullModeFlags m_cullMode = vk::CullModeFlagBits::eBack;
-    vk::FrontFace m_frontFace = vk::FrontFace::eCounterClockwise;
+    vk::FrontFace m_frontFace = vk::FrontFace::eClockwise;
     DepthConfig m_depth{};
 
     std::vector<vk::DescriptorSetLayout> m_descriptorSetLayouts{};

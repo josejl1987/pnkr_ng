@@ -8,13 +8,18 @@
 
 namespace pnkr::renderer::scene {
 
+
+
     class Skybox {
     public:
-
+        // Changed: Removed the manual loadSpirv helper (we use RHI Factory)
+        // We store the renderer pointer in init.
         void init(RHIRenderer& renderer, const std::vector<std::filesystem::path>& faces);
 
+        // Changed: Renderer is no longer a parameter
         void draw(rhi::RHICommandBuffer* cmd, const Camera& camera);
 
+        // Cleanup resources
         void destroy();
 
     private:

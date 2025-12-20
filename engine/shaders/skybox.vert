@@ -9,19 +9,22 @@ layout(push_constant) uniform SkyboxPushConstants {
 } pc;
 
 void main() {
-    // Generate full screen triangle
+    // 1. Generate full screen triangle in Vulkan NDC
     vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-    vec4 pos = vec4(uv * 2.0 - 1.0, 1.0, 1.0); // Z = 1.0 (Far plane)
+    vec4 pos = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
     gl_Position = pos;
 
-    // Remove translation from View matrix for Skybox
+    // 2. THE FIX: Create a position for unprojection.
+    // Vulkan NDC: -1 is Top, 1 is Bottom.
+    // OpenGL Matrix (GLM): 1 is Top, -1 is Bottom.
+    // We flip Y here so the Matrix correctly understands which pixel is the "Top".
+    vec4 unprojectPos = pos;
+    unprojectPos.y *= -1.0;
+
+    // 3. Unproject using the flipped Y
     mat4 viewNoTrans = mat4(mat3(pc.view));
     mat4 invVP = inverse(pc.proj * viewNoTrans);
 
-    // Unproject to get direction vector
-    vec4 target = invVP * pos;
-    v_TexCoord = target.xyz / target.w;
-
-    // Convert from Vulkan Y-down to standard Cubemap Y-up if necessary
-    v_TexCoord.y *= -1.0;
+    vec4 target = invVP * unprojectPos;
+    v_TexCoord = target.xyz;
 }

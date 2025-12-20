@@ -17,7 +17,10 @@ class RHIGridApp : public samples::RhiSampleApp
 {
 public:
     RHIGridApp()
-        : samples::RhiSampleApp({.title="RHI Skybox", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
+        : samples::RhiSampleApp({
+            .title = "RHI Grid", .width = 800, .height = 600, .windowFlags = SDL_WINDOW_RESIZABLE,
+            .createRenderer = false
+        })
     {
     }
 
@@ -32,11 +35,12 @@ public:
         // 3. Setup Camera
         auto& camera = m_scene->camera();
         float aspect = (float)m_window.width() / (float)m_window.height();
-        camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
+        camera.setPerspective(glm::radians(45.0F), aspect, 0.1F, 1000.0F);
+        m_scene->cameraController().setPosition({0.0f, 1.0f, 1.0f});
 
         // Apply initial camera controller position to camera
         m_scene->cameraController().applyToCamera(camera);
-
+        m_scene->enableGrid(true);
         // 4. Load Skybox
         // Note: You would need to provide actual cubemap face images
         // These should be 6 images in the order: +X, -X, +Y, -Y, +Z, -Z
@@ -50,9 +54,12 @@ public:
         };
 
         // Try to load skybox - fall back to procedural if files don't exist
-        if (std::filesystem::exists(skyboxFaces[0])) {
+        if (std::filesystem::exists(skyboxFaces[0]))
+        {
             m_scene->loadSkybox(skyboxFaces);
-        } else {
+        }
+        else
+        {
             core::Logger::warn("Skybox textures not found, will use procedural sky");
             // Create empty faces to get a valid cubemap handle for procedural sky
             std::vector<std::filesystem::path> emptyFaces(6, "");
@@ -80,7 +87,7 @@ public:
 
         // Update camera aspect ratio when window resizes
         float aspect = (float)m_window.width() / (float)m_window.height();
-        camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
+        camera.setPerspective(glm::radians(45.0F), aspect, 0.1F, 1000.0F);
     }
 
     void createSceneObjects()

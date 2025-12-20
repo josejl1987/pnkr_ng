@@ -125,7 +125,7 @@ namespace pnkr::renderer::rhi
         RenderTarget = 1 << 6,
         Transfer = 1 << 7,
         Host = 1 << 8,
-        All = 0x7FFFFFFF
+        All = Vertex | Fragment | Geometry | Compute | TessControl | TessEval | RenderTarget | Transfer
     };
 
     // Primitive topology

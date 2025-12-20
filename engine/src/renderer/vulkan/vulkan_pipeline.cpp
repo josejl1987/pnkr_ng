@@ -210,7 +210,6 @@ namespace pnkr::renderer
         raster.rasterizerDiscardEnable = VK_FALSE;
         raster.polygonMode = vk::PolygonMode::eFill;
         raster.cullMode = config.m_cullMode;
-        // NOTE: Vulkan screen-space Y is inverted vs OpenGL
         raster.frontFace = config.m_frontFace;
         raster.depthBiasEnable = VK_FALSE;
         raster.lineWidth = 1.0F;

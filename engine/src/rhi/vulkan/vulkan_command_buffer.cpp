@@ -250,6 +250,18 @@ namespace pnkr::renderer::rhi::vulkan
         ShaderStage dstStage,
         const std::vector<RHIMemoryBarrier>& barriers)
     {
+        auto stripHostAccessIfNoHostStage =
+            [](vk::PipelineStageFlags2 stages, vk::AccessFlags2& access)
+        {
+            const vk::AccessFlags2 hostBits =
+                vk::AccessFlagBits2::eHostRead | vk::AccessFlagBits2::eHostWrite;
+
+            if ((access & hostBits) && !(stages & vk::PipelineStageFlagBits2::eHost))
+            {
+                access &= ~hostBits;
+            }
+        };
+
         std::vector<vk::BufferMemoryBarrier2> bufferBarriers;
         std::vector<vk::ImageMemoryBarrier2> imageBarriers;
 
@@ -268,11 +280,7 @@ namespace pnkr::renderer::rhi::vulkan
                 vkBarrier.srcStageMask = srcStageMask;
                 vkBarrier.dstStageMask = dstStageMask;
 
-                if (dstStage == ShaderStage::Host)
-                {
-                    vkBarrier.dstAccessMask = vk::AccessFlagBits2::eHostRead;
-                }
-                else if (dstStage == ShaderStage::Transfer)
+                if (dstStage == ShaderStage::Transfer)
                 {
                     vkBarrier.dstAccessMask = vk::AccessFlagBits2::eTransferRead;
                 }
@@ -290,6 +298,9 @@ namespace pnkr::renderer::rhi::vulkan
                 {
                     vkBarrier.srcAccessMask = vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eMemoryWrite;
                 }
+
+                stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
+                stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);
 
                 vkBarrier.buffer = vkBuffer->buffer();
                 vkBarrier.size = VK_WHOLE_SIZE;
@@ -312,8 +323,10 @@ namespace pnkr::renderer::rhi::vulkan
                 vkBarrier.newLayout = VulkanUtils::toVkImageLayout(barrier.newLayout);
 
                 // Derive access masks from layouts.
-                auto getAccessFlags = [](vk::ImageLayout layout) -> vk::AccessFlags2
+                auto getAccessFlags = [](vk::ImageLayout layout,
+                                         vk::PipelineStageFlags2 stageMask) -> vk::AccessFlags2
                 {
+                    (void)(stageMask);
                     switch (layout)
                     {
                     case vk::ImageLayout::eUndefined: return vk::AccessFlags2{};
@@ -325,13 +338,18 @@ namespace pnkr::renderer::rhi::vulkan
                         return vk::AccessFlagBits2::eDepthStencilAttachmentWrite |
                             vk::AccessFlagBits2::eDepthStencilAttachmentRead;
                     case vk::ImageLayout::eShaderReadOnlyOptimal: return vk::AccessFlagBits2::eShaderRead;
-                    case vk::ImageLayout::ePresentSrcKHR: return vk::AccessFlagBits2::eMemoryRead;
-                    default: return vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite;
+                    case vk::ImageLayout::ePresentSrcKHR: return vk::AccessFlags2{};
+                    case vk::ImageLayout::eGeneral:
+                        return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite |
+                            vk::AccessFlagBits2::eShaderStorageRead | vk::AccessFlagBits2::eShaderStorageWrite;
+                    default: return vk::AccessFlagBits2::eShaderRead;
                     }
                 };
 
-                vkBarrier.srcAccessMask = getAccessFlags(vkBarrier.oldLayout);
-                vkBarrier.dstAccessMask = getAccessFlags(vkBarrier.newLayout);
+                vkBarrier.srcAccessMask = getAccessFlags(vkBarrier.oldLayout, srcStageMask);
+                vkBarrier.dstAccessMask = getAccessFlags(vkBarrier.newLayout, dstStageMask);
+                stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
+                stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);
 
                 vkBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 vkBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;

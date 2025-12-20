@@ -190,6 +190,8 @@ namespace pnkr::renderer::rhi::vulkan
         featuresCore.shaderStorageImageWriteWithoutFormat = VK_TRUE;
         featuresCore.fillModeNonSolid = VK_TRUE;
         featuresCore.geometryShader = VK_TRUE;
+        featuresCore.shaderInt64 = VK_TRUE;
+        featuresCore.shaderFloat64 = VK_TRUE;
         // Vulkan 1.2 features (Bindless)
         vk::PhysicalDeviceVulkan12Features features12{};
         features12.runtimeDescriptorArray = VK_TRUE;
@@ -200,6 +202,7 @@ namespace pnkr::renderer::rhi::vulkan
         features12.descriptorIndexing = VK_TRUE;
         features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
         features12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+        features12.scalarBlockLayout = VK_TRUE;
         // Vulkan 1.3 features (Dynamic Rendering, Sync2)
         vk::PhysicalDeviceVulkan13Features features13{};
         features13.dynamicRendering = VK_TRUE;

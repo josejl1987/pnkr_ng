@@ -1,22 +1,21 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_nonuniform_qualifier : require
-#extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_buffer_reference : require
 
 #include "bindless.glsl"
 
-
-struct Vertex{
-    float x, y, z;
-    float r, g, b;
-    float nx, ny, nz;
-    float u, v;
-    float tx, ty, tz, tw;
+struct GPUVertex {
+    vec4 pos;
+    vec4 color;
+    vec4 normal;
+    vec4 tangent;
+    vec2 uv;
+    vec2 _pad;
 };
 
-layout(std430, buffer_reference) readonly buffer Vertices {
-    Vertex in_Vertices[];
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer Vertices {
+    GPUVertex in_Vertices[];
 };
 
 // Push constants for per-draw data
@@ -30,29 +29,23 @@ layout(push_constant) uniform PushConstants {
 
 
 vec3 getPosition(int i) {
-    return vec3(pc.vtx.in_Vertices[i].x,
-    pc.vtx.in_Vertices[i].y,
-    pc.vtx.in_Vertices[i].z);
+    return pc.vtx.in_Vertices[i].pos.xyz;
 }
 vec2 getTexCoord(int i) {
-    return vec2(pc.vtx.in_Vertices[i].u,
-    pc.vtx.in_Vertices[i].v);
+    return pc.vtx.in_Vertices[i].uv;
 }
 
 vec3 getNomal(int i) {
-    return vec3(pc.vtx.in_Vertices[i].nx,
-    pc.vtx.in_Vertices[i].ny, pc.vtx.in_Vertices[i].nz);
+    return pc.vtx.in_Vertices[i].normal.xyz;
 }
 
 
 vec3 getColor(int i) {
-    return vec3(pc.vtx.in_Vertices[i].r,
-    pc.vtx.in_Vertices[i].g, pc.vtx.in_Vertices[i].b);
+    return pc.vtx.in_Vertices[i].color.xyz;
 }
 
 vec4 getTangent(int i) {
-    return vec4(pc.vtx.in_Vertices[i].tx,
-    pc.vtx.in_Vertices[i].ty, pc.vtx.in_Vertices[i].tz, pc.vtx.in_Vertices[i].tw);
+    return pc.vtx.in_Vertices[i].tangent;
 }
 
 
