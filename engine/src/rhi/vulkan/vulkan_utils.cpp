@@ -348,6 +348,7 @@ namespace pnkr::renderer::rhi::vulkan
         case PrimitiveTopology::TriangleList: return vk::PrimitiveTopology::eTriangleList;
         case PrimitiveTopology::TriangleStrip: return vk::PrimitiveTopology::eTriangleStrip;
         case PrimitiveTopology::TriangleFan: return vk::PrimitiveTopology::eTriangleFan;
+        case PrimitiveTopology::PatchList: return vk::PrimitiveTopology::ePatchList;
         default: return vk::PrimitiveTopology::eTriangleList;
         }
     }
@@ -362,6 +363,7 @@ namespace pnkr::renderer::rhi::vulkan
         case vk::PrimitiveTopology::eTriangleList: return PrimitiveTopology::TriangleList;
         case vk::PrimitiveTopology::eTriangleStrip: return PrimitiveTopology::TriangleStrip;
         case vk::PrimitiveTopology::eTriangleFan: return PrimitiveTopology::TriangleFan;
+        case vk::PrimitiveTopology::ePatchList: return PrimitiveTopology::PatchList;
         default: return PrimitiveTopology::TriangleList;
         }
     }

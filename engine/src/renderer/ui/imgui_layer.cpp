@@ -1,24 +1,41 @@
-//
-// Created by Jose on 12/14/2025.
-//
-
 #include "pnkr/ui/imgui_layer.hpp"
 
+// External libs
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
 
-#include <array>
-#include <stdexcept>
+// Engine RHI Interfaces
+#include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/platform/window.hpp"
 
-#include "pnkr/engine.hpp"
+// RHI Vulkan Implementation (Required for ImGui_ImplVulkan)
+#include "pnkr/rhi/vulkan/vulkan_device.hpp"
+#include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
+#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 
 namespace pnkr::ui {
 
-void ImGuiLayer::init(pnkr::renderer::Renderer& renderer, pnkr::platform::Window* window) {
-    m_renderer = &renderer;
+// Helper to cast the opaque pointer back to the Vulkan handle
+static vk::DescriptorPool& GetPool(void*& handle) {
+    return *reinterpret_cast<vk::DescriptorPool*>(&handle);
+}
 
-    // 1. Create Descriptor Pool for ImGui
+void ImGuiLayer::init(pnkr::renderer::RHIRenderer* renderer, pnkr::platform::Window* window) {
+    m_renderer = renderer;
+
+    // 1. Resolve RHI Device to Vulkan Device
+    // We cannot avoid this because ImGui_ImplVulkan needs raw handles.
+    auto* vkDeviceWrapper = dynamic_cast<renderer::rhi::vulkan::VulkanRHIDevice*>(m_renderer->device());
+    if (!vkDeviceWrapper) {
+        throw std::runtime_error("[ImGuiLayer] RHI Backend is not Vulkan! ImGui_ImplVulkan requires Vulkan.");
+    }
+    
+    vk::Device device = vkDeviceWrapper->device();
+    vk::PhysicalDevice physicalDevice = vkDeviceWrapper->vkPhysicalDevice();
+    vk::Instance instance = vkDeviceWrapper->instance();
+
+    // 2. Create Descriptor Pool
     vk::DescriptorPoolSize poolSizes[] = {
         { vk::DescriptorType::eSampler, 1000 },
         { vk::DescriptorType::eCombinedImageSampler, 1000 },
@@ -35,88 +52,87 @@ void ImGuiLayer::init(pnkr::renderer::Renderer& renderer, pnkr::platform::Window
 
     vk::DescriptorPoolCreateInfo poolInfo = {};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-    poolInfo.maxSets = 1000 * 2;
+    poolInfo.maxSets = 1000;
     poolInfo.poolSizeCount = (uint32_t)std::size(poolSizes);
     poolInfo.pPoolSizes = poolSizes;
 
-    m_descriptorPool = renderer.device().createDescriptorPool(poolInfo);
+    // Store in our void* handle
+    vk::DescriptorPool pool = device.createDescriptorPool(poolInfo);
+    m_descriptorPool = *reinterpret_cast<void**>(&pool);
 
-    // 2. Initialize ImGui Context
+    // 3. Initialize Context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-
     ImGui::StyleColorsDark();
 
-    // 3. Initialize SDL3 Backend
+    // 4. Init SDL3
     ImGui_ImplSDL3_InitForVulkan(window->get());
 
-    // 4. Initialize Vulkan Backend with Dynamic Rendering
+    // 5. Init Vulkan Backend
     ImGui_ImplVulkan_InitInfo initInfo = {};
-    initInfo.Instance = renderer.instance();
-    initInfo.PhysicalDevice = renderer.physicalDevice();
-    initInfo.Device = renderer.device();
-    initInfo.QueueFamily = renderer.graphicsQueueFamilyIndex();
-    initInfo.Queue = renderer.graphicsQueue();
+    initInfo.Instance = instance;
+    initInfo.PhysicalDevice = physicalDevice;
+    initInfo.Device = device;
+    initInfo.QueueFamily = vkDeviceWrapper->graphicsQueueFamily();
+    initInfo.Queue = vkDeviceWrapper->graphicsQueue();
     initInfo.PipelineCache = nullptr;
-    initInfo.DescriptorPool = m_descriptorPool;
+    initInfo.DescriptorPool = GetPool(m_descriptorPool);
     initInfo.Subpass = 0;
     initInfo.MinImageCount = 2;
-    initInfo.ImageCount = 3; 
+    initInfo.ImageCount = 3;
     initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    initInfo.Allocator = nullptr;
-    initInfo.CheckVkResultFn = nullptr;
-
+    
+    // Dynamic Rendering Setup
     initInfo.UseDynamicRendering = true;
-
-    // Must match the format of the Swapchain where UI is rendered
-    const auto swapchainFormat = static_cast<VkFormat>(renderer.getSwapchainColorFormat());
+    
+    // Use RHI Utils to convert formats
+    const auto colorFormat = renderer::rhi::vulkan::VulkanUtils::toVkFormat(m_renderer->getDrawColorFormat());
+    const auto depthFormat = renderer::rhi::vulkan::VulkanUtils::toVkFormat(m_renderer->getDrawDepthFormat());
 
     VkPipelineRenderingCreateInfoKHR pipelineRenderingCreateInfo = {};
     pipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
     pipelineRenderingCreateInfo.colorAttachmentCount = 1;
-    pipelineRenderingCreateInfo.pColorAttachmentFormats = &swapchainFormat;
+    pipelineRenderingCreateInfo.pColorAttachmentFormats = reinterpret_cast<const VkFormat*>(&colorFormat);
+    pipelineRenderingCreateInfo.depthAttachmentFormat = static_cast<VkFormat>(depthFormat);
 
     initInfo.PipelineRenderingCreateInfo = pipelineRenderingCreateInfo;
 
     ImGui_ImplVulkan_Init(&initInfo);
 
-    // 5. Upload Fonts using a temporary command buffer
-    vk::CommandPool cmdPool = renderer.commandPool();
-    vk::CommandBufferAllocateInfo allocInfo{};
-    allocInfo.commandPool = cmdPool;
-    allocInfo.level = vk::CommandBufferLevel::ePrimary;
-    allocInfo.commandBufferCount = 1;
+    m_initialized = true;
 
-    vk::CommandBuffer cmd = renderer.device().allocateCommandBuffers(allocInfo)[0];
+    // 6. Upload Fonts (Using RHI Command Buffer interface)
+    auto cmd = m_renderer->device()->createCommandBuffer();
+    cmd->begin();
 
-    vk::CommandBufferBeginInfo beginInfo{};
-    beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
-    cmd.begin(beginInfo);
-
+    // We must downcast here to get the raw handle for ImGui
     ImGui_ImplVulkan_CreateFontsTexture();
 
-    cmd.end();
+    cmd->end();
+    m_renderer->device()->submitCommands(cmd.get());
+    m_renderer->device()->waitIdle();
 
-    vk::SubmitInfo submitInfo{};
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &cmd;
 
-    renderer.graphicsQueue().submit(submitInfo, nullptr);
-    renderer.device().waitIdle(); 
-
-    renderer.device().freeCommandBuffers(cmdPool, cmd);
 }
 
 void ImGuiLayer::shutdown() {
-    if (m_renderer != nullptr) {
-        m_renderer->device().waitIdle();
+    if (m_renderer && m_initialized) {
+        m_renderer->device()->waitIdle();
+        
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
-        m_renderer->device().destroyDescriptorPool(m_descriptorPool);
+
+        // Destroy pool using the raw device wrapper
+        auto* vkDeviceWrapper = dynamic_cast<renderer::rhi::vulkan::VulkanRHIDevice*>(m_renderer->device());
+        if (vkDeviceWrapper) {
+            vkDeviceWrapper->device().destroyDescriptorPool(GetPool(m_descriptorPool));
+        }
+        
         m_renderer = nullptr;
+        m_initialized = false;
     }
 }
 
@@ -131,8 +147,18 @@ void ImGuiLayer::beginFrame() {
 }
 
 void ImGuiLayer::endFrame() {
-    // Generate draw data. Renderer::drawFrame() picks this up.
     ImGui::Render();
+}
+
+void ImGuiLayer::render(pnkr::renderer::rhi::RHICommandBuffer* cmd) {
+    ImDrawData* drawData = ImGui::GetDrawData();
+    if (drawData) {
+        // Cast the abstract RHI buffer to the concrete Vulkan implementation
+        auto* vkCmd = dynamic_cast<renderer::rhi::vulkan::VulkanRHICommandBuffer*>(cmd);
+        if (vkCmd) {
+            ImGui_ImplVulkan_RenderDrawData(drawData, vkCmd->commandBuffer());
+        }
+    }
 }
 
 } // namespace pnkr::ui

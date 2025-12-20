@@ -132,9 +132,15 @@ namespace pnkr::renderer::rhi::vulkan
 
     vk::PresentModeKHR VulkanRHISwapchain::choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) 
     {
-        // Keep it simple for now: vsync on.
-        // FIFO is guaranteed by spec.
-        (void)modes;
+        if (!m_vsync) {
+            // Mailbox is lowest latency without tearing, Immediate is fastest but tears
+            for (auto mode : modes) {
+                if (mode == vk::PresentModeKHR::eMailbox) return mode;
+            }
+            for (auto mode : modes) {
+                if (mode == vk::PresentModeKHR::eImmediate) return mode;
+            }
+        }
         return vk::PresentModeKHR::eFifo;
     }
 

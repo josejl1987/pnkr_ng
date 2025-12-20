@@ -151,7 +151,8 @@ namespace pnkr::renderer
 
         if (!m_recordCallback && !m_computeRecordCallback)
         {
-            core::Logger::warn("No record callback set");
+            core::Logger::warn("No record callback set (m_recordCallback={}, m_computeRecordCallback={})", 
+                               (bool)m_recordCallback, (bool)m_computeRecordCallback);
             return;
         }
 
@@ -634,6 +635,7 @@ namespace pnkr::renderer
 
     void RHIRenderer::setRecordFunc(const RHIRecordFunc& callback)
     {
+        core::Logger::info("RHIRenderer: Record callback set.");
         m_recordCallback = callback;
     }
 
@@ -824,6 +826,16 @@ namespace pnkr::renderer
     {
         unsigned char white[4] = {255, 255, 255, 255};
         return createTexture(white, 1, 1, 4, false);
+    }
+
+    void RHIRenderer::setVsync(bool enabled)
+    {
+        if (m_swapchain) {
+            m_device->waitIdle();
+            m_swapchain->setVsync(enabled);
+            // Force recreate
+            m_swapchain->recreate(m_window.width(), m_window.height());
+        }
     }
 
     void RHIRenderer::uploadToBuffer(rhi::RHIBuffer* target, const void* data, uint64_t size)

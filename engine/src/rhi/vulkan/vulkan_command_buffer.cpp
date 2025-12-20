@@ -163,6 +163,12 @@ namespace pnkr::renderer::rhi::vulkan
                                     vertexOffset, firstInstance);
     }
 
+    void VulkanRHICommandBuffer::drawIndexedIndirect(RHIBuffer* buffer, uint64_t offset, uint32_t drawCount, uint32_t stride)
+    {
+        auto* vkBuffer = dynamic_cast<VulkanRHIBuffer*>(buffer);
+        m_commandBuffer.drawIndexedIndirect(vkBuffer->buffer(), offset, drawCount, stride);
+    }
+
     void VulkanRHICommandBuffer::dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
     {
         m_commandBuffer.dispatch(groupCountX, groupCountY, groupCountZ);

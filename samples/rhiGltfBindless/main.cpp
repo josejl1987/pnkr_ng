@@ -27,7 +27,6 @@ public:
 
     renderer::scene::Camera m_camera;
     std::unique_ptr<renderer::scene::Model> m_model;
-    std::unique_ptr<renderer::RHIRenderer> m_renderer;
     PipelineHandle m_pipeline;
     std::unique_ptr<renderer::rhi::RHIBuffer> m_materialBuffer;
     std::unique_ptr<renderer::rhi::RHITexture> m_dummyTexture;
@@ -58,15 +57,7 @@ public:
         createPipeline();
         createDescriptors();
 
-        m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx) {
-            recordFrame(ctx);
-        });
-    }
-    void onRenderFrame(float deltaTime) override
-    {
-        m_renderer->beginFrame(deltaTime);
-        m_renderer->drawFrame();
-        m_renderer->endFrame();
+        initUI();
     }
     void uploadMaterials() {
         const auto& modelMaterials = m_model->materials();
@@ -155,7 +146,7 @@ public:
         m_materialSet->updateBuffer(0, m_materialBuffer.get(), 0, m_materialBuffer->size());
     }
 
-    void recordFrame(const renderer::RHIFrameContext& ctx) {
+    void onRecord(const renderer::RHIFrameContext& ctx) override {
         m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
         m_renderer->bindDescriptorSet(ctx.commandBuffer, m_pipeline, 0, m_materialSet.get());
         
@@ -192,7 +183,8 @@ public:
         }
     }
 
-    void onShutdown() override {}
+    void onShutdown() override {
+    }
 };
 
 int main(int argc, char** argv) {

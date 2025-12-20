@@ -7,6 +7,7 @@
     "vulkan-headers",
     "stb",
     "fastgltf",
+    "meshoptimizer",
     "spdlog",
     {
       "name": "spirv-cross"

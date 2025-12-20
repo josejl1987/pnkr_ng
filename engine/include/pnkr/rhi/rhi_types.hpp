@@ -136,7 +136,8 @@ namespace pnkr::renderer::rhi
         LineStrip,
         TriangleList,
         TriangleStrip,
-        TriangleFan
+        TriangleFan,
+        PatchList
     };
 
     // Polygon mode

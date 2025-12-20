@@ -39,5 +39,7 @@ namespace pnkr::renderer::rhi
 
         // Explicit swapchain rebuild (used on OUT_OF_DATE / resize).
         virtual void recreate(uint32_t width, uint32_t height) = 0;
+
+        virtual void setVsync(bool enabled) = 0;
     };
 } // namespace pnkr::renderer::rhi

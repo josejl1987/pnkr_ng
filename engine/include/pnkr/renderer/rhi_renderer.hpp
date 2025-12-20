@@ -125,6 +125,8 @@ namespace pnkr::renderer
         // Device access
         rhi::RHIDevice* device() const { return m_device.get(); }
 
+        void setVsync(bool enabled);
+
         // Bindless support
         void setBindlessEnabled(bool enabled);
         rhi::RHIPipeline* pipeline(PipelineHandle handle);

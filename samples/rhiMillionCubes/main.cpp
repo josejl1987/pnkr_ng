@@ -26,7 +26,6 @@ public:
     }
 
     renderer::scene::Camera m_camera;
-    std::unique_ptr<renderer::RHIRenderer> m_renderer;
     PipelineHandle m_pipeline;
     BufferHandle m_instanceBuffer;
     TextureHandle m_xorTexture;
@@ -73,17 +72,7 @@ public:
 
         createPipeline();
 
-        m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx)
-        {
-            recordFrame(ctx);
-        });
-    }
-
-    void onRenderFrame(float deltaTime) override
-    {
-        m_renderer->beginFrame(deltaTime);
-        m_renderer->drawFrame();
-        m_renderer->endFrame();
+        initUI();
     }
 
     void createPipeline()
@@ -100,7 +89,7 @@ public:
         auto builder = renderer::rhi::RHIPipelineBuilder()
                        .setShaders(vs.get(), fs.get(), nullptr)
                        .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
-                       .setCullMode(renderer::rhi::CullMode::Back)
+                       .setCullMode(renderer::rhi::CullMode::Back, false)
                        .enableDepthTest()
                        .setColorFormat(m_renderer->getDrawColorFormat())
                        .setDepthFormat(m_renderer->getDrawDepthFormat())
@@ -109,7 +98,7 @@ public:
         m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
     }
 
-    void recordFrame(const renderer::RHIFrameContext& ctx)
+    void onRecord(const renderer::RHIFrameContext& ctx) override
     {
         m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
 

@@ -13,7 +13,7 @@ layout(push_constant) uniform Constants {
 layout(set = 1, binding = 2) uniform samplerCube globalCubemaps[];
 void main() {
     vec3 dir = normalize(v_TexCoord);
-
+    dir *=-1;
     if (pc.textureIndex != 0xFFFFFFFFu && pc.textureIndex < 100000) {
         // Texture will be right-side up because we didn't flip the sample
         outColor = texture(globalCubemaps[nonuniformEXT(pc.textureIndex)], dir);

@@ -32,8 +32,6 @@ namespace pnkr::renderer::scene {
         void setPerspective(float fovyRad, float aspect, float zNear, float zFar)
         {
             m_proj = glm::perspective(fovyRad, aspect, zNear, zFar);
-            // Vulkan NDC has inverted Y when using GLM's default conventions
-            m_proj[1][1] *= -1.0f;
         }
 
         const glm::mat4& view() const noexcept { return m_view; }

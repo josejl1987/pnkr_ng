@@ -19,41 +19,37 @@ namespace pnkr::renderer::rhi {
         setNoBlend(); // Default blend
     }
 
-    RHIPipelineBuilder& RHIPipelineBuilder::setShaders(const Shader* vert, const Shader* frag, const Shader * geom) {
+    RHIPipelineBuilder& RHIPipelineBuilder::setShaders(const Shader* vert, const Shader* frag, const Shader* geom) {
+        return setShaders(vert, frag, nullptr, nullptr, geom);
+    }
+
+    RHIPipelineBuilder& RHIPipelineBuilder::setShaders(const Shader* vert, const Shader* frag,
+                                                       const Shader* tesc, const Shader* tese,
+                                                       const Shader* geom) {
         m_gfxDesc.shaders.clear();
         m_mergedLayouts.clear();
         m_mergedPushConstants.clear();
 
-        if (vert != nullptr) {
+        auto addStage = [&](const Shader* shader, ShaderStage stage) {
+            if (shader == nullptr) {
+                return;
+            }
             ShaderModuleDescriptor sm{};
-            sm.stage = ShaderStage::Vertex;
-            sm.spirvCode = vert->code();
-            sm.entryPoint = vert->reflection().entryPoint;
+            sm.stage = stage;
+            sm.spirvCode = shader->code();
+            sm.entryPoint = shader->reflection().entryPoint;
             m_gfxDesc.shaders.push_back(sm);
-            mergeReflection(vert->reflection());
-            m_reflectedInputAttributes = vert->reflection().inputAttributes;
-        }
+            mergeReflection(shader->reflection());
+            if (stage == ShaderStage::Vertex) {
+                m_reflectedInputAttributes = shader->reflection().inputAttributes;
+            }
+        };
 
-        if (geom != nullptr) {
-            ShaderModuleDescriptor sm{};
-            sm.stage = ShaderStage::Geometry;
-            sm.spirvCode = geom->code();
-            sm.entryPoint = geom->reflection().entryPoint;
-            m_gfxDesc.shaders.push_back(sm);
-            mergeReflection(geom->reflection());
-        }
-
-        if (frag != nullptr) {
-            ShaderModuleDescriptor sm{};
-            sm.stage = ShaderStage::Fragment;
-            sm.spirvCode = frag->code();
-            sm.entryPoint = frag->reflection().entryPoint;
-            m_gfxDesc.shaders.push_back(sm);
-            mergeReflection(frag->reflection());
-        }
-
-
-
+        addStage(vert, ShaderStage::Vertex);
+        addStage(tesc, ShaderStage::TessControl);
+        addStage(tese, ShaderStage::TessEval);
+        addStage(geom, ShaderStage::Geometry);
+        addStage(frag, ShaderStage::Fragment);
 
         return *this;
     }
@@ -113,6 +109,11 @@ namespace pnkr::renderer::rhi {
 
     RHIPipelineBuilder& RHIPipelineBuilder::setTopology(PrimitiveTopology topology) {
         m_gfxDesc.topology = topology;
+        return *this;
+    }
+
+    RHIPipelineBuilder& RHIPipelineBuilder::setPatchControlPoints(uint32_t controlPoints) {
+        m_gfxDesc.patchControlPoints = controlPoints;
         return *this;
     }
 

@@ -62,7 +62,11 @@ namespace pnkr::renderer::rhi::vulkan
                 stageInfo.stage = vk::ShaderStageFlagBits::eCompute;
             } else if (flags & vk::ShaderStageFlagBits::eGeometry) {
                 stageInfo.stage = vk::ShaderStageFlagBits::eGeometry;
-}
+            } else if (flags & vk::ShaderStageFlagBits::eTessellationControl) {
+                stageInfo.stage = vk::ShaderStageFlagBits::eTessellationControl;
+            } else if (flags & vk::ShaderStageFlagBits::eTessellationEvaluation) {
+                stageInfo.stage = vk::ShaderStageFlagBits::eTessellationEvaluation;
+            }
             stageInfo.module = module;
             stageInfo.pName = shaderDesc.entryPoint.c_str();
 
@@ -103,6 +107,11 @@ namespace pnkr::renderer::rhi::vulkan
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.topology = VulkanUtils::toVkTopology(desc.topology);
         inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+        vk::PipelineTessellationStateCreateInfo tessellationInfo{};
+        if (desc.topology == PrimitiveTopology::PatchList) {
+            tessellationInfo.patchControlPoints = desc.patchControlPoints;
+        }
 
         // Viewport state (dynamic)
         vk::PipelineViewportStateCreateInfo viewportState{};
@@ -198,6 +207,9 @@ namespace pnkr::renderer::rhi::vulkan
         pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &colorBlending;
         pipelineInfo.pDynamicState = &dynamicState;
+        if (desc.topology == PrimitiveTopology::PatchList) {
+            pipelineInfo.pTessellationState = &tessellationInfo;
+        }
         pipelineInfo.layout = m_pipelineLayout;
         pipelineInfo.renderPass = nullptr; // Using dynamic rendering
         pipelineInfo.subpass = 0;

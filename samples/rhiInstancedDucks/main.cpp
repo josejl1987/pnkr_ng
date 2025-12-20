@@ -63,7 +63,6 @@ public:
     }
 
     renderer::scene::Camera m_camera;
-    std::unique_ptr<renderer::RHIRenderer> m_renderer;
     PipelineHandle m_computePipeline;
     PipelineHandle m_graphicsPipeline;
     BufferHandle m_instanceBuffer;
@@ -86,14 +85,11 @@ public:
         createMatrixBuffers();
         createPipelines();
 
+        initUI();
+
         m_renderer->setComputeRecordFunc([this](const renderer::RHIFrameContext& ctx)
         {
             recordCompute(ctx);
-        });
-
-        m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx)
-        {
-            recordGraphics(ctx);
         });
     }
 
@@ -249,7 +245,7 @@ public:
         );
     }
 
-    void recordGraphics(const renderer::RHIFrameContext& ctx)
+    void onRecord(const renderer::RHIFrameContext& ctx) override
     {
         float aspect = float(m_window.width()) / m_window.height();
 
@@ -263,7 +259,6 @@ public:
 
         uint32_t readBufferIndex = ctx.frameIndex % 2;
         renderInstancedDucks(ctx, viewProj, readBufferIndex);
-
     }
 
     void dispatchComputeShader(const renderer::RHIFrameContext& ctx,

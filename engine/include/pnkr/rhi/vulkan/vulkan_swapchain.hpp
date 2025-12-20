@@ -57,8 +57,10 @@ namespace pnkr::renderer::rhi::vulkan
         bool endFrame(uint32_t frameIndex, RHICommandBuffer* cmd) override;
 
         void recreate(uint32_t width, uint32_t height) override;
+        void setVsync(bool enabled) override { m_vsync = enabled; }
 
     private:
+        bool m_vsync = true;
         VulkanRHIDevice* m_device{};
         platform::Window* m_window{};
 
@@ -91,9 +93,9 @@ namespace pnkr::renderer::rhi::vulkan
         void createSyncObjects();
         void destroySyncObjects();
 
-        static vk::SurfaceFormatKHR chooseSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& formats, Format preferred) ;
-        static vk::PresentModeKHR choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) ;
-        static vk::Extent2D chooseExtent(const vk::SurfaceCapabilitiesKHR& caps, uint32_t width, uint32_t height) ;
+         vk::SurfaceFormatKHR chooseSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& formats, Format preferred) ;
+         vk::PresentModeKHR choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) ;
+         vk::Extent2D chooseExtent(const vk::SurfaceCapabilitiesKHR& caps, uint32_t width, uint32_t height) ;
     };
 
 } // namespace pnkr::renderer::rhi::vulkan

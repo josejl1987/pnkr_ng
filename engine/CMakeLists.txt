@@ -61,6 +61,8 @@ add_library(pnkr_engine STATIC
         src/rhi/rhi_shader.cpp
         include/pnkr/renderer/scene/RHIScene.hpp
         src/renderer/scene/RHIScene.cpp
+        include/pnkr/renderer/scene/VtxData.hpp
+        src/renderer/scene/VtxData.cpp
         include/pnkr/renderer/scene/Skybox.hpp
         src/renderer/scene/Skybox.cpp
         src/renderer/scene/InfiniteGrid.cpp
@@ -248,6 +250,7 @@ find_package(spirv_cross_glsl CONFIG REQUIRED)
 find_package(spirv_cross_cpp CONFIG REQUIRED)
 find_package(spirv_cross_hlsl CONFIG REQUIRED)
 find_package(fastgltf CONFIG REQUIRED)
+find_package(meshoptimizer CONFIG REQUIRED)
 
 target_link_libraries(pnkr_engine
         PUBLIC
@@ -256,6 +259,7 @@ target_link_libraries(pnkr_engine
         spirv-cross-cpp
         spirv-cross-hlsl
         fastgltf::fastgltf
+        meshoptimizer::meshoptimizer
 )
 
 # ============================================================================

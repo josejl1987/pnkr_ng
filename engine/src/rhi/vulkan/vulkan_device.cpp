@@ -192,6 +192,7 @@ namespace pnkr::renderer::rhi::vulkan
         featuresCore.geometryShader = VK_TRUE;
         featuresCore.shaderInt64 = VK_TRUE;
         featuresCore.shaderFloat64 = VK_TRUE;
+        featuresCore.multiDrawIndirect = VK_TRUE; // Enable MultiDraw
         // Vulkan 1.2 features (Bindless)
         vk::PhysicalDeviceVulkan12Features features12{};
         features12.runtimeDescriptorArray = VK_TRUE;

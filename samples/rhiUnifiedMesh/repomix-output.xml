@@ -1,0 +1,289 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+CMakeLists.txt
+main.cpp
+shaders/unified.frag
+shaders/unified.vert
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="CMakeLists.txt">
+add_executable(pnkr_rhi_unified_mesh main.cpp)
+target_compile_features(pnkr_rhi_unified_mesh PRIVATE cxx_std_20)
+target_link_libraries(pnkr_rhi_unified_mesh PRIVATE pnkr_engine)
+
+# Shaders
+add_shader_target("shaders/unified.vert")
+add_dependencies(pnkr_rhi_unified_mesh ${LAST_GENERATED_TARGET})
+add_shader_target("shaders/unified.frag")
+add_dependencies(pnkr_rhi_unified_mesh ${LAST_GENERATED_TARGET})
+
+target_include_directories(pnkr_rhi_unified_mesh PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
+# Copy logic
+add_custom_command(TARGET pnkr_rhi_unified_mesh POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_unified_mesh>/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        "$<TARGET_FILE_DIR:pnkr_rhi_unified_mesh>/shaders"
+)
+</file>
+
+<file path="main.cpp">
+#include "pnkr/engine.hpp"
+#include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/renderer/scene/VtxData.hpp"
+#include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/Model.hpp"
+#include "pnkr/renderer/scene/transform.hpp"
+#include "pnkr/renderer/geometry/Vertex.h"
+#include "pnkr/rhi/rhi_pipeline_builder.hpp"
+#include "pnkr/rhi/rhi_shader.hpp"
+#include "../common/RhiSampleApp.hpp"
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <iostream>
+#include <cstring>
+#include <filesystem>
+
+// Generated header from shader compilation
+#include "generated/unified.vert.h"
+
+using namespace pnkr;
+namespace fs = std::filesystem;
+
+class UnifiedMeshSample : public samples::RhiSampleApp {
+public:
+    UnifiedMeshSample() 
+        : samples::RhiSampleApp({.title="RHI Unified Mesh", .width=1280, .height=720}) {}
+
+    renderer::scene::UnifiedMeshData m_meshData;
+    std::unique_ptr<renderer::rhi::RHIBuffer> m_globalVertexBuffer;
+    std::unique_ptr<renderer::rhi::RHIBuffer> m_globalIndexBuffer;
+    PipelineHandle m_pipeline;
+    renderer::scene::Camera m_camera;
+
+    void onInit() override {
+        // 1. Prepare Data
+        fs::path cacheFile = baseDir() / "scene.mesh";
+        if (!fs::exists(cacheFile)) {
+            core::Logger::info("Cache file not found. Generating from procedural assets...");
+            convertAssetsToUnified(cacheFile.string().c_str());
+        }
+
+        if (!renderer::scene::loadUnifiedMeshData(cacheFile.string().c_str(), m_meshData)) {
+            throw std::runtime_error("Failed to load unified mesh data");
+        }
+
+        core::Logger::info("Loaded Unified Mesh: {} meshes, {} indices, {} KB vertices", 
+            m_meshData.meshes.size(), m_meshData.indexData.size(), m_meshData.vertexData.size() / 1024);
+
+        // 2. Create GPU Buffers (Monolithic)
+        m_globalIndexBuffer = m_renderer->device()->createBuffer({
+            .size = m_meshData.indexData.size() * sizeof(uint32_t),
+            .usage = renderer::rhi::BufferUsage::IndexBuffer | renderer::rhi::BufferUsage::TransferDst,
+            .memoryUsage = renderer::rhi::MemoryUsage::GPUOnly,
+            .data = m_meshData.indexData.data(),
+            .debugName = "GlobalIndexBuffer"
+        });
+
+        m_globalVertexBuffer = m_renderer->device()->createBuffer({
+            .size = m_meshData.vertexData.size(),
+            .usage = renderer::rhi::BufferUsage::VertexBuffer | renderer::rhi::BufferUsage::TransferDst,
+            .memoryUsage = renderer::rhi::MemoryUsage::GPUOnly,
+            .data = m_meshData.vertexData.data(),
+            .debugName = "GlobalVertexBuffer"
+        });
+        
+        // Upload data (since GPUOnly doesn't support direct data init usually without staging, but createBuffer handles it internally if we provide data?
+        // Checking RHIRenderer::createBuffer -> m_device->createBuffer...
+        // Assuming createBuffer handles staging if data is provided. If not, I should do staging.
+        // Looking at VulkanDevice::createBuffer in my memory, it might.
+        // But to be safe, I'll rely on RHIRenderer::createBuffer which does NOT seem to take data directly in the wrapper I saw earlier.
+        // Wait, RHIRenderer::createBuffer takes `rhi::BufferDescriptor`.
+        // `BufferDescriptor` has `.data`.
+        // If the implementation supports it, good. If not, I might need manual staging.
+        // Looking at RHIRenderer code I read:
+        // data.buffer = m_device->createBuffer(desc);
+        // It passes desc to m_device->createBuffer.
+        // Let's assume the device implementation handles it (it usually does via staging).
+
+        // 3. Create Pipeline
+        createPipeline();
+
+        // 4. Setup Camera
+        m_camera.lookAt({5.0f, 5.0f, 5.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
+    }
+
+    void convertAssetsToUnified(const char* outFile) {
+        renderer::scene::UnifiedMeshData unified;
+        std::vector<renderer::Vertex> allVertices;
+
+        // Generate procedural data to demonstrate the format
+        for (int i = 0; i < 100; ++i) {
+            renderer::scene::UnifiedMesh mesh{};
+            mesh.indexOffset = (uint32_t)unified.indexData.size();
+            mesh.vertexOffset = (uint32_t)allVertices.size();
+            mesh.lodCount = 1;
+            mesh.lodOffset[0] = 0;
+            
+            // Create a Cube/Triangle
+            float x = (i % 10) * 2.0f;
+            float z = (i / 10) * 2.0f;
+            glm::vec3 offset(x, 0, z);
+
+            // Simple triangle
+            allVertices.push_back({offset + glm::vec3(0,1,0), {1,0,0}, {0,0,1}, {0,0}});
+            allVertices.push_back({offset + glm::vec3(-0.5,0,0.5), {0,1,0}, {0,0,1}, {0,1}});
+            allVertices.push_back({offset + glm::vec3(0.5,0,0.5), {0,0,1}, {0,0,1}, {1,1}});
+
+            unified.indexData.push_back(0);
+            unified.indexData.push_back(1);
+            unified.indexData.push_back(2);
+
+            mesh.vertexCount = 3;
+            mesh.lodOffset[1] = 3; // 3 indices total
+            
+            unified.meshes.push_back(mesh);
+        }
+
+        // Flatten vertices to bytes
+        unified.vertexData.resize(allVertices.size() * sizeof(renderer::Vertex));
+        std::memcpy(unified.vertexData.data(), allVertices.data(), unified.vertexData.size());
+
+        renderer::scene::saveUnifiedMeshData(outFile, unified);
+    }
+
+    void createPipeline() {
+        renderer::rhi::ReflectionConfig reflect;
+        auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex, getShaderPath("unified.vert.spv"), reflect);
+        auto fs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Fragment, getShaderPath("unified.frag.spv"), reflect);
+
+        auto builder = renderer::rhi::RHIPipelineBuilder()
+            .setShaders(vs.get(), fs.get(), nullptr)
+            .useVertexType<renderer::Vertex>() // Automatically sets vertex attributes
+            .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
+            .setCullMode(renderer::rhi::CullMode::Back)
+            .setColorFormat(m_renderer->getDrawColorFormat())
+            .setDepthFormat(m_renderer->getDrawDepthFormat())
+            .enableDepthTest(true);
+
+        m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+    }
+
+    void onRecord(const renderer::RHIFrameContext& ctx) override {
+        // Update Camera
+        float aspect = (float)m_window.width() / m_window.height();
+        m_camera.setPerspective(glm::radians(60.0f), aspect, 0.1f, 100.0f);
+
+        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
+
+        // BIND MONOLITHIC BUFFERS ONCE
+        auto* cmd = ctx.commandBuffer;
+        
+        // Use RHICommandBuffer interface
+        cmd->bindVertexBuffer(0, m_globalVertexBuffer.get(), 0);
+        cmd->bindIndexBuffer(m_globalIndexBuffer.get(), 0, false); // 32-bit indices
+
+        ShaderGen::PushConstants pc{};
+        pc.viewProj = m_camera.viewProj();
+
+        // DRAW ALL MESHES FROM THE SAME BUFFERS
+        for (const auto& mesh : m_meshData.meshes) {
+            pc.model = glm::mat4(1.0f); // In real app, mesh has transform index
+            m_renderer->pushConstants(ctx.commandBuffer, m_pipeline, 
+                                       renderer::rhi::ShaderStage::Vertex, 
+                                       pc);
+
+            uint32_t indexCount = mesh.getLODIndicesCount(0);
+            uint32_t firstIndex = mesh.indexOffset + mesh.lodOffset[0];
+            int32_t vertexOffset = (int32_t)mesh.vertexOffset;
+
+            // Multi-draw could be used here, but loop is fine for demonstration
+            cmd->drawIndexed(indexCount, 1, firstIndex, vertexOffset, 0);
+        }
+    }
+};
+
+int main(int argc, char** argv) {
+    UnifiedMeshSample app;
+    return app.run();
+}
+</file>
+
+<file path="shaders/unified.frag">
+#version 450
+layout(location = 0) in vec3 inColor;
+layout(location = 0) out vec4 outFragColor;
+
+void main() {
+    outFragColor = vec4(inColor, 1.0);
+}
+</file>
+
+<file path="shaders/unified.vert">
+#version 450
+
+layout(location = 0) in vec3 inPos;
+layout(location = 1) in vec3 inColor;
+layout(location = 2) in vec3 inNormal;
+layout(location = 3) in vec2 inTexCoord;
+layout(location = 4) in vec4 inTangent;
+
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    mat4 viewProj;
+} pc;
+
+layout(location = 0) out vec3 outColor;
+
+void main() {
+    gl_Position = pc.viewProj * pc.model * vec4(inPos, 1.0);
+    outColor = inColor; // Display vertex color
+}
+</file>
+
+</files>

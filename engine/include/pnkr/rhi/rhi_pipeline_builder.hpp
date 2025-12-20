@@ -15,6 +15,9 @@ namespace pnkr::renderer::rhi
         // --- Shaders (Auto-Reflection) ---
         // Clears existing shaders and merges reflection data from the provided shaders.
         RHIPipelineBuilder& setShaders(const Shader* vert, const Shader* frag, const Shader* geom);
+        RHIPipelineBuilder& setShaders(const Shader* vert, const Shader* frag,
+                                       const Shader* tesc, const Shader* tese,
+                                       const Shader* geom);
         RHIPipelineBuilder& setComputeShader(const Shader* comp);
 
 
@@ -31,10 +34,11 @@ namespace pnkr::renderer::rhi
 
         // --- Input Assembly ---
         RHIPipelineBuilder& setTopology(PrimitiveTopology topology);
+        RHIPipelineBuilder& setPatchControlPoints(uint32_t controlPoints);
 
         // --- Rasterization ---
         RHIPipelineBuilder& setPolygonMode(PolygonMode mode);
-        RHIPipelineBuilder& setCullMode(CullMode mode, bool frontFaceCCW = true);
+        RHIPipelineBuilder& setCullMode(CullMode mode, bool frontFaceCCW = false);
         RHIPipelineBuilder& setLineWidth(float width);
 
         // --- Depth / Stencil ---

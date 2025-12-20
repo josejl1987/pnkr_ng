@@ -12,6 +12,8 @@
 #include <pnkr/core/profiler.hpp>
 
 #include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/ui/imgui_layer.hpp"
+#include <imgui.h>
 
 namespace pnkr::samples
 {
@@ -59,6 +61,8 @@ namespace pnkr::samples
         {
         }
 
+        void initUI();
+
         [[nodiscard]] std::filesystem::path getShaderPath(const std::filesystem::path& filename) const;
         [[nodiscard]] const std::filesystem::path& baseDir() const { return m_baseDir; }
 
@@ -68,7 +72,9 @@ namespace pnkr::samples
 
     protected:
         platform::Window m_window;
-        std::unique_ptr<renderer::RHIRenderer> m_renderer; // Changed to pointer
+        std::unique_ptr<renderer::RHIRenderer> m_renderer; 
+        ui::ImGuiLayer m_imgui;
+        bool m_vsync = true;
 
     private:
         std::filesystem::path m_baseDir;
@@ -100,8 +106,25 @@ namespace pnkr::samples
         if (m_config.createRenderer)
         {
             m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
+            initUI();
+        }
+    }
+
+    inline void RhiSampleApp::initUI()
+    {
+        if (m_renderer && !m_imgui.isInitialized())
+        {
+            pnkr::Log::info("Initializing ImGui for sample...");
+            m_imgui.init(m_renderer.get(), &m_window);
+            
+            // Wrap the record func to inject ImGui rendering
             m_renderer->setRecordFunc(
-                [this](const renderer::RHIFrameContext& ctx) { onRecord(ctx); });
+                [this](const renderer::RHIFrameContext& ctx) { 
+                    onRecord(ctx); 
+                    if (m_imgui.isInitialized()) {
+                        m_imgui.render(ctx.commandBuffer);
+                    }
+                });
         }
     }
 
@@ -130,7 +153,23 @@ namespace pnkr::samples
                 PNKR_PROFILE_FRAME("Main Loop");
 
                 m_input.beginFrame();
-                m_window.processEvents(&m_input, [this](const SDL_Event& e) { onEvent(e); });
+                m_window.processEvents(&m_input, [this](const SDL_Event& e) { 
+                    if (m_imgui.isInitialized()) m_imgui.handleEvent(e);
+                    onEvent(e); 
+                });
+
+                // ImGui Frame
+                if (m_renderer && m_imgui.isInitialized()) {
+                    m_imgui.beginFrame();
+                    if (ImGui::Begin("Settings")) {
+                        ImGui::Text("FPS: %.1f (%.3f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
+                        if (ImGui::Checkbox("VSync", &m_vsync)) {
+                            m_renderer->setVsync(m_vsync);
+                        }
+                    }
+                    ImGui::End();
+                    m_imgui.endFrame();
+                }
 
                 float deltaTime = std::min(m_timer.deltaTime(), 0.05f);
 
@@ -144,7 +183,8 @@ namespace pnkr::samples
                     onRenderFrame(deltaTime);
                 }
             }
-
+            
+            if (m_renderer) m_imgui.shutdown();
             onShutdown();
             return 0;
         }

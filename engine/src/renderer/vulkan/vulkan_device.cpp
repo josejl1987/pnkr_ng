@@ -233,7 +233,7 @@ void VulkanDevice::createLogicalDevice(vk::SurfaceKHR /*surface*/) {
   vk::PhysicalDeviceFeatures featuresCore{};
   featuresCore.samplerAnisotropy = VK_TRUE;
   featuresCore.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-
+  featuresCore.multiDrawIndirect = VK_TRUE;
   vk::PhysicalDeviceVulkan12Features features12{};
   features12.runtimeDescriptorArray = 1u;
   features12.shaderSampledImageArrayNonUniformIndexing = 1u;

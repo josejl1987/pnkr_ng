@@ -75,6 +75,7 @@ namespace pnkr::renderer::rhi
 
         // Input assembly
         PrimitiveTopology topology = PrimitiveTopology::TriangleList;
+        uint32_t patchControlPoints = 3;
 
         // Rasterization
         RasterizationState rasterization;
