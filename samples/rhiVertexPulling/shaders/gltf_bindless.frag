@@ -24,7 +24,7 @@ void main() {
 
     // Sample texture if index is valid (using arbitrary sentinel > 100000)
     if (mat.baseColorTexture < 100000) {
-        baseColor *= texture(bindlessTextures[nonuniformEXT(mat.baseColorTexture)], fsIn.texCoord);
+        baseColor *= textureBindless2D(mat.baseColorTexture, fsIn.texCoord);
     }
 
     baseColor *= vec4(fsIn.color, 1.0);

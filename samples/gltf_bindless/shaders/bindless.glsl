@@ -13,11 +13,16 @@ layout(set = 1, binding = 0, std430) readonly buffer MaterialBuffer {
     vec4 data[];
 } materialBuffer;
 
-// Binding 1: All textures in one array
-layout(set = 1, binding = 1) uniform sampler2D bindlessTextures[];
-
-// Binding 2: Storage images for compute shaders
-layout(set = 1, binding = 2, rgba8) uniform image2D bindlessStorageImages[];
+// Binding 0: Sampled 2D images
+layout(set = 1, binding = 0) uniform texture2D bindlessTextures[];
+// Binding 1: Samplers
+layout(set = 1, binding = 1) uniform sampler bindlessSamplers[];
+// Binding 2: Cubemap images
+layout(set = 1, binding = 2) uniform textureCube bindlessCubemaps[];
+// Binding 3: Storage buffers
+layout(set = 1, binding = 3, std430) readonly buffer BindlessStorageBuffer { uint data[]; } bindlessStorageBuffers[];
+// Binding 4: Storage images
+layout(set = 1, binding = 4, rgba8) uniform image2D bindlessStorageImages[];
 
 // === MATERIAL STRUCTURES ===
 
@@ -58,13 +63,21 @@ Material loadMaterial(uint materialIndex) {
     return mat;
 }
 
+const uint kDefaultSamplerIndex = 0u;
+
 // Helper: Sample texture from bindless array safely
 vec4 sampleBindlessTexture(uint textureIndex, vec2 uv) {
     if (textureIndex == 0xFFFFFFFFu) {
         // Invalid texture - return magenta for debugging
         return vec4(1.0, 0.0, 1.0, 1.0);
     }
-    return texture(bindlessTextures[nonuniformEXT(textureIndex)], uv);
+    return texture(
+        sampler2D(
+            nonuniformEXT(bindlessTextures[textureIndex]),
+            nonuniformEXT(bindlessSamplers[kDefaultSamplerIndex])
+        ),
+        uv
+    );
 }
 
 #endif // BINDLESS_GLSL

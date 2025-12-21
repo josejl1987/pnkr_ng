@@ -3,9 +3,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 #include "common.glsl"
-
-// Set 1 = Global Bindless
-layout(set = 1, binding = 0) uniform sampler2D bindlessTextures[];
+#include "bindless.glsl"
 
 layout (location=0) in vec2 uv;
 layout (location=1) in vec3 normal;
@@ -38,7 +36,7 @@ void main() {
       color = intensity * hue2rgb(uv.x);
   } else {
       // Repeat texture 8 times horizontally
-      color = texture(bindlessTextures[nonuniformEXT(pc.textureId)], vec2(8.0, 1.0) * uv).xyz;
+      color = textureBindless2D(pc.textureId, vec2(8.0, 1.0) * uv).xyz;
       color *= intensity;
   }
 

@@ -8,7 +8,9 @@
 #include "pnkr/rhi/vulkan/vulkan_descriptor.hpp"
 #include "pnkr/core/logger.hpp"
 #include <array>
+#include <algorithm>
 #include <set>
+#include <cpptrace/cpptrace.hpp>
 
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 
@@ -111,9 +113,9 @@ namespace pnkr::renderer::rhi::vulkan
                 m_device.destroyDescriptorPool(m_bindlessPool);
             }
 
-            if (m_timelineSemaphore)
+            if (m_frameTimelineSemaphore)
             {
-                m_device.destroySemaphore(m_timelineSemaphore);
+                m_device.destroySemaphore(m_frameTimelineSemaphore);
             }
 
             if (m_commandPool)
@@ -144,7 +146,7 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHIDevice::createLogicalDevice(const DeviceDescriptor& desc)
     {
         // 1. Queue Families
-        auto queueFamilies = m_physicalDevice->queueFamilies();
+              auto queueFamilies = m_physicalDevice->queueFamilies();
         uint32_t graphicsFamily = VK_QUEUE_FAMILY_IGNORED;
         uint32_t computeFamily = VK_QUEUE_FAMILY_IGNORED;
 
@@ -162,7 +164,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         if (graphicsFamily == VK_QUEUE_FAMILY_IGNORED)
         {
-            throw std::runtime_error("No graphics queue family found");
+            throw cpptrace::runtime_error("No graphics queue family found");
         }
 
         std::set<uint32_t> uniqueQueueFamilies = {graphicsFamily};
@@ -193,26 +195,41 @@ namespace pnkr::renderer::rhi::vulkan
         featuresCore.shaderInt64 = VK_TRUE;
         featuresCore.shaderFloat64 = VK_TRUE;
         featuresCore.multiDrawIndirect = VK_TRUE; // Enable MultiDraw
-        // Vulkan 1.2 features (Bindless)
+
+        // Vulkan 1.2 features (core) - Promoted features go here
         vk::PhysicalDeviceVulkan12Features features12{};
-        features12.runtimeDescriptorArray = VK_TRUE;
-        features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
-        features12.descriptorBindingPartiallyBound = VK_TRUE;
+
+        // Original 1.2 features
         features12.descriptorBindingVariableDescriptorCount = VK_TRUE;
         features12.bufferDeviceAddress = VK_TRUE;
+        features12.scalarBlockLayout = VK_TRUE;
+        features12.shaderFloat16 = VK_TRUE;
+        features12.timelineSemaphore = VK_TRUE; // From later in original code
+
+        // Descriptor Indexing (Promoted from EXT_descriptor_indexing)
         features12.descriptorIndexing = VK_TRUE;
+        features12.runtimeDescriptorArray = VK_TRUE;
+        features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+        features12.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
+        features12.descriptorBindingPartiallyBound = VK_TRUE;
         features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
         features12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
-        features12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE; 
-        features12.shaderStorageImageArrayNonUniformIndexing = VK_TRUE; 
-        features12.scalarBlockLayout = VK_TRUE;
+        features12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+
         // Vulkan 1.3 features (Dynamic Rendering, Sync2)
         vk::PhysicalDeviceVulkan13Features features13{};
         features13.dynamicRendering = VK_TRUE;
         features13.synchronization2 = VK_TRUE;
-        features12.timelineSemaphore = VK_TRUE;
-        // Chain features: 13 -> 12 -> Core
+        features13.maintenance4 = VK_TRUE;
+
+        // Vulkan 16-bit storage features (Promoted to 1.1, kept separate as we don't use Vulkan11Features struct)
+        vk::PhysicalDevice16BitStorageFeatures features16bit{};
+        features16bit.storageBuffer16BitAccess = VK_TRUE;
+
+        // Chain features: 13 -> 12 -> 16bit -> Core
         features13.pNext = &features12;
+        features12.pNext = &features16bit;
+        // indexingFeatures struct is removed completely
 
         // 3. Create Info
         vk::DeviceCreateInfo createInfo{};
@@ -232,6 +249,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         core::Logger::info("Logical device created. GraphicsQ={}, ComputeQ={}", m_graphicsQueueFamily,
                            m_computeQueueFamily);
+
     }
 
     void VulkanRHIDevice::selectQueueFamilies()
@@ -281,7 +299,7 @@ namespace pnkr::renderer::rhi::vulkan
         auto result = static_cast<vk::Result>(vmaCreateAllocator(&allocatorInfo, &m_allocator));
         if (result != vk::Result::eSuccess)
         {
-            throw std::runtime_error("Failed to create VMA allocator: " + vk::to_string(result));
+            throw cpptrace::runtime_error("Failed to create VMA allocator: " + vk::to_string(result));
         }
     }
 
@@ -303,7 +321,7 @@ namespace pnkr::renderer::rhi::vulkan
         vk::SemaphoreCreateInfo createInfo{};
         createInfo.pNext = &typeInfo;
 
-        m_timelineSemaphore = m_device.createSemaphore(createInfo);
+        m_frameTimelineSemaphore = m_device.createSemaphore(createInfo);
     }
 
     void VulkanRHIDevice::createDescriptorPool()
@@ -364,6 +382,11 @@ namespace pnkr::renderer::rhi::vulkan
         return buffer;
     }
 
+    std::unique_ptr<RHITexture> VulkanRHIDevice::createTexture(const TextureDescriptor& desc)
+    {
+        return std::make_unique<VulkanRHITexture>(this, desc);
+    }
+
     std::unique_ptr<RHITexture> VulkanRHIDevice::createTexture(
         const Extent3D& extent,
         Format format,
@@ -378,7 +401,7 @@ namespace pnkr::renderer::rhi::vulkan
         desc.mipLevels = mipLevels;
         desc.arrayLayers = arrayLayers;
 
-        return std::make_unique<VulkanRHITexture>(this, desc);
+        return createTexture(desc);
     }
 
     std::unique_ptr<RHITexture> VulkanRHIDevice::createCubemap(
@@ -472,7 +495,7 @@ namespace pnkr::renderer::rhi::vulkan
         if (fenceValues.empty()) { return;
 }
 
-        std::vector<vk::Semaphore> semaphores(fenceValues.size(), m_timelineSemaphore);
+        std::vector<vk::Semaphore> semaphores(fenceValues.size(), m_frameTimelineSemaphore);
 
         vk::SemaphoreWaitInfo waitInfo{};
         waitInfo.semaphoreCount = static_cast<uint32_t>(fenceValues.size());
@@ -501,9 +524,9 @@ namespace pnkr::renderer::rhi::vulkan
         // Timeline Semaphore Synchronization
         vk::TimelineSemaphoreSubmitInfo timelineInfo{};
 
-        std::vector<vk::Semaphore> waitSems(waitSemaphores.size(), m_timelineSemaphore);
+        std::vector<vk::Semaphore> waitSems(waitSemaphores.size(), m_frameTimelineSemaphore);
         std::vector<vk::PipelineStageFlags> waitStages(waitSemaphores.size(), vk::PipelineStageFlagBits::eAllCommands);
-        std::vector<vk::Semaphore> signalSems(signalSemaphores.size(), m_timelineSemaphore);
+        std::vector<vk::Semaphore> signalSems(signalSemaphores.size(), m_frameTimelineSemaphore);
 
         if (!waitSemaphores.empty())
         {
@@ -529,6 +552,151 @@ namespace pnkr::renderer::rhi::vulkan
         m_graphicsQueue.submit(submitInfo, nullptr);
     }
 
+    void VulkanRHIDevice::waitForTimelineValue(uint64_t value)
+    {
+        if (value == 0)
+        {
+            return;
+        }
+
+        vk::SemaphoreWaitInfo waitInfo{};
+        waitInfo.semaphoreCount = 1;
+        waitInfo.pSemaphores = &m_frameTimelineSemaphore;
+        waitInfo.pValues = &value;
+
+        auto result = m_device.waitSemaphores(waitInfo, 1000000000);
+        if (result != vk::Result::eSuccess)
+        {
+            core::Logger::error("Failed to wait for timeline value {}: {}", value, vk::to_string(result));
+        }
+    }
+
+    void VulkanRHIDevice::submitCommands(
+        RHICommandBuffer* commandBuffer,
+        const std::vector<vk::Semaphore>& waitSemaphores,
+        const std::vector<vk::PipelineStageFlags>& waitStages,
+        const std::vector<vk::Semaphore>& signalSemaphores,
+        uint64_t signalTimelineValue)
+    {
+        auto* vkCmdBuffer = dynamic_cast<VulkanRHICommandBuffer*>(commandBuffer);
+
+        vk::SubmitInfo submitInfo{};
+        submitInfo.commandBufferCount = 1;
+        auto cmdBuf = vkCmdBuffer->commandBuffer();
+        submitInfo.pCommandBuffers = &cmdBuf;
+
+        std::vector<vk::PipelineStageFlags> stages = waitStages;
+        if (!waitSemaphores.empty() && stages.size() != waitSemaphores.size())
+        {
+            stages.assign(waitSemaphores.size(), vk::PipelineStageFlagBits::eAllCommands);
+        }
+
+        if (!waitSemaphores.empty())
+        {
+            submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSemaphores.size());
+            submitInfo.pWaitSemaphores = waitSemaphores.data();
+            submitInfo.pWaitDstStageMask = stages.data();
+        }
+
+        std::vector<vk::Semaphore> allSignalSemaphores = signalSemaphores;
+        allSignalSemaphores.push_back(m_frameTimelineSemaphore);
+
+        std::vector<uint64_t> signalValues(signalSemaphores.size(), 0);
+        signalValues.push_back(signalTimelineValue);
+
+        std::vector<uint64_t> waitValues(waitSemaphores.size(), 0);
+
+        vk::TimelineSemaphoreSubmitInfo timelineInfo{};
+        timelineInfo.waitSemaphoreValueCount = static_cast<uint32_t>(waitValues.size());
+        timelineInfo.pWaitSemaphoreValues = waitValues.data();
+        timelineInfo.signalSemaphoreValueCount = static_cast<uint32_t>(signalValues.size());
+        timelineInfo.pSignalSemaphoreValues = signalValues.data();
+
+        submitInfo.signalSemaphoreCount = static_cast<uint32_t>(allSignalSemaphores.size());
+        submitInfo.pSignalSemaphores = allSignalSemaphores.data();
+        submitInfo.pNext = &timelineInfo;
+
+        m_graphicsQueue.submit(submitInfo, nullptr);
+    }
+
+    void VulkanRHIDevice::immediateSubmit(std::function<void(RHICommandBuffer*)>&& func)
+    {
+        auto cmd = createCommandBuffer();
+        cmd->begin();
+        func(cmd.get());
+        cmd->end();
+        submitCommands(cmd.get());
+        waitIdle();
+    }
+
+    void VulkanRHIDevice::downloadTexture(
+        RHITexture* texture,
+        void* outData,
+        uint64_t dataSize,
+        const TextureSubresource& subresource)
+    {
+        auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+
+        // 1. Create staging buffer
+        auto stagingBuffer = createBuffer({
+            .size = dataSize,
+            .usage = BufferUsage::TransferDst,
+            .memoryUsage = MemoryUsage::GPUToCPU,
+            .debugName = "TextureDownloadStaging"
+        });
+
+        // 2. Immediate submit copy command
+        immediateSubmit([&](RHICommandBuffer* cmd) {
+            auto* vkCmd = dynamic_cast<VulkanRHICommandBuffer*>(cmd);
+
+            // Transition image to transfer src
+            vkTex->transitionLayout(vk::ImageLayout::eTransferSrcOptimal, vkCmd->commandBuffer());
+
+            // Copy image to buffer
+            vk::BufferImageCopy copyRegion{};
+            copyRegion.bufferOffset = 0;
+            copyRegion.bufferRowLength = 0;
+            copyRegion.bufferImageHeight = 0;
+
+            vk::Format fmt = VulkanUtils::toVkFormat(vkTex->format());
+            if (fmt == vk::Format::eD16Unorm || fmt == vk::Format::eD32Sfloat ||
+                fmt == vk::Format::eD24UnormS8Uint || fmt == vk::Format::eD32SfloatS8Uint)
+            {
+                copyRegion.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
+            }
+            else
+            {
+                copyRegion.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+            }
+
+            copyRegion.imageSubresource.mipLevel = subresource.mipLevel;
+            copyRegion.imageSubresource.baseArrayLayer = subresource.arrayLayer;
+            copyRegion.imageSubresource.layerCount = 1;
+
+            copyRegion.imageOffset = vk::Offset3D{0, 0, 0};
+            copyRegion.imageExtent = VulkanUtils::toVkExtent3D(vkTex->extent());
+
+            // Adjust extent for mip level
+            copyRegion.imageExtent.width = std::max(1u, copyRegion.imageExtent.width >> subresource.mipLevel);
+            copyRegion.imageExtent.height = std::max(1u, copyRegion.imageExtent.height >> subresource.mipLevel);
+
+            vkCmd->commandBuffer().copyImageToBuffer(
+                vkTex->image(),
+                vk::ImageLayout::eTransferSrcOptimal,
+                static_cast<VulkanRHIBuffer*>(stagingBuffer.get())->buffer(),
+                copyRegion
+            );
+
+            // Transition back to shader read (or whatever it was)
+            vkTex->transitionLayout(vk::ImageLayout::eShaderReadOnlyOptimal, vkCmd->commandBuffer());
+        });
+
+        // 3. Map and copy data to output
+        void* mappedData = stagingBuffer->map();
+        std::memcpy(outData, mappedData, dataSize);
+        stagingBuffer->unmap();
+    }
+
     vk::ShaderModule VulkanRHIDevice::createShaderModule(const std::vector<uint32_t>& spirvCode)
     {
         vk::ShaderModuleCreateInfo createInfo{};
@@ -546,33 +714,39 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHIDevice::initBindless()
     {
       // 1. Create Descriptor Set Layout
-      std::array<vk::DescriptorSetLayoutBinding, 4> bindings{};
+      std::array<vk::DescriptorSetLayoutBinding, 5> bindings{};
 
-      // Binding 0: Combined Image Samplers (Matches bindless.glsl set=1 binding=0)
+      // Binding 0: Sampled 2D Images (Matches bindless.glsl set=1 binding=0)
       bindings[0].binding = 0;
-      bindings[0].descriptorType = vk::DescriptorType::eCombinedImageSampler;
+      bindings[0].descriptorType = vk::DescriptorType::eSampledImage;
       bindings[0].descriptorCount = MAX_BINDLESS_RESOURCES;
       bindings[0].stageFlags = vk::ShaderStageFlagBits::eAll;
 
-      // Binding 1: Storage Buffers
+      // Binding 1: Samplers
       bindings[1].binding = 1;
-      bindings[1].descriptorType = vk::DescriptorType::eStorageBuffer;
+      bindings[1].descriptorType = vk::DescriptorType::eSampler;
       bindings[1].descriptorCount = MAX_BINDLESS_RESOURCES;
       bindings[1].stageFlags = vk::ShaderStageFlagBits::eAll;
 
-      // Binding 2: Cubemap Samplers
+      // Binding 2: Sampled Cubemap Images
       bindings[2].binding = 2;
-      bindings[2].descriptorType = vk::DescriptorType::eCombinedImageSampler;
+      bindings[2].descriptorType = vk::DescriptorType::eSampledImage;
       bindings[2].descriptorCount = MAX_BINDLESS_RESOURCES;
       bindings[2].stageFlags = vk::ShaderStageFlagBits::eAll;
 
-      // Binding 3: Storage Images
+      // Binding 3: Storage Buffers
       bindings[3].binding = 3;
-      bindings[3].descriptorType = vk::DescriptorType::eStorageImage;
+      bindings[3].descriptorType = vk::DescriptorType::eStorageBuffer;
       bindings[3].descriptorCount = MAX_BINDLESS_RESOURCES;
       bindings[3].stageFlags = vk::ShaderStageFlagBits::eAll;
 
-      std::array<vk::DescriptorBindingFlags, 4> bindingFlags{};
+      // Binding 4: Storage Images
+      bindings[4].binding = 4;
+      bindings[4].descriptorType = vk::DescriptorType::eStorageImage;
+      bindings[4].descriptorCount = MAX_BINDLESS_RESOURCES;
+      bindings[4].stageFlags = vk::ShaderStageFlagBits::eAll;
+
+      std::array<vk::DescriptorBindingFlags, 5> bindingFlags{};
       bindingFlags[0] = vk::DescriptorBindingFlagBits::ePartiallyBound |
                         vk::DescriptorBindingFlagBits::eUpdateAfterBind;
       bindingFlags[1] = vk::DescriptorBindingFlagBits::ePartiallyBound |
@@ -580,6 +754,8 @@ namespace pnkr::renderer::rhi::vulkan
       bindingFlags[2] = vk::DescriptorBindingFlagBits::ePartiallyBound |
                         vk::DescriptorBindingFlagBits::eUpdateAfterBind;
       bindingFlags[3] = vk::DescriptorBindingFlagBits::ePartiallyBound |
+                        vk::DescriptorBindingFlagBits::eUpdateAfterBind;
+      bindingFlags[4] = vk::DescriptorBindingFlagBits::ePartiallyBound |
                         vk::DescriptorBindingFlagBits::eUpdateAfterBind;
 
       vk::DescriptorSetLayoutBindingFlagsCreateInfo extendedInfo{};
@@ -596,20 +772,21 @@ namespace pnkr::renderer::rhi::vulkan
       vk::DescriptorSetLayout vkLayout = m_device.createDescriptorSetLayout(layoutInfo);
       
       DescriptorSetLayout layoutDesc;
-      layoutDesc.bindings.push_back({.binding=0, .type=DescriptorType::CombinedImageSampler, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
-      layoutDesc.bindings.push_back({.binding=1, .type=DescriptorType::StorageBuffer, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
-      layoutDesc.bindings.push_back({.binding=2, .type=DescriptorType::CombinedImageSampler, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
-      layoutDesc.bindings.push_back({.binding=3, .type=DescriptorType::StorageImage, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
+      layoutDesc.bindings.push_back({.binding=0, .type=DescriptorType::SampledImage, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
+      layoutDesc.bindings.push_back({.binding=1, .type=DescriptorType::Sampler, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
+      layoutDesc.bindings.push_back({.binding=2, .type=DescriptorType::SampledImage, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
+      layoutDesc.bindings.push_back({.binding=3, .type=DescriptorType::StorageBuffer, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
+      layoutDesc.bindings.push_back({.binding=4, .type=DescriptorType::StorageImage, .count=MAX_BINDLESS_RESOURCES, .stages=ShaderStage::All});
 
       m_bindlessLayout = std::make_unique<VulkanRHIDescriptorSetLayout>(this, vkLayout, layoutDesc);
 
       // 2. Create Descriptor Pool
       std::array<vk::DescriptorPoolSize, 4> poolSizes{};
-      poolSizes[0].type = vk::DescriptorType::eCombinedImageSampler;
-      poolSizes[0].descriptorCount = MAX_BINDLESS_RESOURCES * 2; // *2 for textures + cubemaps
-      poolSizes[1].type = vk::DescriptorType::eStorageBuffer;
+      poolSizes[0].type = vk::DescriptorType::eSampledImage;
+      poolSizes[0].descriptorCount = MAX_BINDLESS_RESOURCES * 2; // 2D + cubemap images
+      poolSizes[1].type = vk::DescriptorType::eSampler;
       poolSizes[1].descriptorCount = MAX_BINDLESS_RESOURCES;
-      poolSizes[2].type = vk::DescriptorType::eCombinedImageSampler;
+      poolSizes[2].type = vk::DescriptorType::eStorageBuffer;
       poolSizes[2].descriptorCount = MAX_BINDLESS_RESOURCES;
       poolSizes[3].type = vk::DescriptorType::eStorageImage;
       poolSizes[3].descriptorCount = MAX_BINDLESS_RESOURCES;
@@ -629,26 +806,75 @@ namespace pnkr::renderer::rhi::vulkan
       allocInfo.pSetLayouts = &vkLayout;
 
       m_bindlessSet = m_device.allocateDescriptorSets(allocInfo)[0];
+
+      m_bindlessSetWrapper = std::make_unique<VulkanRHIDescriptorSet>(
+          this, 
+          static_cast<VulkanRHIDescriptorSetLayout*>(m_bindlessLayout.get()), 
+          m_bindlessSet
+      );
     }
 
     BindlessHandle VulkanRHIDevice::registerBindlessTexture(RHITexture* texture,
                                                             RHISampler* sampler)
     {
-      auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
-      auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
+      auto imageHandle = registerBindlessTexture2D(texture);
+      if (sampler != nullptr) {
+          auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
+          vk::DescriptorImageInfo imageInfo{};
+          imageInfo.sampler = vkSamp->sampler();
 
+          vk::WriteDescriptorSet write{};
+          write.dstSet = m_bindlessSet;
+          write.dstBinding = 1;
+          write.dstArrayElement = imageHandle.index;
+          write.descriptorType = vk::DescriptorType::eSampler;
+          write.descriptorCount = 1;
+          write.pImageInfo = &imageInfo;
+
+          m_device.updateDescriptorSets(write, nullptr);
+          m_samplerIndexCounter = std::max(m_samplerIndexCounter, imageHandle.index + 1);
+      }
+
+      return imageHandle;
+    }
+
+    BindlessHandle VulkanRHIDevice::registerBindlessCubemap(RHITexture* texture, RHISampler* sampler)
+    {
+      auto imageHandle = registerBindlessCubemapImage(texture);
+      if (sampler != nullptr) {
+          auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
+          vk::DescriptorImageInfo imageInfo{};
+          imageInfo.sampler = vkSamp->sampler();
+
+          vk::WriteDescriptorSet write{};
+          write.dstSet = m_bindlessSet;
+          write.dstBinding = 1;
+          write.dstArrayElement = imageHandle.index;
+          write.descriptorType = vk::DescriptorType::eSampler;
+          write.descriptorCount = 1;
+          write.pImageInfo = &imageInfo;
+
+          m_device.updateDescriptorSets(write, nullptr);
+          m_samplerIndexCounter = std::max(m_samplerIndexCounter, imageHandle.index + 1);
+      }
+
+      return imageHandle;
+    }
+
+    BindlessHandle VulkanRHIDevice::registerBindlessTexture2D(RHITexture* texture)
+    {
+      auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
       uint32_t index = m_textureIndexCounter++;
 
       vk::DescriptorImageInfo imageInfo{};
       imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
       imageInfo.imageView = vkTex->imageView();
-      imageInfo.sampler = vkSamp->sampler();
 
       vk::WriteDescriptorSet write{};
       write.dstSet = m_bindlessSet;
-      write.dstBinding = 0; // Binding 0 is Textures
+      write.dstBinding = 0;
       write.dstArrayElement = index;
-      write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+      write.descriptorType = vk::DescriptorType::eSampledImage;
       write.descriptorCount = 1;
       write.pImageInfo = &imageInfo;
 
@@ -657,23 +883,41 @@ namespace pnkr::renderer::rhi::vulkan
       return { index };
     }
 
-    BindlessHandle VulkanRHIDevice::registerBindlessCubemap(RHITexture* texture, RHISampler* sampler)
+    BindlessHandle VulkanRHIDevice::registerBindlessCubemapImage(RHITexture* texture)
     {
       auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
-      auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
-
       uint32_t index = m_cubemapIndexCounter++;
 
       vk::DescriptorImageInfo imageInfo{};
       imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
       imageInfo.imageView = vkTex->imageView();
+
+      vk::WriteDescriptorSet write{};
+      write.dstSet = m_bindlessSet;
+      write.dstBinding = 2;
+      write.dstArrayElement = index;
+      write.descriptorType = vk::DescriptorType::eSampledImage;
+      write.descriptorCount = 1;
+      write.pImageInfo = &imageInfo;
+
+      m_device.updateDescriptorSets(write, nullptr);
+
+      return { index };
+    }
+
+    BindlessHandle VulkanRHIDevice::registerBindlessSampler(RHISampler* sampler)
+    {
+      auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
+      uint32_t index = m_samplerIndexCounter++;
+
+      vk::DescriptorImageInfo imageInfo{};
       imageInfo.sampler = vkSamp->sampler();
 
       vk::WriteDescriptorSet write{};
       write.dstSet = m_bindlessSet;
-      write.dstBinding = 2; // Binding 2 is Cubemaps
+      write.dstBinding = 1;
       write.dstArrayElement = index;
-      write.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+      write.descriptorType = vk::DescriptorType::eSampler;
       write.descriptorCount = 1;
       write.pImageInfo = &imageInfo;
 
@@ -694,7 +938,7 @@ namespace pnkr::renderer::rhi::vulkan
 
       vk::WriteDescriptorSet write{};
       write.dstSet = m_bindlessSet;
-      write.dstBinding = 1; // Binding 1 is Buffers
+      write.dstBinding = 3; // Binding 3 is Buffers
       write.dstArrayElement = index;
       write.descriptorType = vk::DescriptorType::eStorageBuffer;
       write.descriptorCount = 1;
@@ -717,7 +961,7 @@ namespace pnkr::renderer::rhi::vulkan
 
       vk::WriteDescriptorSet write{};
       write.dstSet = m_bindlessSet;
-      write.dstBinding = 3; // Binding 3 is Storage Images
+      write.dstBinding = 4; // Binding 4 is Storage Images
       write.dstArrayElement = index;
       write.descriptorType = vk::DescriptorType::eStorageImage;
       write.descriptorCount = 1;
@@ -728,15 +972,10 @@ namespace pnkr::renderer::rhi::vulkan
       return { index };
     }
 
-        void* VulkanRHIDevice::getBindlessDescriptorSetNative()
-
+        RHIDescriptorSet* VulkanRHIDevice::getBindlessDescriptorSet()
         {
-
-          return m_bindlessSet;
-
+          return m_bindlessSetWrapper.get();
         }
-
-    
 
         RHIDescriptorSetLayout* VulkanRHIDevice::getBindlessDescriptorSetLayout()
 

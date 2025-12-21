@@ -53,7 +53,7 @@ public:
         // Pass RHIRenderer directly. Model::load now expects RHIRenderer&.
         m_model = renderer::scene::Model::load(*m_renderer, baseDir() / "assets" / "Duck.glb");
 
-        if (!m_model) throw std::runtime_error("Failed to load model");
+        if (!m_model) throw cpptrace::runtime_error("Failed to load model");
 
         uploadMaterials();
         createPipeline();

@@ -94,6 +94,8 @@ namespace pnkr::renderer::rhi
         std::vector<DescriptorSetLayout> descriptorSets;
         std::vector<PushConstantRange> pushConstants;
 
+        std::vector<DynamicState> dynamicStates;
+
         const char* debugName = nullptr;
     };
 

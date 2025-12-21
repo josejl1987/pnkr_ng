@@ -1,9 +1,13 @@
 #include "pnkr/rhi/vulkan/vulkan_pipeline.hpp"
+
+#include <unordered_map>
+#include "pnkr/core/logger.hpp"
 #include "pnkr/rhi/vulkan/vulkan_device.hpp"
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/rhi/vulkan/vulkan_descriptor.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
+#include <cpptrace/cpptrace.hpp>
 
 using namespace pnkr::util;
 
@@ -168,10 +172,15 @@ namespace pnkr::renderer::rhi::vulkan
         colorBlending.pAttachments = colorBlendAttachments.data();
 
         // Dynamic state
-        std::vector dynamicStates = {
-            vk::DynamicState::eViewport,
-            vk::DynamicState::eScissor
-        };
+        std::vector<vk::DynamicState> dynamicStates;
+        for (auto state : desc.dynamicStates)
+        {
+            dynamicStates.push_back(VulkanUtils::toVkDynamicState(state));
+        }
+
+        // Ensure uniqueness
+        std::sort(dynamicStates.begin(), dynamicStates.end());
+        dynamicStates.erase(std::unique(dynamicStates.begin(), dynamicStates.end()), dynamicStates.end());
 
         vk::PipelineDynamicStateCreateInfo dynamicState{};
         dynamicState.dynamicStateCount = u32(dynamicStates.size());
@@ -219,7 +228,7 @@ namespace pnkr::renderer::rhi::vulkan
         if (result.result != vk::Result::eSuccess)
         {
             core::Logger::error("Failed to create graphics pipeline: {}", vk::to_string(result.result));
-            throw std::runtime_error("Graphics pipeline creation failed");
+            throw cpptrace::runtime_error("Graphics pipeline creation failed");
         }
 
         m_pipeline = result.value;
@@ -262,7 +271,7 @@ namespace pnkr::renderer::rhi::vulkan
         if (result.result != vk::Result::eSuccess)
         {
             core::Logger::error("Failed to create compute pipeline: {}", vk::to_string(result.result));
-            throw std::runtime_error("Compute pipeline creation failed");
+            throw cpptrace::runtime_error("Compute pipeline creation failed");
         }
 
         m_pipeline = result.value;
@@ -282,24 +291,82 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHIPipeline::createDescriptorSetLayouts(const std::vector<DescriptorSetLayout>& layouts)
     {
-        for (size_t i = 0; i < layouts.size(); ++i)
-        {
-            const auto& setLayout = layouts[i];
+        const bool hasBindless = (m_device->getBindlessDescriptorSetLayout() != nullptr);
+        const size_t requiredSetCount = hasBindless ? std::max<size_t>(layouts.size(), 2u) : layouts.size();
 
-            // FIX: If this is Set 1 (Bindless), use the global layout from the device
-            // This avoids mismatch errors where Reflection thinks size is 1 but actual set is 200k.
-            // Also ensures UpdateAfterBind flags are present.
-            if (i == 1 && (m_device->getBindlessDescriptorSetLayout() != nullptr))
+        // Helper: create an empty placeholder set layout (0 bindings). This is critical to keep
+        // VkPipelineLayoutCreateInfo::pSetLayouts dense by set index.
+        auto createEmptySetLayout = [&]() -> vk::DescriptorSetLayout {
+            vk::DescriptorSetLayoutCreateInfo info{};
+            info.bindingCount = 0;
+            info.pBindings = nullptr;
+            return m_device->device().createDescriptorSetLayout(info);
+        };
+
+        // Cache device bindless description for schema validation/logging
+        const VulkanRHIDescriptorSetLayout* vkBindlessLayoutObj = nullptr;
+        const DescriptorSetLayout* bindlessDescPtr = nullptr;
+        if (hasBindless) {
+            vkBindlessLayoutObj = dynamic_cast<VulkanRHIDescriptorSetLayout*>(m_device->getBindlessDescriptorSetLayout());
+            bindlessDescPtr = &vkBindlessLayoutObj->description();
+        }
+
+        for (size_t i = 0; i < requiredSetCount; ++i)
+        {
+            const bool hasIncoming = (i < layouts.size());
+            const DescriptorSetLayout emptyIncoming{};
+            const DescriptorSetLayout& setLayout = hasIncoming ? layouts[i] : emptyIncoming;
+
+            // Set 1 is reserved for global bindless when enabled.
+            if (i == 1 && hasBindless)
             {
-                auto* bindlessLayout = dynamic_cast<VulkanRHIDescriptorSetLayout*>(m_device->getBindlessDescriptorSetLayout());
+                core::Logger::info("Using global bindless layout for set 1");
+
+                // Optional but strongly recommended: validate the shader-reflected set 1 interface
+                // against the device bindless schema to catch combined-image-sampler declarations early.
+                if (hasIncoming && bindlessDescPtr != nullptr && !setLayout.bindings.empty())
+                {
+                    std::unordered_map<uint32_t, DescriptorType> expected;
+                    expected.reserve(bindlessDescPtr->bindings.size());
+                    for (const auto& b : bindlessDescPtr->bindings) {
+                        expected[b.binding] = b.type;
+                    }
+
+                    for (const auto& b : setLayout.bindings)
+                    {
+                        auto it = expected.find(b.binding);
+                        if (it == expected.end())
+                        {
+                            core::Logger::error(
+                                "[Bindless ABI] Shader declared set=1 binding={} (type={}) but device bindless schema has no such binding.",
+                                b.binding, (int)b.type);
+                            continue;
+                        }
+                        if (it->second != b.type)
+                        {
+                            core::Logger::error(
+                                "[Bindless ABI] Shader declared set=1 binding={} type={} but device expects type={}. "
+                                "This often indicates combined image samplers (sampler2D/samplerCube) instead of separate image+sampler per bindless.glsl.",
+                                b.binding, (int)b.type, (int)it->second);
+                        }
+                    }
+                }
+
+                // Always use the device-owned bindless VkDescriptorSetLayout for set 1.
                 m_descriptorSetLayouts.push_back(
                     std::make_unique<VulkanRHIDescriptorSetLayout>(
-                        m_device, bindlessLayout->layout(), setLayout, false /* don't own */)
+                        m_device,
+                        vkBindlessLayoutObj->layout(),
+                        *bindlessDescPtr,
+                        false /* don't own */
+                    )
                 );
                 continue;
             }
 
+            // Create normal (or empty placeholder) layout for this set index.
             std::vector<vk::DescriptorSetLayoutBinding> bindings;
+            bindings.reserve(setLayout.bindings.size());
 
             for (const auto& binding : setLayout.bindings)
             {
@@ -308,15 +375,22 @@ namespace pnkr::renderer::rhi::vulkan
                 vkBinding.descriptorType = VulkanUtils::toVkDescriptorType(binding.type);
                 vkBinding.descriptorCount = binding.count;
                 vkBinding.stageFlags = VulkanUtils::toVkShaderStage(binding.stages);
-
                 bindings.push_back(vkBinding);
             }
 
-            vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-            layoutInfo.bindingCount = u32(bindings.size());
-            layoutInfo.pBindings = bindings.data();
+            vk::DescriptorSetLayout layout{};
+            if (bindings.empty())
+            {
+                layout = createEmptySetLayout();
+            }
+            else
+            {
+                vk::DescriptorSetLayoutCreateInfo layoutInfo{};
+                layoutInfo.bindingCount = u32(bindings.size());
+                layoutInfo.pBindings = bindings.data();
+                layout = m_device->device().createDescriptorSetLayout(layoutInfo);
+            }
 
-            vk::DescriptorSetLayout layout = m_device->device().createDescriptorSetLayout(layoutInfo);
             m_descriptorSetLayouts.push_back(
                 std::make_unique<VulkanRHIDescriptorSetLayout>(m_device, layout, setLayout));
         }

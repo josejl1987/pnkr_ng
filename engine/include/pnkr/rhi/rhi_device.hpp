@@ -1,9 +1,13 @@
 #pragma once
 
 #include "rhi_types.hpp"
+#include "rhi_texture.hpp"
 #include <memory>
 #include <string>
 #include <vector>
+#include <functional>
+
+#include "rhi_texture.hpp"
 
 namespace pnkr::renderer::rhi
 {
@@ -85,6 +89,8 @@ namespace pnkr::renderer::rhi
         // Resource creation
         virtual std::unique_ptr<RHIBuffer> createBuffer(const BufferDescriptor& desc) = 0;
 
+        virtual std::unique_ptr<RHITexture> createTexture(const TextureDescriptor& desc) = 0;
+
         virtual std::unique_ptr<RHITexture> createTexture(
             const Extent3D& extent,
             Format format,
@@ -127,6 +133,15 @@ namespace pnkr::renderer::rhi
             const std::vector<uint64_t>& waitSemaphores = {},
             const std::vector<uint64_t>& signalSemaphores = {}) = 0;
 
+        virtual void immediateSubmit(std::function<void(RHICommandBuffer*)>&& func) = 0;
+
+        // Data transfer
+        virtual void downloadTexture(
+            RHITexture* texture,
+            void* outData,
+            uint64_t dataSize,
+            const TextureSubresource& subresource = {}) = 0;
+
         // Device queries
         virtual const RHIPhysicalDevice& physicalDevice() const = 0;
         virtual uint32_t graphicsQueueFamily() const = 0;
@@ -136,11 +151,14 @@ namespace pnkr::renderer::rhi
         // Bindless Registration
         virtual BindlessHandle registerBindlessTexture(RHITexture* texture, RHISampler* sampler) = 0;
         virtual BindlessHandle registerBindlessCubemap(RHITexture* texture, RHISampler* sampler) = 0;
+        virtual BindlessHandle registerBindlessTexture2D(RHITexture* texture) = 0;
+        virtual BindlessHandle registerBindlessCubemapImage(RHITexture* texture) = 0;
+        virtual BindlessHandle registerBindlessSampler(RHISampler* sampler) = 0;
         virtual BindlessHandle registerBindlessStorageImage(RHITexture* texture) = 0;
         virtual BindlessHandle registerBindlessBuffer(RHIBuffer* buffer) = 0;
 
         // To bind the global set to a command buffer
-        virtual void* getBindlessDescriptorSetNative() = 0; 
+        virtual RHIDescriptorSet* getBindlessDescriptorSet() = 0; 
         virtual RHIDescriptorSetLayout* getBindlessDescriptorSetLayout() = 0;
     };
 

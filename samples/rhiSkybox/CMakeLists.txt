@@ -20,11 +20,10 @@ set_target_properties(pnkr_skybox PROPERTIES
 
 # --- Copy Assets ---
 add_custom_command(TARGET pnkr_skybox POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_skybox>/shaders"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
-        "$<TARGET_FILE_DIR:pnkr_skybox>/shaders"
+
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_skybox>/assets"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_skybox>/assets/skybox"
+
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:pnkr_skybox>/assets"

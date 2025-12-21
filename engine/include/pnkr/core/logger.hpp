@@ -9,6 +9,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <cpptrace/basic.hpp>
 
 namespace pnkr::core {
 
@@ -59,6 +60,15 @@ public:
   static void critical(spdlog::format_string_t<Args...> fmt, Args &&...args) {
     if (sLogger) {
       sLogger->critical(fmt, std::forward<Args>(args)...);
+    }
+  }
+
+  template <typename... Args>
+  static void fatal(spdlog::format_string_t<Args...> fmt, Args &&...args) {
+    if (sLogger) {
+      std::string userMsg = std::format(fmt, std::forward<Args>(args)...);
+      std::string trace = cpptrace::generate_trace().to_string();
+      sLogger->critical("{}\nStack Trace:\n{}", userMsg, trace);
     }
   }
 

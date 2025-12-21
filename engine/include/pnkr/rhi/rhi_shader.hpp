@@ -25,8 +25,11 @@ namespace pnkr::renderer::rhi {
         // Map specific resource names to their descriptor counts
         std::unordered_map<std::string, uint32_t> bindlessOverrides = {
             {"bindlessTextures", 100000},
+            {"bindlessSamplers", 100000},
+            {"bindlessCubemaps", 100000},
             {"bindlessStorageBuffers", 100000},
-            {"bindlessStorageImages", 10000}
+            {"BindlessStorageBuffer", 100000},
+            {"bindlessStorageImages", 100000}
         };
 
         // Default size for runtime arrays not explicitly configured

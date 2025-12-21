@@ -103,8 +103,8 @@ public:
         m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
 
         // Bind global bindless descriptor set
-        void* nativeSet = m_renderer->device()->getBindlessDescriptorSetNative();
-        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_pipeline), 1, nativeSet);
+        renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
+        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_pipeline), 1, bindlessSet);
 
         float aspect = (float)m_window.width() / m_window.height();
 

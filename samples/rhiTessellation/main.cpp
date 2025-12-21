@@ -43,7 +43,6 @@ public:
     PipelineHandle m_pipeline;
     std::unique_ptr<renderer::rhi::RHIBuffer> m_materialBuffer;
     std::unique_ptr<renderer::rhi::RHISampler> m_dummySampler;
-    std::unique_ptr<renderer::rhi::RHIDescriptorSet> m_materialSet;
     pnkr::ui::ImGuiLayer m_imgui;
     float m_tessScale = 1.0F;
 
@@ -61,7 +60,7 @@ public:
         m_model = renderer::scene::Model::load(*m_renderer, baseDir() / "assets" / "Duck.glb", true);
         if (!m_model)
         {
-            throw std::runtime_error("Failed to load model");
+            throw cpptrace::runtime_error("Failed to load model");
         }
 
         if (!m_dummySampler)
@@ -75,7 +74,6 @@ public:
 
         uploadMaterials();
         createPipeline();
-        createDescriptors();
 
         m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx)
         {
@@ -151,7 +149,7 @@ public:
         size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
         renderer::rhi::BufferDescriptor bufferDesc;
         bufferDesc.size = size;
-        bufferDesc.usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst;
+        bufferDesc.usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst | renderer::rhi::BufferUsage::ShaderDeviceAddress;
         bufferDesc.memoryUsage = renderer::rhi::MemoryUsage::GPUOnly;
         m_materialBuffer = m_renderer->device()->createBuffer(bufferDesc);
 
@@ -199,31 +197,12 @@ public:
         m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
     }
 
-    void createDescriptors()
-    {
-        auto* pipeline = m_renderer->pipeline(m_pipeline);
-        if (pipeline == nullptr)
-        {
-            throw std::runtime_error("Pipeline is null");
-        }
-
-        auto* materialLayout = pipeline->descriptorSetLayout(0);
-        if (materialLayout == nullptr)
-        {
-            throw std::runtime_error("Pipeline descriptor set layouts are missing");
-        }
-
-        m_materialSet = m_renderer->device()->allocateDescriptorSet(materialLayout);
-        m_materialSet->updateBuffer(0, m_materialBuffer.get(), 0, m_materialBuffer->size());
-    }
-
     void recordFrame(const renderer::RHIFrameContext& ctx)
     {
         m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
-        m_renderer->bindDescriptorSet(ctx.commandBuffer, m_pipeline, 0, m_materialSet.get());
 
-        void* nativeSet = m_renderer->device()->getBindlessDescriptorSetNative();
-        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_pipeline), 1, nativeSet);
+        renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
+        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_pipeline), 1, bindlessSet);
 
         std::function<void(int)> drawNode = [&](int nodeIdx)
         {
@@ -238,6 +217,7 @@ public:
                 pc.tessScale = m_tessScale;
                 pc.materialIndex = prim.m_materialIndex;
                 pc.vtx = prim.m_vertexBufferAddress;
+                pc.materialBuffer = m_materialBuffer->getDeviceAddress();
 
                 const auto stages = renderer::rhi::ShaderStage::Vertex |
                     renderer::rhi::ShaderStage::TessControl |

@@ -53,6 +53,7 @@ namespace pnkr::renderer::rhi
         // Backend-specific handle
         virtual void* nativeHandle() const = 0;
         virtual void* nativeView() const = 0;  // Image view
+        virtual void* nativeView(uint32_t mipLevel, uint32_t arrayLayer) const = 0;
     };
 
 } // namespace pnkr::renderer::rhi

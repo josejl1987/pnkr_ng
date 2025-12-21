@@ -78,20 +78,12 @@ public:
             .setName("CubePipeline")
             .setShaders(vs.get(), fs.get(), nullptr)
             .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
-            .setCullMode(renderer::rhi::CullMode::Back)
+            .setCullMode(renderer::rhi::CullMode::Back, true)
             .useVertexType<renderer::Vertex>()
             .enableDepthTest(true)
             .setColorFormat(m_renderer->getDrawColorFormat())
             .setDepthFormat(m_renderer->getDrawDepthFormat())
             .buildGraphics();
-
-        // FIX: Validation Error 06055
-        // Explicitly add a blend attachment to match the color attachment count.
-        renderer::rhi::BlendAttachment blend{};
-        blend.blendEnable = false;
-        // Assuming default constructor sets valid write mask (e.g. RGBA), or 0 if omitted.
-        // Explicitly setting it would be safer if we knew the Enum, but default init is used in rhiTriangle.
-        desc.blend.attachments.push_back(blend);
 
         m_pipeline = m_renderer->createGraphicsPipeline(desc);
     }
@@ -106,7 +98,7 @@ public:
         xform.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0F, 1.0F, 0.0F});
 
         // 2. Prepare Data
-        ShaderGen::PushConstants pc{};
+        ShaderGen::cube_vert_PushConstants pc{};
         pc.model = xform.mat4();
         pc.viewProj = m_camera.viewProj();
 
@@ -156,7 +148,7 @@ private:
     {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
         if (!file.is_open()) {
-            throw std::runtime_error("Failed to open SPIR-V file: " + filename);
+            throw cpptrace::runtime_error("Failed to open SPIR-V file: " + filename);
         }
         size_t fileSize = (size_t)file.tellg();
         std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));

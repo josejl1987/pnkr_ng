@@ -304,13 +304,6 @@ namespace pnkr::renderer::debug
             return;
         }
 
-        // Recreate pipeline if depth testing configuration changed
-        if (m_pipelineDirty)
-        {
-            createPipeline();
-            m_pipelineDirty = false;
-        }
-
         // 1. Determine ring buffer offset
         uint32_t frameSlot = ctx.frameIndex % kMaxFrames;
         uint64_t offset = u64(frameSlot * m_maxVertices) * sizeof(LineVertex);
@@ -320,6 +313,12 @@ namespace pnkr::renderer::debug
 
         // 3. Record Commands
         auto* cmd = ctx.commandBuffer;
+        
+        // Use dynamic depth state
+        cmd->setDepthTestEnable(m_depthTestEnabled);
+        cmd->setDepthWriteEnable(m_depthTestEnabled);
+        cmd->setDepthCompareOp(rhi::CompareOp::LessOrEqual);
+
         m_renderer->bindPipeline(cmd, m_pipeline);
 
         cmd->bindVertexBuffer(0, m_vertexBuffer.get(), offset);
@@ -328,6 +327,10 @@ namespace pnkr::renderer::debug
         m_renderer->pushConstants(cmd, m_pipeline, rhi::ShaderStage::Vertex, pc);
 
         cmd->draw(static_cast<uint32_t>(m_vertices.size()));
+
+        // Restore default state
+        cmd->setDepthTestEnable(true);
+        cmd->setDepthWriteEnable(true);
 
         // 4. Immediate Clear (ready for next frame's logic)
         m_vertices.clear();
@@ -353,17 +356,8 @@ namespace pnkr::renderer::debug
                .setNoBlend()
                .setColorFormat(m_renderer->getDrawColorFormat())
                .setDepthFormat(m_renderer->getDrawDepthFormat())
+               .enableDepthTest(true, rhi::CompareOp::LessOrEqual, true) // TRUE for isDynamic
                .setName("DebugLinePipeline");
-
-        // Configure depth testing based on settings
-        if (m_depthTestEnabled)
-        {
-            builder.enableDepthTest(true, rhi::CompareOp::LessOrEqual);
-        }
-        else
-        {
-            builder.disableDepthTest();
-        }
 
         m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
     }

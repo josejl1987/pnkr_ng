@@ -2,44 +2,25 @@
 # PNKR Engine Static Library
 # ============================================================================
 add_library(pnkr_engine STATIC
+        src/renderer/ktx_utils.cpp
         src/core/implementations.cpp
-        src/renderer/vulkan/vulkan_dispatch.cpp
-        src/renderer/vulkan/vulkan_context.cpp
-        include/pnkr/renderer/vulkan/vulkan_sync_manager.h
-        src/renderer/vulkan/vulkan_sync_manager.cpp
         include/pnkr/renderer/vulkan/vma.cpp
         include/pnkr/renderer/geometry/Vertex.h
         include/pnkr/renderer/geometry/VertexInputDescription.h
-        include/pnkr/renderer/vulkan/pipeline/PipelineConfig.h
         include/pnkr/renderer/pipeline/Pipeline.h
-        include/pnkr/renderer/geometry/mesh.h
-        src/renderer/geometry/mesh.cpp
         include/pnkr/core/Handle.h
-        include/pnkr/renderer/vulkan/PushConstants.h
         include/pnkr/renderer/scene/camera.hpp
         src/renderer/scene.cpp
         src/renderer/scene/Model.cpp
         include/pnkr/core/Timer.h
-        include/pnkr/renderer/vulkan/image/vulkan_image.hpp
-        src/renderer/vulkan/image/vulkan_image.cpp
-        include/pnkr/renderer/vulkan/image/vulkan_sampler.hpp
-        src/renderer/vulkan/image/vulkan_sampler.cpp
-        src/renderer/vulkan/vulkan_descriptor.cpp
         include/pnkr/renderer/scene/Model.hpp
         include/pnkr/renderer/scene/Node.hpp
         include/pnkr/renderer/scene/RHIScene.hpp
         include/pnkr/renderer/scene/Skybox.hpp
         include/pnkr/renderer/material/Material.hpp
-        include/pnkr/renderer/vulkan/vulkan_render_target.h
-        src/renderer/vulkan/vulkan_render_target.cpp
-        include/pnkr/renderer/vulkan/pipeline/PipelineBuilder.h
-        src/renderer/vulkan/pipeline/pipeline_builder.cpp
+        include/pnkr/renderer/ktx_utils.hpp
         include/pnkr/ui/imgui_layer.hpp
         src/renderer/ui/imgui_layer.cpp
-        include/pnkr/renderer/vulkan/pipeline/compute_pipeline.hpp
-        src/renderer/vulkan/pipeline/compute_pipeline.cpp
-        include/pnkr/renderer/vulkan/bindless/bindless_manager.hpp
-        src/renderer/vulkan/bindless/bindless_manager.cpp
         src/rhi/vulkan/vulkan_buffer.cpp
         src/rhi/vulkan/vulkan_command_buffer.cpp
         src/rhi/vulkan/vulkan_texture.cpp
@@ -47,9 +28,6 @@ add_library(pnkr_engine STATIC
         src/rhi/vulkan/vulkan_descriptor.cpp
         src/rhi/vulkan/vulkan_swapchain.cpp
         src/rhi/vulkan/vulkan_utils.cpp
-        src/rhi/vulkan/vulkan_buffer.cpp
-
-        src/rhi/vulkan/vulkan_texture.cpp
         src/rhi/vulkan/vulkan_pipeline.cpp
         src/rhi/vulkan/vulkan_sampler.cpp
         src/rhi/vulkan/rhi_factory.cpp
@@ -78,13 +56,7 @@ target_sources(pnkr_engine
   PRIVATE
     src/core/logger.cpp
     src/platform/window.cpp
-    src/renderer/renderer.cpp
-        src/renderer/vulkan/vulkan_buffer.cpp
-        src/renderer/vulkan/vulkan_command_buffer.cpp
-        src/renderer/vulkan/vulkan_device.cpp
-        src/renderer/vulkan/vulkan_pipeline.cpp
-        src/renderer/vulkan/vulkan_swapchain.cpp
-        src/renderer/vulkan/vulkan_context.cpp
+
 
         PUBLIC
     FILE_SET headers
@@ -95,18 +67,10 @@ target_sources(pnkr_engine
       include/pnkr/core/profiler.hpp
       include/pnkr/core/common.hpp
       include/pnkr/platform/window.hpp
-      include/pnkr/renderer/renderer_config.hpp
-      include/pnkr/renderer/renderer.hpp
       include/pnkr/rhi/rhi_descriptor.hpp
       include/pnkr/rhi/rhi_swapchain.hpp
       include/pnkr/rhi/vulkan/vulkan_swapchain.hpp
       include/pnkr/rhi/vulkan/vulkan_descriptor.hpp
-        include/pnkr/renderer/vulkan/vulkan_buffer.hpp
-        include/pnkr/renderer/vulkan/vulkan_command_buffer.hpp
-        include/pnkr/renderer/vulkan/vulkan_context.hpp
-        include/pnkr/renderer/vulkan/vulkan_device.hpp
-        include/pnkr/renderer/vulkan/vulkan_pipeline.hpp
-        include/pnkr/renderer/vulkan/vulkan_swapchain.hpp
         include/pnkr/renderer/scene/Model.hpp
         include/pnkr/renderer/scene/Node.hpp
         include/pnkr/renderer/scene/RHIScene.hpp
@@ -170,7 +134,7 @@ target_compile_definitions(pnkr_engine
 
 # Unity build to reduce per-TU header parsing overhead
 set_target_properties(pnkr_engine PROPERTIES
-  UNITY_BUILD ON
+        UNITY_BUILD OFF
   UNITY_BUILD_BATCH_SIZE 8
 )
 set_source_files_properties(src/core/implementations.cpp PROPERTIES UNITY_BUILD OFF)
@@ -209,6 +173,17 @@ target_link_libraries(pnkr_engine
 find_package(glm CONFIG REQUIRED)
 target_link_libraries(pnkr_engine PUBLIC glm::glm)
 
+# KTX (Khronos Texture)
+find_package(ktx CONFIG REQUIRED)
+set(PNKR_KTX_TARGET "")
+if (TARGET KTX::ktx)
+  set(PNKR_KTX_TARGET KTX::ktx)
+elseif (TARGET ktx)
+  set(PNKR_KTX_TARGET ktx)
+else ()
+  message(FATAL_ERROR "KTX target not found after find_package(ktx)")
+endif ()
+target_link_libraries(pnkr_engine PUBLIC ${PNKR_KTX_TARGET})
 
 
 # VMA (vcpkg port may not export an imported target; treat as header-only unless a target exists)
@@ -260,6 +235,7 @@ target_link_libraries(pnkr_engine
         spirv-cross-hlsl
         fastgltf::fastgltf
         meshoptimizer::meshoptimizer
+        cpptrace::cpptrace
 )
 
 # ============================================================================
@@ -275,17 +251,20 @@ else()
 endif()
 
 # ============================================================================
-# Optimization
+# Optimization & Debug Symbols
 # ============================================================================
 if(MSVC)
   target_compile_options(pnkr_engine PRIVATE
     $<$<CONFIG:Release>:/O2>
     $<$<CONFIG:Debug>:/Od>
+          /Zi # Generate PDBs
   )
+  target_link_options(pnkr_engine PUBLIC /DEBUG /OPT:REF /OPT:ICF)
 else()
   target_compile_options(pnkr_engine PRIVATE
     $<$<CONFIG:Release>:-O3>
     $<$<CONFIG:Debug>:-g -O0>
+          -g # Ensure symbols are included
   )
 endif()
 

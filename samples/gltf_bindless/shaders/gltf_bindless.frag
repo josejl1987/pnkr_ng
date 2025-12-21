@@ -1,8 +1,9 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
 
+#include "bindless.glsl"
 
-layout(set = 0, binding = 1) uniform sampler2D bindlessTextures[];
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
@@ -26,7 +27,7 @@ layout(location = 0) out vec4 outColor;
 void main() {
     vec4 baseColor;
 
-    baseColor = texture(bindlessTextures[nonuniformEXT(pc.materialIndex)], fsIn.texCoord);
+    baseColor = sampleBindlessTexture(pc.materialIndex, fsIn.texCoord);
 
     // Compute TBN matrix for potential normal mapping
     vec3 N = normalize(fsIn.normal);

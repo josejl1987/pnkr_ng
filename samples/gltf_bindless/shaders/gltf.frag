@@ -1,11 +1,11 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "bindless.glsl"
 
 // Set 0: Traditional single texture descriptor
 layout(set = 0, binding = 0) uniform sampler2D traditionalTexture;
-
-// Set 1: Bindless texture array
-layout(set = 1, binding = 1) uniform sampler2D bindlessTextures[];
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
@@ -34,7 +34,7 @@ void main() {
     if (pc.materialIndex == 0xFFFFFFFFu) {
         baseColor = texture(traditionalTexture, fsIn.texCoord);
     } else {
-        baseColor = texture(bindlessTextures[nonuniformEXT(pc.materialIndex)], fsIn.texCoord);
+        baseColor = sampleBindlessTexture(pc.materialIndex, fsIn.texCoord);
     }
 
     vec3 N = normalize(fsIn.normal);

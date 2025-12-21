@@ -8,6 +8,7 @@
 #include <memory>
 
 #include <SDL3/SDL.h>
+#include <cpptrace/cpptrace.hpp>
 #include <pnkr/engine.hpp>
 #include <pnkr/core/profiler.hpp>
 
@@ -42,10 +43,12 @@ namespace pnkr::samples
 
         virtual void onUpdate(float dt)
         {
+            (void)dt;
         }
 
         virtual void onEvent(const SDL_Event& event)
         {
+            (void)event;
         }
 
 
@@ -55,6 +58,7 @@ namespace pnkr::samples
         // Only used by default onRenderFrame
         virtual void onRecord(const renderer::RHIFrameContext& ctx)
         {
+            (void)ctx;
         }
 
         virtual void onShutdown()
@@ -76,7 +80,7 @@ namespace pnkr::samples
 
     protected:
         platform::Window m_window;
-        std::unique_ptr<renderer::RHIRenderer> m_renderer; 
+        std::unique_ptr<renderer::RHIRenderer> m_renderer;
         ui::ImGuiLayer m_imgui;
         bool m_vsync = true;
 
@@ -120,12 +124,14 @@ namespace pnkr::samples
         {
             pnkr::Log::info("Initializing ImGui for sample...");
             m_imgui.init(m_renderer.get(), &m_window);
-            
+
             // Wrap the record func to inject ImGui rendering
             m_renderer->setRecordFunc(
-                [this](const renderer::RHIFrameContext& ctx) { 
-                    onRecord(ctx); 
-                    if (m_imgui.isInitialized()) {
+                [this](const renderer::RHIFrameContext& ctx)
+                {
+                    onRecord(ctx);
+                    if (m_imgui.isInitialized())
+                    {
                         m_imgui.render(ctx.commandBuffer);
                     }
                 });
@@ -144,6 +150,7 @@ namespace pnkr::samples
 
     inline int RhiSampleApp::run()
     {
+        cpptrace::register_terminate_handler();
         try
         {
             pnkr::Log::init("[%H:%M:%S] [%-8l] %v");
@@ -157,17 +164,22 @@ namespace pnkr::samples
                 PNKR_PROFILE_FRAME("Main Loop");
 
                 m_input.beginFrame();
-                m_window.processEvents(&m_input, [this](const SDL_Event& e) { 
+                m_window.processEvents(&m_input, [this](const SDL_Event& e)
+                {
                     if (m_imgui.isInitialized()) m_imgui.handleEvent(e);
-                    onEvent(e); 
+                    onEvent(e);
                 });
 
                 // ImGui Frame
-                if (m_renderer && m_imgui.isInitialized()) {
+                if (m_renderer && m_imgui.isInitialized())
+                {
                     m_imgui.beginFrame();
-                    if (ImGui::Begin("Settings")) {
-                        ImGui::Text("FPS: %.1f (%.3f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
-                        if (ImGui::Checkbox("VSync", &m_vsync)) {
+                    if (ImGui::Begin("Settings"))
+                    {
+                        ImGui::Text("FPS: %.1f (%.3f ms)", ImGui::GetIO().Framerate,
+                                    1000.0f / ImGui::GetIO().Framerate);
+                        if (ImGui::Checkbox("VSync", &m_vsync))
+                        {
                             m_renderer->setVsync(m_vsync);
                         }
                     }
@@ -190,14 +202,21 @@ namespace pnkr::samples
                     onRenderFrame(deltaTime);
                 }
             }
-            
+
             if (m_renderer) m_imgui.shutdown();
             onShutdown();
             return 0;
         }
+        catch (const cpptrace::exception& e)
+        {
+            pnkr::Log::critical("Unhandled cpptrace exception: {}", e.what());
+            e.trace().print();
+            return 1;
+        }
         catch (const std::exception& e)
         {
-            pnkr::Log::error("Sample error: {}", e.what());
+            pnkr::Log::critical("Unhandled Exception: {}", e.what());
+            cpptrace::generate_trace().print();
             return 1;
         }
     }
@@ -209,7 +228,7 @@ namespace pnkr::samples
             filename.is_absolute() ? filename : m_shaderDir / filename;
         if (!std::filesystem::exists(fullPath))
         {
-            throw std::runtime_error("Shader not found: " + fullPath.string());
+            throw cpptrace::runtime_error("Shader not found: " + fullPath.string());
         }
         return fullPath;
     }

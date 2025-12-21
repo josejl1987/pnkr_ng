@@ -137,8 +137,8 @@ public:
         std::vector<fs::path> skyboxFaces = {
             baseDir() / "assets/skybox/posx.jpg",
             baseDir() / "assets/skybox/negx.jpg",
-            baseDir() / "assets/skybox/posy.jpg",
             baseDir() / "assets/skybox/negy.jpg",
+            baseDir() / "assets/skybox/posy.jpg",
             baseDir() / "assets/skybox/posz.jpg",
             baseDir() / "assets/skybox/negz.jpg"
         };
@@ -165,14 +165,14 @@ public:
                      core::Logger::info("Generating cache from {}...", sourceFile.string());
                      convertGLTFToUnified(sourceFile, cacheFile);
                  } else {
-                     throw std::runtime_error("No source asset (Bistro.glb or Duck.glb) found to generate cache.");
+                     throw cpptrace::runtime_error("No source asset (Bistro.glb or Duck.glb) found to generate cache.");
                  }
             }
         }
 
         // 2. Load the Monolithic Cache
         if (!renderer::scene::loadUnifiedMeshData(cacheFile.string().c_str(), m_meshData)) {
-            throw std::runtime_error("Failed to load unified mesh data");
+            throw cpptrace::runtime_error("Failed to load unified mesh data");
         }
 
         core::Logger::info("Loaded Unified Mesh: {} meshes, {} indices, {} KB vertices", 
@@ -240,12 +240,12 @@ public:
         fastgltf::Parser parser;
         auto data = fastgltf::GltfDataBuffer::FromPath(inputPath);
         if (data.error() != fastgltf::Error::None) {
-            throw std::runtime_error("Failed to load GLTF data");
+            throw cpptrace::runtime_error("Failed to load GLTF data");
         }
 
         auto asset = parser.loadGltf(data.get(), inputPath.parent_path(), fastgltf::Options::LoadExternalBuffers);
         if (asset.error() != fastgltf::Error::None) {
-            throw std::runtime_error("Failed to parse GLTF");
+            throw cpptrace::runtime_error("Failed to parse GLTF");
         }
 
         auto& gltf = asset.get();
@@ -389,7 +389,7 @@ public:
         cmd->bindVertexBuffer(0, m_globalVertexBuffer.get(), 0);
         cmd->bindIndexBuffer(m_globalIndexBuffer.get(), 0, false); 
 
-        ShaderGen::PushConstants pc{};
+        ShaderGen::unified_vert_PushConstants pc{};
         pc.viewProj = m_scene->camera().viewProj();
         pc.model = glm::mat4(1.0f); // Identity for the whole batch
 

@@ -104,39 +104,45 @@ namespace pnkr::renderer::rhi::vulkan
     {
         auto type = m_layout->descriptorType(binding);
         if (type != DescriptorType::CombinedImageSampler &&
+            type != DescriptorType::Sampler &&
             type != DescriptorType::SampledImage &&
             type != DescriptorType::StorageImage)
         {
             core::Logger::error("updateTexture: binding {} is not an image descriptor", binding);
             return;
         }
-        if (texture == nullptr)
+        if (type != DescriptorType::Sampler && texture == nullptr)
         {
             core::Logger::error("updateTexture: texture is null");
             return;
         }
-        if (type == DescriptorType::CombinedImageSampler && (sampler == nullptr))
+        if ((type == DescriptorType::CombinedImageSampler || type == DescriptorType::Sampler) &&
+            (sampler == nullptr))
         {
             core::Logger::error("updateTexture: sampler is null");
             return;
         }
 
         vk::DescriptorImageInfo imageInfo{};
-        imageInfo.imageView = vk::ImageView(static_cast<VkImageView>(texture->nativeView()));
-        if (type == DescriptorType::StorageImage)
-        {
-            imageInfo.imageLayout = vk::ImageLayout::eGeneral;
-            imageInfo.sampler = nullptr;
-        }
-        else if (type == DescriptorType::SampledImage)
-        {
-            imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-            imageInfo.sampler = nullptr;
-        }
-        else
-        {
-            imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        if (type == DescriptorType::Sampler) {
             imageInfo.sampler = vk::Sampler(static_cast<VkSampler>(sampler->nativeHandle()));
+        } else {
+            imageInfo.imageView = vk::ImageView(static_cast<VkImageView>(texture->nativeView()));
+            if (type == DescriptorType::StorageImage)
+            {
+                imageInfo.imageLayout = vk::ImageLayout::eGeneral;
+                imageInfo.sampler = nullptr;
+            }
+            else if (type == DescriptorType::SampledImage)
+            {
+                imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+                imageInfo.sampler = nullptr;
+            }
+            else
+            {
+                imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+                imageInfo.sampler = vk::Sampler(static_cast<VkSampler>(sampler->nativeHandle()));
+            }
         }
 
         vk::WriteDescriptorSet write{};

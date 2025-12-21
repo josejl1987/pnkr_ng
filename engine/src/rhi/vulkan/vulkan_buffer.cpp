@@ -3,6 +3,7 @@
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
+#include <cpptrace/cpptrace.hpp>
 
 using namespace pnkr::util;
 
@@ -35,7 +36,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         if (result != vk::Result::eSuccess) {
             core::Logger::error("Failed to create buffer: {}", vk::to_string(result));
-            throw std::runtime_error("Buffer creation failed");
+            throw cpptrace::runtime_error("Buffer creation failed");
         }
 
         m_buffer = cBuffer;

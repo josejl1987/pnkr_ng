@@ -30,6 +30,7 @@
 
 #version 460
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
 
 #include "bindless.glsl"
 
@@ -46,9 +47,9 @@ layout(local_size_x = 16, local_size_y = 16) in;
 // fiery stuff tends to stand out more, so that's the default. :)
 #define WARM
 
-layout(push_constant) uniform PushConstants
+layout(push_constant) uniform ComputePushConstants
 {
-  uint tex;
+  uint textureIndex;
   float time;
 }
 pc;
@@ -582,7 +583,7 @@ vec4 mainImage(in vec2 fragCoord)
 
 void main()
 {
-  ivec2 dim = imageSize(bindlessStorageImages[nonuniformEXT(pc.tex)]);
+  ivec2 dim = imageSize(bindlessStorageImages[nonuniformEXT(pc.textureIndex)]);
 
   vec4 c = vec4(0.0);
 
@@ -594,5 +595,5 @@ void main()
   }
 
   // Store result
-  imageStore(bindlessStorageImages[nonuniformEXT(pc.tex)], ivec2(gl_GlobalInvocationID.xy), c / 9.0);
+  imageStore(bindlessStorageImages[nonuniformEXT(pc.textureIndex)], ivec2(gl_GlobalInvocationID.xy), c / 9.0);
 }

@@ -9,7 +9,6 @@
 #include "pnkr/rhi/rhi_swapchain.hpp"
 #include "pnkr/rhi/rhi_sampler.hpp"
 #include "pnkr/rhi/rhi_descriptor.hpp"
-#include "pnkr/renderer/renderer_config.hpp"
 #include "pnkr/core/Handle.h"
 #include "pnkr/platform/window.hpp"
 
@@ -17,6 +16,8 @@
 #include <memory>
 #include <vector>
 #include <filesystem>
+
+#include "renderer_config.hpp"
 
 namespace pnkr::renderer
 {
@@ -66,6 +67,8 @@ namespace pnkr::renderer
         TextureHandle loadTexture(const std::filesystem::path& filepath,
                                  bool srgb = true);
 
+        TextureHandle loadTextureKTX(const std::filesystem::path& filepath);
+
         TextureHandle createCubemap(const std::vector<std::filesystem::path>& faces,
                                    bool srgb = true);
 
@@ -110,6 +113,7 @@ namespace pnkr::renderer
         // Texture/descriptor access
         [[nodiscard]] rhi::RHITexture* getTexture(TextureHandle handle) const;
         [[nodiscard]] uint32_t getTextureBindlessIndex(TextureHandle handle) const;
+        [[nodiscard]] uint32_t getBindlessSamplerIndex(rhi::SamplerAddressMode addressMode) const;
 
         // Buffer access
         [[nodiscard]] rhi::RHIBuffer* getBuffer(BufferHandle handle) const;
@@ -136,6 +140,11 @@ namespace pnkr::renderer
         // Pipeline access
         [[nodiscard]] rhi::RHIPipeline* getPipeline(PipelineHandle handle);
 
+        // Global Lighting
+        void setGlobalIBL(TextureHandle irradiance, TextureHandle prefilter, TextureHandle brdfLut);
+        [[nodiscard]] rhi::RHIDescriptorSet* getGlobalLightingDescriptorSet() const { return m_globalLightingSet.get(); }
+        [[nodiscard]] rhi::RHIDescriptorSetLayout* getGlobalLightingDescriptorSetLayout() const { return m_globalLightingLayout.get(); }
+
     private:
         // Window reference
         platform::Window& m_window;
@@ -147,6 +156,12 @@ namespace pnkr::renderer
         rhi::RHICommandBuffer* m_activeCommandBuffer = nullptr;
         rhi::SwapchainFrame m_currentFrame{};
         std::unique_ptr<rhi::RHISampler> m_defaultSampler;
+        std::unique_ptr<rhi::RHISampler> m_repeatSampler;
+        std::unique_ptr<rhi::RHISampler> m_clampSampler;
+        std::unique_ptr<rhi::RHISampler> m_mirrorSampler;
+        uint32_t m_repeatSamplerIndex = 0xFFFFFFFF;
+        uint32_t m_clampSamplerIndex = 0xFFFFFFFF;
+        uint32_t m_mirrorSamplerIndex = 0xFFFFFFFF;
 
         // Resources
         struct MeshData {
@@ -189,6 +204,10 @@ namespace pnkr::renderer
         bool m_bindlessSupported = false;
         bool m_useBindless = false;
         TextureHandle m_whiteTexture{INVALID_TEXTURE_HANDLE};
+
+        // Global lighting
+        std::unique_ptr<rhi::RHIDescriptorSetLayout> m_globalLightingLayout;
+        std::unique_ptr<rhi::RHIDescriptorSet> m_globalLightingSet;
 
         // Helper methods
         void createRenderTargets();

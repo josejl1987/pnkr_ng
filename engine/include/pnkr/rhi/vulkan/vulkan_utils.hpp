@@ -80,6 +80,12 @@ namespace pnkr::renderer::rhi::vulkan
 
         // Clear value conversions
         static vk::ClearValue toVkClearValue(const ClearValue& clearValue);
+
+        // Dynamic state conversions
+        static vk::DynamicState toVkDynamicState(DynamicState state);
+
+        // Helper to deduce Stage/Access flags from a layout
+        static std::pair<vk::PipelineStageFlags2, vk::AccessFlags2> getLayoutStageAccess(vk::ImageLayout layout);
     };
 
 } // namespace pnkr::renderer::rhi::vulkan

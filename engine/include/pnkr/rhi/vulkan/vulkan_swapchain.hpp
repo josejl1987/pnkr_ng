@@ -2,6 +2,7 @@
 
 #include "pnkr/rhi/rhi_swapchain.hpp"
 #include "pnkr/rhi/rhi_texture.hpp"
+#include "pnkr/core/profiler.hpp"
 #include <vulkan/vulkan.hpp>
 
 #include <memory>
@@ -31,6 +32,13 @@ namespace pnkr::renderer::rhi::vulkan
 
         void* nativeHandle() const override { return static_cast<VkImage>(m_image); }
         void* nativeView() const override { return static_cast<VkImageView>(m_view); }
+        void* nativeView(uint32_t mipLevel, uint32_t arrayLayer) const override {
+            // Swapchain images only have 1 mip and 1 layer
+            if (mipLevel == 0 && arrayLayer == 0) {
+                return static_cast<VkImageView>(m_view);
+            }
+            return nullptr;
+        }
 
         vk::Image image() const { return m_image; }
         vk::ImageView imageView() const { return m_view; }
@@ -55,6 +63,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         bool beginFrame(uint32_t frameIndex, RHICommandBuffer* cmd, SwapchainFrame& out) override;
         bool endFrame(uint32_t frameIndex, RHICommandBuffer* cmd) override;
+        bool present(uint32_t frameIndex) override;
 
         void recreate(uint32_t width, uint32_t height) override;
         void setVsync(bool enabled) override { m_vsync = enabled; }
@@ -63,6 +72,7 @@ namespace pnkr::renderer::rhi::vulkan
         bool m_vsync = true;
         VulkanRHIDevice* m_device{};
         platform::Window* m_window{};
+        TracyContext m_tracyContext{};
 
         vk::SurfaceKHR m_surface{};
         vk::SwapchainKHR m_swapchain{};
@@ -77,14 +87,21 @@ namespace pnkr::renderer::rhi::vulkan
         std::vector<ResourceLayout> m_layouts;
 
         uint32_t m_currentImage = 0;
+        uint32_t m_currentFrameIndex = 0;
 
-        // Sync: binary semaphores for acquire/present, fences to throttle CPU
-        uint32_t m_framesInFlight = 2;
-        std::vector<vk::Fence> m_inFlightFences;
+        // Sync: binary semaphores for acquire/present
+        uint32_t m_framesInFlight = 3;
         std::vector<vk::Semaphore> m_imageAvailable;
         // IMPORTANT: render-finished semaphores must be per swapchain image (not per frame), to avoid WSI semaphore reuse hazards.
         std::vector<vk::Semaphore> m_renderFinished; // indexed by acquired imageIndex
-        std::vector<vk::Fence> m_imagesInFlight; // per swapchain image
+
+    public:
+        vk::Semaphore getCurrentAcquireSemaphore() const {
+            return m_imageAvailable[m_currentFrameIndex % m_framesInFlight];
+        }
+        vk::Semaphore getCurrentRenderFinishedSemaphore() const {
+            return m_renderFinished[m_currentImage];
+        }
 
         void createSurface();
         void createSwapchain(Format preferredFormat, uint32_t width, uint32_t height);

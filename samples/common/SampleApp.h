@@ -115,7 +115,7 @@ inline std::filesystem::path RhiSampleApp::getShaderPath(
     const std::filesystem::path fullPath =
         filename.is_absolute() ? filename : m_shaderDir / filename;
     if (!std::filesystem::exists(fullPath)) {
-        throw std::runtime_error("Shader not found: " + fullPath.string());
+        throw cpptrace::runtime_error("Shader not found: " + fullPath.string());
     }
     return fullPath;
 }

@@ -4,8 +4,14 @@
 
 using namespace pnkr;
 
-struct PushConstants {
+struct ComputePushConstants {
     uint32_t textureIndex;
+    float time;
+};
+
+struct GraphicsPushConstants {
+    uint32_t textureIndex;
+    uint32_t samplerIndex;
     float time;
 };
 
@@ -15,8 +21,10 @@ public:
         : samples::RhiSampleApp({.title="RHI Compute Texture", .width=1280, .height=720, .createRenderer=false}) {}
 
     std::unique_ptr<renderer::rhi::RHITexture> m_texture;
+    std::unique_ptr<renderer::rhi::RHISampler> m_sampler;
     uint32_t m_storageIndex = 0;
     uint32_t m_sampledIndex = 0;
+    uint32_t m_samplerIndex = 0;
     PipelineHandle m_computePipeline;
     PipelineHandle m_graphicsPipeline;
     float m_time = 0.0f;
@@ -35,12 +43,13 @@ public:
         m_texture = m_renderer->device()->createTexture(textureDesc.extent, textureDesc.format, textureDesc.usage);
         
         // 2. Register to Bindless
-        auto sampler = m_renderer->device()->createSampler(
+        m_sampler = m_renderer->device()->createSampler(
             renderer::rhi::Filter::Linear, 
             renderer::rhi::Filter::Linear, 
             renderer::rhi::SamplerAddressMode::ClampToEdge);
         
-        m_sampledIndex = m_renderer->device()->registerBindlessTexture(m_texture.get(), sampler.get()).index;
+        m_samplerIndex = m_renderer->device()->registerBindlessSampler(m_sampler.get()).index;
+        m_sampledIndex = m_renderer->device()->registerBindlessTexture2D(m_texture.get()).index;
         m_storageIndex = m_renderer->device()->registerBindlessStorageImage(m_texture.get()).index;
 
         // 3. Compute Pipeline
@@ -90,10 +99,10 @@ public:
         }
 
         m_renderer->bindComputePipeline(cmd, m_computePipeline);
-        void* nativeSet = m_renderer->device()->getBindlessDescriptorSetNative();
-        cmd->bindDescriptorSet(m_renderer->pipeline(m_computePipeline), 1, nativeSet);
+        renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
+        cmd->bindDescriptorSet(m_renderer->pipeline(m_computePipeline), 1, bindlessSet);
 
-        PushConstants pc { m_storageIndex, m_time };
+        ComputePushConstants pc { m_storageIndex, m_time };
         m_renderer->pushConstants(cmd, m_computePipeline, renderer::rhi::ShaderStage::Compute, pc);
 
         cmd->dispatch(1280/16, 720/16, 1);
@@ -114,10 +123,10 @@ public:
         auto cmd = ctx.commandBuffer;
         m_renderer->bindPipeline(cmd, m_graphicsPipeline);
         
-        void* nativeSet = m_renderer->device()->getBindlessDescriptorSetNative();
-        cmd->bindDescriptorSet(m_renderer->pipeline(m_graphicsPipeline), 1, nativeSet);
+        renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
+        cmd->bindDescriptorSet(m_renderer->pipeline(m_graphicsPipeline), 1, bindlessSet);
 
-        PushConstants pc { m_sampledIndex, m_time };
+        GraphicsPushConstants pc { m_sampledIndex, m_samplerIndex, m_time };
         m_renderer->pushConstants(cmd, m_graphicsPipeline, renderer::rhi::ShaderStage::Fragment, pc);
 
         cmd->draw(3, 1, 0, 0);
@@ -131,6 +140,8 @@ public:
 };
 
 int main(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
     ComputeTextureApp app;
     return app.run();
 }

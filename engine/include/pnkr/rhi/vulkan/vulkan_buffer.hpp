@@ -1,7 +1,6 @@
 #pragma once
 
 #include "pnkr/rhi/rhi_buffer.hpp"
-#include "pnkr/renderer/vulkan/vulkan_buffer.hpp"  // Your existing buffer
 #include <vulkan/vulkan.hpp>
 #include <vk_mem_alloc.h>
 

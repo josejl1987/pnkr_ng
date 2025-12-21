@@ -334,6 +334,34 @@ namespace pnkr::renderer::rhi
         Instance
     };
 
+    enum class DynamicState
+    {
+        Viewport,
+        Scissor,
+        LineWidth,
+        DepthBias,
+        BlendConstants,
+        DepthBounds,
+        StencilCompareMask,
+        StencilWriteMask,
+        StencilReference,
+        CullMode,
+        FrontFace,
+        PrimitiveTopology,
+        ViewportWithCount,
+        ScissorWithCount,
+        VertexInputBindingStride,
+        DepthTestEnable,
+        DepthWriteEnable,
+        DepthCompareOp,
+        DepthBoundsTestEnable,
+        StencilTestEnable,
+        StencilOp,
+        RasterizerDiscardEnable,
+        DepthBiasEnable,
+        PrimitiveRestartEnable
+    };
+
     struct VertexInputBinding
     {
         uint32_t binding;

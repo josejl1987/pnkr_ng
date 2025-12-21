@@ -342,7 +342,7 @@ namespace pnkr::renderer::debug
             std::ifstream file(shaderPath, std::ios::binary);
             if (!file.is_open())
             {
-                throw std::runtime_error("Failed to open SPIR-V shader file: " + shaderPath.string());
+                throw cpptrace::runtime_error("Failed to open SPIR-V shader file: " + shaderPath.string());
             }
 
             // Read file into vector of bytes

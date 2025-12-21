@@ -43,7 +43,7 @@ add_custom_command(TARGET pnkr_rhi_unified_mesh POST_BUILD
         "$<TARGET_FILE_DIR:pnkr_rhi_unified_mesh>/shaders"
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_unified_mesh>/assets"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/samples/rhiGltfBindless/assets"
+        "${CMAKE_SOURCE_DIR}/samples/rhiUnifiedMesh/assets"
         "$<TARGET_FILE_DIR:pnkr_rhi_unified_mesh>/assets"
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_unified_mesh>/assets/skybox"
         COMMAND ${CMAKE_COMMAND} -E copy_directory

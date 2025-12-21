@@ -22,6 +22,6 @@ layout(push_constant) uniform PerFrameData {
 
 
 void main() {
-    vec4 texColor = texture(bindlessTextures[textureId], uv);
+    vec4 texColor = textureBindless2D(textureId, uv);
     out_FragColor = texColor * vec4(color, 1.0);
 }

@@ -9,9 +9,10 @@
 #include <SDL3/SDL_vulkan.h>
 #include <algorithm>
 #include <limits>
-#include <stdexcept>
+#include <cpptrace/cpptrace.hpp>
 
 #include "pnkr/rhi/rhi_command_buffer.hpp"
+#include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
 
 using namespace pnkr::util;
 
@@ -40,7 +41,7 @@ namespace pnkr::renderer::rhi::vulkan
         : m_device(device), m_window(&window)
     {
         if (m_device == nullptr) {
-            throw std::runtime_error("[VulkanRHISwapchain] device is null");
+            throw cpptrace::runtime_error("[VulkanRHISwapchain] device is null");
 }
 
         createSurface();
@@ -89,7 +90,7 @@ namespace pnkr::renderer::rhi::vulkan
             nullptr,
             &raw))
         {
-            throw std::runtime_error(
+            throw cpptrace::runtime_error(
                 std::string("[VulkanRHISwapchain] SDL_Vulkan_CreateSurface failed: ") + SDL_GetError());
         }
 
@@ -132,15 +133,17 @@ namespace pnkr::renderer::rhi::vulkan
 
     vk::PresentModeKHR VulkanRHISwapchain::choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) 
     {
+        // Force immediate/mailbox for profiling/smoothness testing if VSync is disabled
         if (!m_vsync) {
-            // Mailbox is lowest latency without tearing, Immediate is fastest but tears
             for (auto mode : modes) {
-                if (mode == vk::PresentModeKHR::eMailbox) return mode;
+                if (mode == vk::PresentModeKHR::eMailbox) return mode; // Smooth, no tearing
             }
             for (auto mode : modes) {
-                if (mode == vk::PresentModeKHR::eImmediate) return mode;
+                if (mode == vk::PresentModeKHR::eImmediate) return mode; // Fastest, tearing
             }
         }
+        
+        // Fallback or explicit VSync
         return vk::PresentModeKHR::eFifo;
     }
 
@@ -162,7 +165,7 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHISwapchain::createSwapchain(Format preferredFormat, uint32_t width, uint32_t height)
     {
         if (!m_surface) {
-            throw std::runtime_error("[VulkanRHISwapchain] createSwapchain: surface not initialized");
+            throw cpptrace::runtime_error("[VulkanRHISwapchain] createSwapchain: surface not initialized");
 }
 
         auto pd = m_device->vkPhysicalDevice();
@@ -170,10 +173,10 @@ namespace pnkr::renderer::rhi::vulkan
 
         const auto support = querySwapchainSupport(pd, m_surface);
         if (support.m_formats.empty()) {
-            throw std::runtime_error("[VulkanRHISwapchain] Surface has no supported formats");
+            throw cpptrace::runtime_error("[VulkanRHISwapchain] Surface has no supported formats");
 }
         if (support.m_presentModes.empty()) {
-            throw std::runtime_error("[VulkanRHISwapchain] Surface has no supported present modes");
+            throw cpptrace::runtime_error("[VulkanRHISwapchain] Surface has no supported present modes");
 }
 
         const vk::SurfaceFormatKHR surfaceFormat = chooseSurfaceFormat(support.m_formats, preferredFormat);
@@ -195,7 +198,8 @@ namespace pnkr::renderer::rhi::vulkan
         sci.imageArrayLayers = 1;
         sci.imageUsage = vk::ImageUsageFlagBits::eColorAttachment |
             vk::ImageUsageFlagBits::eTransferDst |
-            vk::ImageUsageFlagBits::eTransferSrc;
+            vk::ImageUsageFlagBits::eTransferSrc |
+            vk::ImageUsageFlagBits::eSampled;
 
         // Current RHI device does not expose a dedicated present queue; assume graphics queue presents.
         sci.imageSharingMode = vk::SharingMode::eExclusive;
@@ -257,7 +261,6 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         m_layouts.assign(m_images.size(), ResourceLayout::Undefined);
-        m_imagesInFlight.assign(m_images.size(), vk::Fence{});
     }
 
     void VulkanRHISwapchain::destroySwapchain()
@@ -288,7 +291,6 @@ namespace pnkr::renderer::rhi::vulkan
         m_wrapped.clear();
         m_images.clear();
         m_layouts.clear();
-        m_imagesInFlight.clear();
 
         if (m_swapchain)
         {
@@ -306,18 +308,14 @@ namespace pnkr::renderer::rhi::vulkan
         auto dev = m_device->device();
 
         vk::SemaphoreCreateInfo semInfo{};
-        vk::FenceCreateInfo fenceInfo{vk::FenceCreateFlagBits::eSignaled};
-
         // Per-frame objects are created once and reused across swapchain recreations.
         if (m_imageAvailable.empty())
         {
             m_imageAvailable.resize(m_framesInFlight);
-            m_inFlightFences.resize(m_framesInFlight);
 
             for (uint32_t i = 0; i < m_framesInFlight; ++i)
             {
                 m_imageAvailable[i] = dev.createSemaphore(semInfo);
-                m_inFlightFences[i] = dev.createFence(fenceInfo);
             }
         }
 
@@ -327,6 +325,19 @@ namespace pnkr::renderer::rhi::vulkan
         for (size_t i = 0; i < m_images.size(); ++i)
         {
             m_renderFinished[i] = dev.createSemaphore(semInfo);
+        }
+
+        if (!m_tracyContext)
+        {
+            m_device->immediateSubmit([this](RHICommandBuffer* cmd) {
+                auto* vkCmd = dynamic_cast<VulkanRHICommandBuffer*>(cmd);
+                m_tracyContext = PNKR_PROFILE_GPU_CONTEXT(
+                    m_device->vkPhysicalDevice(),
+                    m_device->device(),
+                    m_device->graphicsQueue(),
+                    vkCmd->commandBuffer()
+                );
+            });
         }
     }
 
@@ -338,20 +349,22 @@ namespace pnkr::renderer::rhi::vulkan
 
         auto dev = m_device->device();
 
+        if (m_tracyContext)
+        {
+            PNKR_PROFILE_GPU_DESTROY(m_tracyContext);
+            m_tracyContext = nullptr;
+        }
+
         // NOTE: m_renderFinished is per swapchain image and is destroyed in destroySwapchain().
         for (auto& s : m_imageAvailable) { if (s) { dev.destroySemaphore(s);
 }
 }
-        for (auto& f : m_inFlightFences) { if (f) { dev.destroyFence(f);
-}
-}
-
         m_imageAvailable.clear();
-        m_inFlightFences.clear();
     }
 
     void VulkanRHISwapchain::recreate(uint32_t width, uint32_t height)
     {
+        PNKR_PROFILE_FUNCTION();
         if (m_device == nullptr) {
             return;
 }
@@ -374,32 +387,24 @@ namespace pnkr::renderer::rhi::vulkan
 
     bool VulkanRHISwapchain::beginFrame(uint32_t frameIndex, RHICommandBuffer* cmd, SwapchainFrame& out)
     {
-        if (!m_swapchain || !m_surface) {
+        PNKR_PROFILE_FUNCTION();
+        PNKR_PROFILE_FRAME_MARK();
+
+        if (!m_swapchain || !m_surface || !cmd) {
             return false;
-}
-        if (cmd == nullptr) {
-            return false;
-}
+        }
 
         const uint32_t frame = frameIndex % m_framesInFlight;
-
+        m_currentFrameIndex = frame;
         auto dev = m_device->device();
 
-        // Throttle CPU and ensure per-frame resources are available.
-        auto res = dev.waitForFences(1, &m_inFlightFences[frame], VK_TRUE, UINT64_MAX);
-        if (res != vk::Result::eSuccess) {
-            throw std::runtime_error("failed to acquire fences");
-}
-
-        // Now it is safe to recycle the command buffer.
-        cmd->reset();
-        cmd->begin();
-
-        // Acquire
+        // 1. ACQUIRE: Ask the swapchain for the next available image.
+        // This might block if V-Sync is on and no images are free (FIFO).
         uint32_t imageIndex = 0;
         vk::Result acquireResult{};
         try
         {
+            PNKR_PROFILE_SCOPE("AcquireNextImage");
             auto rv = dev.acquireNextImageKHR(m_swapchain, UINT64_MAX, m_imageAvailable[frame], nullptr);
             acquireResult = rv.result;
             imageIndex = rv.value;
@@ -407,122 +412,91 @@ namespace pnkr::renderer::rhi::vulkan
         catch (const vk::OutOfDateKHRError&)
         {
             recreate(static_cast<uint32_t>(m_window->width()), static_cast<uint32_t>(m_window->height()));
-            cmd->end();
-            return false;
+            return false; 
         }
 
         if (acquireResult == vk::Result::eErrorOutOfDateKHR)
         {
             recreate(static_cast<uint32_t>(m_window->width()), static_cast<uint32_t>(m_window->height()));
-            cmd->end();
             return false;
         }
 
         if (acquireResult != vk::Result::eSuccess && acquireResult != vk::Result::eSuboptimalKHR)
         {
             core::Logger::error("[VulkanRHISwapchain] acquireNextImageKHR failed: {}", vk::to_string(acquireResult));
-            cmd->end();
             return false;
-        }
-
-        if (acquireResult == vk::Result::eSuboptimalKHR)
-        {
-            recreate(static_cast<uint32_t>(m_window->width()), static_cast<uint32_t>(m_window->height()));
-            cmd->end();
-            return false;
-        }
-
-        // If a previous frame is using this image, wait for it.
-        if (m_imagesInFlight.size() == m_images.size() && m_imagesInFlight[imageIndex])
-        {
-            if (dev.waitForFences(1, &m_imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX)                !=
-                vk::Result::eSuccess
-            )
-            {
-                throw std::runtime_error("failed to acquire fences");
-            }
-        }
-        if (m_imagesInFlight.size() == m_images.size())
-        {
-            m_imagesInFlight[imageIndex] = m_inFlightFences[frame];
         }
 
         m_currentImage = imageIndex;
 
-        // Ensure the per-image render-finished semaphore exists.
-        if (m_currentImage >= m_renderFinished.size())
-        {
-            cmd->end();
-            return false;
-        }
+        // Start recording
+        cmd->reset();
+        cmd->begin();
 
         out.imageIndex = imageIndex;
         out.color = m_wrapped[imageIndex].get();
 
-        // Transition acquired image to ColorAttachment.
+        // Transition acquired image to ColorAttachment
         {
+            auto vkCmd = vk::CommandBuffer(getVkCommandBuffer(cmd->nativeHandle()));
+            PNKR_PROFILE_GPU_ZONE(m_tracyContext, vkCmd, "SwapchainTransitionIn");
+
             RHIMemoryBarrier b{};
             b.texture = out.color;
-            b.srcAccessStage = ShaderStage::None;
+            b.srcAccessStage = ShaderStage::RenderTarget; // Synchronize with Acquire Semaphore
             b.dstAccessStage = ShaderStage::RenderTarget;
             b.oldLayout = m_layouts[imageIndex];
             b.newLayout = ResourceLayout::ColorAttachment;
 
-            // Use a broad srcStage to cover WSI reads after acquire before writing.
-            cmd->pipelineBarrier(ShaderStage::All, ShaderStage::RenderTarget, {b});
+            cmd->pipelineBarrier(ShaderStage::RenderTarget, ShaderStage::RenderTarget, {b});
             m_layouts[imageIndex] = ResourceLayout::ColorAttachment;
+
+            PNKR_PROFILE_GPU_COLLECT(m_tracyContext, vkCmd);
         }
 
-        // Fence will be reset before submit in endFrame.
         return true;
     }
 
     bool VulkanRHISwapchain::endFrame(uint32_t frameIndex, RHICommandBuffer* cmd)
     {
+        PNKR_PROFILE_FUNCTION();
         if (!m_swapchain || (cmd == nullptr)) {
             return false;
-}
+        }
 
-        const uint32_t frame = frameIndex % m_framesInFlight;
-        auto dev = m_device->device();
+        (void)frameIndex;
+        auto vkCmd = vk::CommandBuffer(getVkCommandBuffer(cmd->nativeHandle()));
 
-        // Transition to Present.
+        // Transition to Present
         {
+            PNKR_PROFILE_GPU_ZONE(m_tracyContext, vkCmd, "SwapchainTransitionOut");
             RHIMemoryBarrier b{};
             b.texture = m_wrapped[m_currentImage].get();
             b.srcAccessStage = ShaderStage::RenderTarget;
-            b.dstAccessStage = ShaderStage::All;
+            b.dstAccessStage = ShaderStage::None; // Bottom of pipe
             b.oldLayout = m_layouts[m_currentImage];
             b.newLayout = ResourceLayout::Present;
 
-            cmd->pipelineBarrier(ShaderStage::RenderTarget, ShaderStage::All, {b});
+            cmd->pipelineBarrier(ShaderStage::RenderTarget, ShaderStage::None, {b});
             m_layouts[m_currentImage] = ResourceLayout::Present;
         }
 
-        // End recording before submit.
         cmd->end();
 
-        const vk::Semaphore renderFinished = m_renderFinished[m_currentImage];
+        PNKR_PROFILE_GPU_COLLECT(m_tracyContext, vkCmd);
 
-        // Reset the per-frame fence now that we are about to submit work for this frame.
-        if (dev.resetFences(1, &m_inFlightFences[frame] )!= vk::Result::eSuccess)
-        {
-            throw std::runtime_error("failed to acquire fences");
+        return true;
+    }
+
+    bool VulkanRHISwapchain::present(uint32_t frameIndex)
+    {
+        PNKR_PROFILE_FUNCTION();
+        if (!m_swapchain) {
+            return false;
         }
 
-        auto vkCmd = vk::CommandBuffer(getVkCommandBuffer(cmd->nativeHandle()));
-
-        vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-        vk::SubmitInfo submit{};
-        submit.waitSemaphoreCount = 1;
-        submit.pWaitSemaphores = &m_imageAvailable[frame];
-        submit.pWaitDstStageMask = &waitStage;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &vkCmd;
-        submit.signalSemaphoreCount = 1;
-        submit.pSignalSemaphores = &renderFinished;
-
-        m_device->graphicsQueue().submit(submit, m_inFlightFences[frame]);
+        (void)frameIndex;
+        const vk::Semaphore renderFinished = m_renderFinished[m_currentImage];
 
         // Present (assume graphics queue supports present).
         vk::PresentInfoKHR present{};
@@ -535,6 +509,7 @@ namespace pnkr::renderer::rhi::vulkan
         vk::Result presentResult{};
         try
         {
+            PNKR_PROFILE_SCOPE("QueuePresent");
             presentResult = m_device->graphicsQueue().presentKHR(present);
         }
         catch (const vk::OutOfDateKHRError&)
@@ -542,7 +517,7 @@ namespace pnkr::renderer::rhi::vulkan
             presentResult = vk::Result::eErrorOutOfDateKHR;
         }
 
-        if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR)
+        if (presentResult == vk::Result::eErrorOutOfDateKHR)
         {
             recreate(static_cast<uint32_t>(m_window->width()), static_cast<uint32_t>(m_window->height()));
             return false;

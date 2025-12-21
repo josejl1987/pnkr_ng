@@ -1,4 +1,4 @@
-#extension GL_EXT_buffer_reference : require
+#include "bindless.glsl"
 
 struct GPUVertex {
     vec4 pos;
@@ -19,7 +19,6 @@ layout(push_constant) uniform PushConstants {
     vec4 cameraPos;
     float tessScale;
     uint materialIndex;
-    uint _pad0;
-    uint _pad1;
     Vertices vtx;
+    MaterialBuffer materialBuffer;
 } pc;

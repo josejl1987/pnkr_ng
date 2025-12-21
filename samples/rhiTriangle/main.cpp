@@ -145,7 +145,7 @@ private:
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
         if (!file.is_open())
         {
-            throw std::runtime_error("Failed to open SPIR-V file: " + filename);
+            throw cpptrace::runtime_error("Failed to open SPIR-V file: " + filename);
         }
 
         size_t fileSize = (size_t)file.tellg();

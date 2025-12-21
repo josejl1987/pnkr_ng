@@ -4,6 +4,16 @@
 
 #include "bindless.glsl"
 
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    mat4 viewProj;
+    vec4 cameraPos;
+    float tessScale;
+    uint materialIndex;
+    Vertices vtx;
+    MaterialBuffer materialBuffer;
+} pc;
+
 layout(location = 0) in GS_OUT {
     vec3 normal;
     vec2 texCoord;
@@ -18,13 +28,13 @@ layout(location = 7) in vec3 barycoords;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    MaterialData mat = getMaterial(fsIn.materialIndex);
+    MaterialData mat = getMaterial(pc.materialBuffer, fsIn.materialIndex);
 
     vec4 baseColor = mat.baseColorFactor;
 
     // Sample texture if index is valid (using arbitrary sentinel > 100000)
     if (mat.baseColorTexture < 100000) {
-        baseColor *= texture(bindlessTextures[nonuniformEXT(mat.baseColorTexture)], fsIn.texCoord);
+        baseColor *= textureBindless2D(mat.baseColorTexture, fsIn.texCoord);
     }
 
     baseColor *= vec4(fsIn.color, 1.0);

@@ -6,8 +6,10 @@
  */
 
 #include <utility>
+#include <cpptrace/cpptrace.hpp>
 
 #include "profiler.hpp"
+#include "logger.hpp"
 
 // ============================================================================
 // Assertion Macros (Debug-only)
@@ -17,7 +19,10 @@
 #define PNKR_ASSERT(condition, message)                                        \
   do {                                                                         \
     if (!(condition)) {                                                        \
-      throw std::runtime_error(                                                \
+        std::string trace = cpptrace::generate_trace().to_string();            \
+        pnkr::core::Logger::critical("ASSERTION FAILED: {}\nStack Trace:\n{}", \
+            message, trace);                                                   \
+      throw cpptrace::runtime_error(                                           \
           "ASSERTION FAILED: " + std::string(message) +                        \
           "\nFile: " __FILE__ "\nLine: " + std::to_string(__LINE__));          \
     }                                                                          \

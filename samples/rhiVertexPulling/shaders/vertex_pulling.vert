@@ -24,6 +24,7 @@ layout(push_constant) uniform PushConstants {
     mat4 viewProj;
     uint materialIndex;
     Vertices vtx;
+    MaterialBuffer materialBuffer;
 } pc;
 
 

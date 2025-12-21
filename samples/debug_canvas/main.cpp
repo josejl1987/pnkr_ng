@@ -4,6 +4,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "pnkr/core/common.hpp"
+
 using namespace pnkr;
 using namespace pnkr::samples;
 

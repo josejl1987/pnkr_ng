@@ -50,6 +50,8 @@ namespace pnkr::renderer::rhi::vulkan
         // RHIDevice interface - Resource creation
         std::unique_ptr<RHIBuffer> createBuffer(const BufferDescriptor& desc) override;
 
+        std::unique_ptr<RHITexture> createTexture(const TextureDescriptor& desc) override;
+
         std::unique_ptr<RHITexture> createTexture(
             const Extent3D& extent,
             Format format,
@@ -87,6 +89,22 @@ namespace pnkr::renderer::rhi::vulkan
             const std::vector<uint64_t>& waitSemaphores = {},
             const std::vector<uint64_t>& signalSemaphores = {}) override;
 
+        void submitCommands(
+            RHICommandBuffer* commandBuffer,
+            const std::vector<vk::Semaphore>& waitSemaphores,
+            const std::vector<vk::PipelineStageFlags>& waitStages,
+            const std::vector<vk::Semaphore>& signalSemaphores,
+            uint64_t signalTimelineValue);
+
+        void immediateSubmit(std::function<void(RHICommandBuffer*)>&& func) override;
+
+        // Data transfer
+        void downloadTexture(
+            RHITexture* texture,
+            void* outData,
+            uint64_t dataSize,
+            const TextureSubresource& subresource = {}) override;
+
         // Device queries
         const RHIPhysicalDevice& physicalDevice() const override { return *m_physicalDevice; }
         uint32_t graphicsQueueFamily() const override { return m_graphicsQueueFamily; }
@@ -96,11 +114,20 @@ namespace pnkr::renderer::rhi::vulkan
         // Bindless Registration
         BindlessHandle registerBindlessTexture(RHITexture* texture, RHISampler* sampler) override;
         BindlessHandle registerBindlessCubemap(RHITexture* texture, RHISampler* sampler) override;
+        BindlessHandle registerBindlessTexture2D(RHITexture* texture) override;
+        BindlessHandle registerBindlessCubemapImage(RHITexture* texture) override;
+        BindlessHandle registerBindlessSampler(RHISampler* sampler) override;
         BindlessHandle registerBindlessBuffer(RHIBuffer* buffer) override;
         BindlessHandle registerBindlessStorageImage(RHITexture* texture) override;
         // To bind the global set to a command buffer
-        void* getBindlessDescriptorSetNative() override;
+        RHIDescriptorSet* getBindlessDescriptorSet() override;
         RHIDescriptorSetLayout* getBindlessDescriptorSetLayout() override;
+
+        // Timeline Synchronization
+        uint64_t getFrameCount() const { return m_frameCounter; }
+        uint64_t advanceFrame() { return ++m_frameCounter; }
+        vk::Semaphore getTimelineSemaphore() const { return m_frameTimelineSemaphore; }
+        void waitForTimelineValue(uint64_t value);
 
         // Vulkan-specific accessors
         vk::Device device() const { return m_device; }
@@ -122,8 +149,10 @@ namespace pnkr::renderer::rhi::vulkan
         vk::DescriptorPool m_bindlessPool;
         vk::DescriptorSet m_bindlessSet;
         std::unique_ptr<RHIDescriptorSetLayout> m_bindlessLayout;
+        std::unique_ptr<class VulkanRHIDescriptorSet> m_bindlessSetWrapper;
     
         uint32_t m_textureIndexCounter = 0;
+        uint32_t m_samplerIndexCounter = 0;
         uint32_t m_bufferIndexCounter = 0;
         uint32_t m_cubemapIndexCounter = 0;
         uint32_t m_storageImageIndexCounter = 0;
@@ -147,7 +176,8 @@ namespace pnkr::renderer::rhi::vulkan
 
         // Validation
         bool m_validationEnabled = false;
-        vk::Semaphore m_timelineSemaphore;
+        vk::Semaphore m_frameTimelineSemaphore;
+        uint64_t m_frameCounter = 0;
         vk::DescriptorPool m_descriptorPool{};
 
         // Initialization helpers

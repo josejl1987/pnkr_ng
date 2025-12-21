@@ -33,17 +33,20 @@ namespace pnkr::renderer::rhi
 
 
         // --- Input Assembly ---
-        RHIPipelineBuilder& setTopology(PrimitiveTopology topology);
+        RHIPipelineBuilder& setTopology(PrimitiveTopology topology, bool isDynamic = false);
         RHIPipelineBuilder& setPatchControlPoints(uint32_t controlPoints);
 
         // --- Rasterization ---
         RHIPipelineBuilder& setPolygonMode(PolygonMode mode);
-        RHIPipelineBuilder& setCullMode(CullMode mode, bool frontFaceCCW = false);
-        RHIPipelineBuilder& setLineWidth(float width);
+        RHIPipelineBuilder& setCullMode(CullMode mode, bool frontFaceCCW = false, bool isDynamic = false);
+        RHIPipelineBuilder& setLineWidth(float width, bool isDynamic = false);
 
         // --- Depth / Stencil ---
-        RHIPipelineBuilder& enableDepthTest(bool writeEnable = true, CompareOp op = CompareOp::Less);
-        RHIPipelineBuilder& disableDepthTest();
+        RHIPipelineBuilder& enableDepthTest(bool writeEnable = true, CompareOp op = CompareOp::Less, bool isDynamic = false);
+        RHIPipelineBuilder& disableDepthTest(bool isDynamic = false);
+
+        // --- Dynamic States ---
+        RHIPipelineBuilder& setDynamicStates(const std::vector<DynamicState>& states);
 
         // --- Blending ---
         RHIPipelineBuilder& setNoBlend();

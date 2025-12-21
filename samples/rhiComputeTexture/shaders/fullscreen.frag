@@ -9,9 +9,10 @@ layout (location = 0) out vec4 outColor;
 
 layout(push_constant) uniform PushConstants {
     uint textureIndex;
+    uint samplerIndex;
     float time;
 } pc;
 
 void main() {
-    outColor = texture(bindlessTextures[nonuniformEXT(pc.textureIndex)], inUV);
+    outColor = textureBindless2D(pc.textureIndex, pc.samplerIndex, inUV);
 }

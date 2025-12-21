@@ -201,7 +201,6 @@ public:
 
     void createGraphicsPipeline()
     {
-        // Configure reflection for bindless resources
         renderer::rhi::ReflectionConfig config;
 
         auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex,
@@ -287,8 +286,8 @@ public:
         m_renderer->bindPipeline(ctx.commandBuffer, m_graphicsPipeline);
 
         // Bind global bindless descriptor set
-        void* nativeSet = m_renderer->device()->getBindlessDescriptorSetNative();
-        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_graphicsPipeline), 1, nativeSet);
+        renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
+        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_graphicsPipeline), 1, bindlessSet);
 
         // Push constants for graphics shader
         ShaderGen::PushData graphicsData{};

@@ -3,6 +3,7 @@
 #include "pnkr/rhi/rhi_shader.hpp" // Use the RHI shader abstraction
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "../../../../cmake-build-debug-clang-cl/samples/rhiPBR/generated/pbr.vert.h"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "generated/skybox.vert.h"
 
@@ -54,7 +55,7 @@ namespace pnkr::renderer::scene
                .setTopology(rhi::PrimitiveTopology::TriangleList)
                .setPolygonMode(rhi::PolygonMode::Fill)
                // Cull Front because we are inside the cube
-               .setCullMode(rhi::CullMode::Front, true)
+               .setCullMode(rhi::CullMode::Front, false)
                // Depth: Lequal so it draws at the far plane (z=1.0)
                .enableDepthTest(false, rhi::CompareOp::LessOrEqual)
                .setNoBlend()
@@ -93,11 +94,10 @@ namespace pnkr::renderer::scene
         // 3. Bind Bindless Global Set (Set 1)
         if (m_renderer->isBindlessEnabled())
         {
-            // Retrieve raw pointer to the bindless descriptor set from the device
-            void* rawSet = m_renderer->device()->getBindlessDescriptorSetNative();
+            // Retrieve the bindless descriptor set from the device
+            rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
 
-            // Use the overload that takes a void* (native handle)
-            cmd->bindDescriptorSet(rhiPipe, 1, rawSet);
+            cmd->bindDescriptorSet(rhiPipe, 1, bindlessSet);
         }
 
         // 4. Push Constants
@@ -105,6 +105,7 @@ namespace pnkr::renderer::scene
         pc.view = glm::mat4(glm::mat3(camera.view())); // Remove translation
         pc.proj = camera.proj();
         pc.textureIndex = m_renderer->getTextureBindlessIndex(m_cubemapHandle);
+        pc.samplerIndex = m_renderer->getBindlessSamplerIndex(rhi::SamplerAddressMode::ClampToEdge);
 
         cmd->pushConstants(rhiPipe,
                            rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment,

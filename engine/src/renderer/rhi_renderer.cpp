@@ -1,12 +1,17 @@
 #include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/renderer/ktx_utils.hpp"
 #include "pnkr/rhi/rhi_factory.hpp"
+#include "pnkr/rhi/vulkan/vulkan_device.hpp"
+#include "pnkr/rhi/vulkan/vulkan_swapchain.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
 
+#include <ktx.h>
 #include <stb_image.h>
 #include <algorithm>
 #include <cstddef>
+#include <string>
 
 using namespace pnkr::util;
 
@@ -47,7 +52,7 @@ namespace pnkr::renderer
 
         if (!m_device)
         {
-            throw std::runtime_error("Failed to create RHI device");
+            throw cpptrace::runtime_error("Failed to create RHI device");
         }
 
         // Check bindless support
@@ -62,7 +67,7 @@ namespace pnkr::renderer
 
         if (!m_swapchain)
         {
-            throw std::runtime_error("Failed to create RHI swapchain");
+            throw cpptrace::runtime_error("Failed to create RHI swapchain");
         }
 
         // Create per-frame command buffers.
@@ -79,9 +84,35 @@ namespace pnkr::renderer
             rhi::Filter::Linear,
             rhi::SamplerAddressMode::Repeat
         );
+        if (m_useBindless)
+        {
+            m_repeatSamplerIndex = m_device->registerBindlessSampler(m_defaultSampler.get()).index;
+            m_clampSampler = m_device->createSampler(
+                rhi::Filter::Linear,
+                rhi::Filter::Linear,
+                rhi::SamplerAddressMode::ClampToEdge
+            );
+            m_mirrorSampler = m_device->createSampler(
+                rhi::Filter::Linear,
+                rhi::Filter::Linear,
+                rhi::SamplerAddressMode::MirroredRepeat
+            );
+            m_clampSamplerIndex = m_device->registerBindlessSampler(m_clampSampler.get()).index;
+            m_mirrorSamplerIndex = m_device->registerBindlessSampler(m_mirrorSampler.get()).index;
+        }
 
         // Create render targets
         createRenderTargets();
+
+        // Create global lighting layout
+        rhi::DescriptorSetLayout lightingLayoutDesc{};
+        lightingLayoutDesc.bindings = {
+            {0, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment}, // Irradiance
+            {1, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment}, // Prefilter
+            {2, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment}  // BRDF LUT
+        };
+        m_globalLightingLayout = m_device->createDescriptorSetLayout(lightingLayoutDesc);
+        m_globalLightingSet = m_device->allocateDescriptorSet(m_globalLightingLayout.get());
 
         // Create default resources
         createDefaultResources();
@@ -127,8 +158,18 @@ namespace pnkr::renderer
         const uint32_t frameSlot = m_frameIndex % u32(m_commandBuffers.size());
         m_activeCommandBuffer = m_commandBuffers[frameSlot].get();
 
+        if (auto* vkDevice = dynamic_cast<rhi::vulkan::VulkanRHIDevice*>(m_device.get()))
+        {
+            const uint32_t framesInFlight = m_swapchain->framesInFlight();
+            const uint64_t currentFrame = vkDevice->getFrameCount();
+            if (currentFrame >= framesInFlight)
+            {
+                const uint64_t waitValue = currentFrame - framesInFlight + 1;
+                vkDevice->waitForTimelineValue(waitValue);
+            }
+        }
+
         // Acquire swapchain image and transition it to ColorAttachment.
-        // NOTE: swapchain is responsible for waiting on the per-frame fence and resetting/beginning the command buffer.
         if (!m_swapchain->beginFrame(m_frameIndex, m_activeCommandBuffer, m_currentFrame))
         {
             // Swapchain may have been recreated; skip this frame.
@@ -280,7 +321,35 @@ namespace pnkr::renderer
         // Transition to Present, end, submit, and present.
         if (m_activeCommandBuffer != nullptr)
         {
-            (void)m_swapchain->endFrame(m_frameIndex, m_activeCommandBuffer);
+            const bool ready = m_swapchain->endFrame(m_frameIndex, m_activeCommandBuffer);
+            if (ready)
+            {
+                auto* vkDevice = dynamic_cast<rhi::vulkan::VulkanRHIDevice*>(m_device.get());
+                auto* vkSwapchain = dynamic_cast<rhi::vulkan::VulkanRHISwapchain*>(m_swapchain.get());
+                if (vkDevice && vkSwapchain)
+                {
+                    const uint64_t signalValue = vkDevice->advanceFrame();
+
+                    std::vector<vk::Semaphore> waits = { vkSwapchain->getCurrentAcquireSemaphore() };
+                    std::vector<vk::PipelineStageFlags> waitStages = {
+                        vk::PipelineStageFlagBits::eColorAttachmentOutput
+                    };
+                    std::vector<vk::Semaphore> signals = { vkSwapchain->getCurrentRenderFinishedSemaphore() };
+
+                    vkDevice->submitCommands(
+                        m_activeCommandBuffer,
+                        waits,
+                        waitStages,
+                        signals,
+                        signalValue);
+
+                    (void)m_swapchain->present(m_frameIndex);
+                }
+                else
+                {
+                    core::Logger::error("endFrame: Vulkan device/swapchain not available for submission");
+                }
+            }
         }
 
         m_frameInProgress = false;
@@ -443,9 +512,8 @@ namespace pnkr::renderer
 
         if (m_useBindless && m_device)
         {
-            auto bindlessHandle = m_device->registerBindlessTexture(
-                texData.texture.get(),
-                m_defaultSampler.get()
+            auto bindlessHandle = m_device->registerBindlessTexture2D(
+                texData.texture.get()
             );
             texData.bindlessIndex = bindlessHandle.index;
         }
@@ -484,6 +552,115 @@ namespace pnkr::renderer
         return handle;
     }
 
+    TextureHandle RHIRenderer::loadTextureKTX(const std::filesystem::path& filepath)
+    {
+        KTXTextureData ktxData{};
+        std::string error;
+        if (!KTXUtils::loadFromFile(filepath, ktxData, &error))
+        {
+            core::Logger::error("Failed to load KTX texture: {} ({})", filepath.string(), error);
+            return INVALID_TEXTURE_HANDLE;
+        }
+
+        if (ktxData.type == rhi::TextureType::TextureCube && ktxData.numFaces != 6)
+        {
+            core::Logger::error("KTX cubemap must have 6 faces: {}", filepath.string());
+            KTXUtils::destroy(ktxData);
+            return INVALID_TEXTURE_HANDLE;
+        }
+
+        if (ktxData.type == rhi::TextureType::Texture3D && ktxData.numLayers > 1)
+        {
+            core::Logger::error("KTX 3D arrays are not supported: {}", filepath.string());
+            KTXUtils::destroy(ktxData);
+            return INVALID_TEXTURE_HANDLE;
+        }
+
+        rhi::TextureDescriptor desc{};
+        desc.extent = ktxData.extent;
+        desc.format = ktxData.format;
+        desc.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+        desc.mipLevels = ktxData.mipLevels;
+        desc.arrayLayers = ktxData.arrayLayers;
+        desc.type = ktxData.type;
+
+        auto texture = m_device->createTexture(desc);
+
+        if (!texture)
+        {
+            core::Logger::error("Failed to create RHI texture for: {}", filepath.string());
+            KTXUtils::destroy(ktxData);
+            return INVALID_TEXTURE_HANDLE;
+        }
+
+        const auto* srcData = ktxData.data.data();
+        const auto dataSize = ktxData.data.size();
+        const uint32_t numLayers = ktxData.numLayers;
+        const uint32_t numFaces = ktxData.numFaces;
+
+        for (uint32_t level = 0; level < ktxData.mipLevels; ++level)
+        {
+            const ktx_size_t imageSize = ktxTexture_GetImageSize(ktxData.texture, level);
+
+            for (uint32_t layer = 0; layer < numLayers; ++layer)
+            {
+                for (uint32_t face = 0; face < numFaces; ++face)
+                {
+                    ktx_size_t offset = 0;
+                    if (ktxTexture_GetImageOffset(ktxData.texture, level, layer, face, &offset) != KTX_SUCCESS)
+                    {
+                        core::Logger::error("KTX offset query failed: {}", filepath.string());
+                        KTXUtils::destroy(ktxData);
+                        return INVALID_TEXTURE_HANDLE;
+                    }
+
+                    if (offset + imageSize > dataSize)
+                    {
+                        core::Logger::error("KTX data range out of bounds: {}", filepath.string());
+                        KTXUtils::destroy(ktxData);
+                        return INVALID_TEXTURE_HANDLE;
+                    }
+
+                    rhi::TextureSubresource subresource{};
+                    subresource.mipLevel = level;
+                    subresource.arrayLayer = layer * numFaces + face;
+
+                    texture->uploadData(srcData + offset, imageSize, subresource);
+                }
+            }
+        }
+
+        TextureData texData{};
+        texData.texture = std::move(texture);
+        texData.bindlessIndex = 0;
+
+        if (m_useBindless && m_device)
+        {
+            if (ktxData.type == rhi::TextureType::TextureCube)
+            {
+                auto bindlessHandle = m_device->registerBindlessCubemapImage(
+                    texData.texture.get()
+                );
+                texData.bindlessIndex = bindlessHandle.index;
+            }
+            else
+            {
+                auto bindlessHandle = m_device->registerBindlessTexture2D(
+                    texData.texture.get()
+                );
+                texData.bindlessIndex = bindlessHandle.index;
+            }
+        }
+
+        auto handle = static_cast<TextureHandle>(m_textures.size());
+        m_textures.push_back(std::move(texData));
+
+        core::Logger::info("Loaded KTX texture: {}", filepath.string());
+        KTXUtils::destroy(ktxData);
+
+        return handle;
+    }
+
 
     TextureHandle RHIRenderer::createCubemap(const std::vector<std::filesystem::path>& faces, bool srgb)
     {
@@ -504,7 +681,7 @@ namespace pnkr::renderer
             int w;
             int h;
             int c;
-            stbi_set_flip_vertically_on_load(0); // Don't flip for cubemaps
+            stbi_set_flip_vertically_on_load(1); // Don't flip for cubemaps
             unsigned char* data = stbi_load(facePath.string().c_str(), &w, &h, &c, STBI_rgb_alpha);
 
             if (data == nullptr)
@@ -572,9 +749,8 @@ namespace pnkr::renderer
 
         if (m_useBindless && m_device)
         {
-            auto bindlessHandle = m_device->registerBindlessCubemap(
-                texData.texture.get(),
-                m_defaultSampler.get()
+            auto bindlessHandle = m_device->registerBindlessCubemapImage(
+                texData.texture.get()
             );
             texData.bindlessIndex = bindlessHandle.index;
         }
@@ -727,6 +903,21 @@ namespace pnkr::renderer
         return m_textures[handle.id].bindlessIndex;
     }
 
+    uint32_t RHIRenderer::getBindlessSamplerIndex(rhi::SamplerAddressMode addressMode) const
+    {
+        switch (addressMode)
+        {
+        case rhi::SamplerAddressMode::ClampToEdge:
+        case rhi::SamplerAddressMode::ClampToBorder:
+            return m_clampSamplerIndex;
+        case rhi::SamplerAddressMode::MirroredRepeat:
+            return m_mirrorSamplerIndex;
+        case rhi::SamplerAddressMode::Repeat:
+        default:
+            return m_repeatSamplerIndex;
+        }
+    }
+
     rhi::RHIBuffer* RHIRenderer::getBuffer(BufferHandle handle) const
     {
         if (handle.id >= m_buffers.size())
@@ -790,7 +981,7 @@ namespace pnkr::renderer
     {
         if (!m_swapchain)
         {
-            throw std::runtime_error("createRenderTargets: swapchain is null");
+            throw cpptrace::runtime_error("createRenderTargets: swapchain is null");
         }
 
         const auto scExtent = m_swapchain->extent();
@@ -860,5 +1051,22 @@ namespace pnkr::renderer
         cmd->end();
         m_device->submitCommands(cmd.get());
         m_device->waitIdle();
+    }
+
+    void RHIRenderer::setGlobalIBL(TextureHandle irradiance, TextureHandle prefilter, TextureHandle brdfLut)
+    {
+        auto* irrTex = getTexture(irradiance);
+        auto* prefTex = getTexture(prefilter);
+        auto* brdfTex = getTexture(brdfLut);
+
+        if (!irrTex || !prefTex || !brdfTex)
+        {
+            core::Logger::error("setGlobalIBL: One or more textures are invalid");
+            return;
+        }
+
+        m_globalLightingSet->updateTexture(0, irrTex, m_defaultSampler.get());
+        m_globalLightingSet->updateTexture(1, prefTex, m_defaultSampler.get());
+        m_globalLightingSet->updateTexture(2, brdfTex, m_defaultSampler.get());
     }
 } // namespace pnkr::renderer

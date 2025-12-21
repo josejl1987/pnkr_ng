@@ -14,13 +14,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Compiler cache for faster rebuilds
-find_program(CCACHE_PROGRAM ccache)
-if(CCACHE_PROGRAM)
-  set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
-  set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
-  message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
-endif()
-
 
 # --- Workaround: clang-cl (LLVM 21) exceptions ---
 # clang-cl is Clang with an MSVC-like command line in CMake terms.
@@ -82,6 +75,8 @@ if(NOT spdlog_FOUND)
     OPTIONS "SPDLOG_FMT_EXTERNAL=OFF"
   )
 endif()
+
+find_package(cpptrace CONFIG REQUIRED)
 
 # Try to find SDL3 on the system, otherwise fetch it from GitHub
 find_package(SDL3 CONFIG QUIET)

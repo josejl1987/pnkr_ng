@@ -16,6 +16,9 @@ namespace pnkr::renderer::rhi {
         m_gfxDesc.depthStencil.depthWriteEnable = true;
         m_gfxDesc.depthStencil.depthCompareOp = CompareOp::Less;
 
+        // Default dynamic states
+        m_gfxDesc.dynamicStates = { DynamicState::Viewport, DynamicState::Scissor };
+
         setNoBlend(); // Default blend
     }
 
@@ -107,8 +110,11 @@ namespace pnkr::renderer::rhi {
     // --- State Setters (Boilerplate) ---
 
 
-    RHIPipelineBuilder& RHIPipelineBuilder::setTopology(PrimitiveTopology topology) {
+    RHIPipelineBuilder& RHIPipelineBuilder::setTopology(PrimitiveTopology topology, bool isDynamic) {
         m_gfxDesc.topology = topology;
+        if (isDynamic) {
+            m_gfxDesc.dynamicStates.push_back(DynamicState::PrimitiveTopology);
+        }
         return *this;
     }
 
@@ -122,27 +128,47 @@ namespace pnkr::renderer::rhi {
         return *this;
     }
 
-    RHIPipelineBuilder& RHIPipelineBuilder::setCullMode(CullMode mode, bool frontFaceCCW) {
+    RHIPipelineBuilder& RHIPipelineBuilder::setCullMode(CullMode mode, bool frontFaceCCW, bool isDynamic) {
         m_gfxDesc.rasterization.cullMode = mode;
         m_gfxDesc.rasterization.frontFaceCCW = frontFaceCCW;
+        if (isDynamic) {
+            m_gfxDesc.dynamicStates.push_back(DynamicState::CullMode);
+        }
         return *this;
     }
 
-    RHIPipelineBuilder& RHIPipelineBuilder::setLineWidth(float width) {
+    RHIPipelineBuilder& RHIPipelineBuilder::setLineWidth(float width, bool isDynamic) {
         m_gfxDesc.rasterization.lineWidth = width;
+        if (isDynamic) {
+            m_gfxDesc.dynamicStates.push_back(DynamicState::LineWidth);
+        }
         return *this;
     }
 
-    RHIPipelineBuilder& RHIPipelineBuilder::enableDepthTest(bool writeEnable, CompareOp op) {
+    RHIPipelineBuilder& RHIPipelineBuilder::enableDepthTest(bool writeEnable, CompareOp op, bool isDynamic) {
         m_gfxDesc.depthStencil.depthTestEnable = true;
         m_gfxDesc.depthStencil.depthWriteEnable = writeEnable;
         m_gfxDesc.depthStencil.depthCompareOp = op;
+        if (isDynamic) {
+            m_gfxDesc.dynamicStates.push_back(DynamicState::DepthTestEnable);
+            m_gfxDesc.dynamicStates.push_back(DynamicState::DepthWriteEnable);
+            m_gfxDesc.dynamicStates.push_back(DynamicState::DepthCompareOp);
+        }
         return *this;
     }
 
-    RHIPipelineBuilder& RHIPipelineBuilder::disableDepthTest() {
+    RHIPipelineBuilder& RHIPipelineBuilder::disableDepthTest(bool isDynamic) {
         m_gfxDesc.depthStencil.depthTestEnable = false;
         m_gfxDesc.depthStencil.depthWriteEnable = false;
+        if (isDynamic) {
+            m_gfxDesc.dynamicStates.push_back(DynamicState::DepthTestEnable);
+            m_gfxDesc.dynamicStates.push_back(DynamicState::DepthWriteEnable);
+        }
+        return *this;
+    }
+
+    RHIPipelineBuilder& RHIPipelineBuilder::setDynamicStates(const std::vector<DynamicState>& states) {
+        m_gfxDesc.dynamicStates = states;
         return *this;
     }
 

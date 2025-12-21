@@ -3,6 +3,7 @@
 #include "pnkr/rhi/rhi_texture.hpp"
 #include <vulkan/vulkan.hpp>
 #include <vk_mem_alloc.h>
+#include <map>
 
 #include "pnkr/rhi/rhi_texture.hpp"
 
@@ -40,6 +41,7 @@ namespace pnkr::renderer::rhi::vulkan
         void* nativeView() const override {
             return static_cast<VkImageView>(m_imageView);
         }
+        void* nativeView(uint32_t mipLevel, uint32_t arrayLayer) const override;
 
         // Vulkan-specific accessors
         vk::Image image() const { return m_image; }
@@ -69,6 +71,8 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t m_arrayLayers = 1;
 
         vk::ImageLayout m_currentLayout = vk::ImageLayout::eUndefined;
+
+        mutable std::map<uint64_t, vk::ImageView> m_subresourceViews;
 
         void createImage(const TextureDescriptor& desc);
         void createImageView(const TextureDescriptor& desc);

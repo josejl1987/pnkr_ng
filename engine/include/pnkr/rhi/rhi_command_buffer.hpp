@@ -50,6 +50,8 @@ namespace pnkr::renderer::rhi
         LoadOp loadOp;
         StoreOp storeOp;
         ClearValue clearValue;
+        uint32_t mipLevel = 0;
+        uint32_t arrayLayer = 0;
     };
 
     // Dynamic rendering info
@@ -101,14 +103,18 @@ namespace pnkr::renderer::rhi
         // Descriptor sets
         virtual void bindDescriptorSet(RHIPipeline* pipeline, uint32_t setIndex,
                                       RHIDescriptorSet* descriptorSet) = 0;
-        virtual void bindDescriptorSet(RHIPipeline* pipeline, uint32_t setIndex,
-                                      void* nativeDescriptorSet) = 0;
 
         // Dynamic state
         virtual void setViewport(const Viewport& viewport) = 0;
         virtual void setScissor(const Rect2D& scissor) = 0;
 
-        // Memory barriers and layout transitions
+        // Extended Dynamic State
+        virtual void setCullMode(CullMode mode) = 0;
+        virtual void setDepthTestEnable(bool enable) = 0;
+        virtual void setDepthWriteEnable(bool enable) = 0;
+        virtual void setDepthCompareOp(CompareOp op) = 0;
+        virtual void setPrimitiveTopology(PrimitiveTopology topology) = 0;
+
         virtual void pipelineBarrier(
             ShaderStage srcStage,
             ShaderStage dstStage,
@@ -118,6 +124,8 @@ namespace pnkr::renderer::rhi
         virtual void copyBuffer(RHIBuffer* src, RHIBuffer* dst,
                                uint64_t srcOffset, uint64_t dstOffset, uint64_t size) = 0;
         virtual void copyBufferToTexture(RHIBuffer* src, RHITexture* dst,
+                                        const BufferTextureCopyRegion& region) = 0;
+        virtual void copyTextureToBuffer(RHITexture* src, RHIBuffer* dst,
                                         const BufferTextureCopyRegion& region) = 0;
 
         // Backend handle

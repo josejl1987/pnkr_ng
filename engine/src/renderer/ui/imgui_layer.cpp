@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <cpptrace/cpptrace.hpp>
 
 // Engine RHI Interfaces
 #include "pnkr/renderer/rhi_renderer.hpp"
@@ -28,7 +29,7 @@ void ImGuiLayer::init(pnkr::renderer::RHIRenderer* renderer, pnkr::platform::Win
     // We cannot avoid this because ImGui_ImplVulkan needs raw handles.
     auto* vkDeviceWrapper = dynamic_cast<renderer::rhi::vulkan::VulkanRHIDevice*>(m_renderer->device());
     if (!vkDeviceWrapper) {
-        throw std::runtime_error("[ImGuiLayer] RHI Backend is not Vulkan! ImGui_ImplVulkan requires Vulkan.");
+        throw cpptrace::runtime_error("[ImGuiLayer] RHI Backend is not Vulkan! ImGui_ImplVulkan requires Vulkan.");
     }
     
     vk::Device device = vkDeviceWrapper->device();

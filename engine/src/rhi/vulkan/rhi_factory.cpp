@@ -10,6 +10,7 @@
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include <SDL3/SDL_vulkan.h> // Added SDL Vulkan support
+#include <cpptrace/cpptrace.hpp>
 
 namespace pnkr::renderer::rhi
 {
@@ -27,7 +28,7 @@ switch (backend) {
                 auto vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
 
                 if (vkGetInstanceProcAddr == nullptr) {
-                    throw std::runtime_error("Failed to load vkGetInstanceProcAddr from Vulkan loader");
+                    throw cpptrace::runtime_error("Failed to load vkGetInstanceProcAddr from Vulkan loader");
                 }
 
                 VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);

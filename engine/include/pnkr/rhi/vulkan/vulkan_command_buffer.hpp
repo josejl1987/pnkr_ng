@@ -28,6 +28,13 @@ namespace pnkr::renderer::rhi::vulkan
 
         void bindPipeline(RHIPipeline* pipeline) override;
 
+        // Dynamic State Overrides
+        void setCullMode(CullMode mode) override;
+        void setDepthTestEnable(bool enabled) override;
+        void setDepthWriteEnable(bool enabled) override;
+        void setDepthCompareOp(CompareOp op) override;
+        void setPrimitiveTopology(PrimitiveTopology topology) override;
+
         void bindVertexBuffer(uint32_t binding, RHIBuffer* buffer, uint64_t offset = 0) override;
         void bindIndexBuffer(RHIBuffer* buffer, uint64_t offset = 0, bool use16Bit = false) override;
 
@@ -46,8 +53,6 @@ namespace pnkr::renderer::rhi::vulkan
 
         void bindDescriptorSet(RHIPipeline* pipeline, uint32_t setIndex,
                               RHIDescriptorSet* descriptorSet) override;
-        void bindDescriptorSet(RHIPipeline* pipeline, uint32_t setIndex,
-                              void* nativeDescriptorSet) override;
 
         void setViewport(const Viewport& viewport) override;
         void setScissor(const Rect2D& scissor) override;
@@ -60,6 +65,8 @@ namespace pnkr::renderer::rhi::vulkan
         void copyBuffer(RHIBuffer* src, RHIBuffer* dst,
                        uint64_t srcOffset, uint64_t dstOffset, uint64_t size) override;
         void copyBufferToTexture(RHIBuffer* src, RHITexture* dst,
+                                const BufferTextureCopyRegion& region) override;
+        void copyTextureToBuffer(RHITexture* src, RHIBuffer* dst,
                                 const BufferTextureCopyRegion& region) override;
 
         void* nativeHandle() const override {

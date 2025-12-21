@@ -1,6 +1,6 @@
 #include "pnkr/platform/window.hpp"
 #include "pnkr/core/logger.hpp"
-#include <stdexcept>
+#include <cpptrace/cpptrace.hpp>
 
 namespace pnkr::platform
 {
@@ -9,7 +9,7 @@ namespace pnkr::platform
     {
         if (!SDL_Init(SDL_INIT_VIDEO))
         {
-            throw std::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
+            throw cpptrace::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
         }
 
         SDL_Window* rawWindow =
@@ -20,7 +20,7 @@ namespace pnkr::platform
         if (rawWindow == nullptr)
         {
             SDL_Quit();
-            throw std::runtime_error(std::string("SDL_CreateWindow failed: ") +
+            throw cpptrace::runtime_error(std::string("SDL_CreateWindow failed: ") +
                 SDL_GetError());
         }
 

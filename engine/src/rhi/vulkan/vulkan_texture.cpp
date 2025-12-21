@@ -6,6 +6,7 @@
 #include "pnkr/core/common.hpp"
 #include "pnkr/rhi/rhi_buffer.hpp"
 #include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
+#include <cpptrace/cpptrace.hpp>
 
 using namespace pnkr::util;
 
@@ -25,6 +26,12 @@ namespace pnkr::renderer::rhi::vulkan
 
     VulkanRHITexture::~VulkanRHITexture()
     {
+        for (auto& [key, view] : m_subresourceViews)
+        {
+            m_device->device().destroyImageView(view);
+        }
+        m_subresourceViews.clear();
+
         if (m_imageView)
         {
             m_device->device().destroyImageView(m_imageView);
@@ -83,7 +90,7 @@ namespace pnkr::renderer::rhi::vulkan
         if (result != vk::Result::eSuccess)
         {
             core::Logger::error("Failed to create texture: {}", vk::to_string(result));
-            throw std::runtime_error("Texture creation failed");
+            throw cpptrace::runtime_error("Texture creation failed");
         }
 
         m_image = cImage;
@@ -118,7 +125,7 @@ namespace pnkr::renderer::rhi::vulkan
             viewInfo.viewType = vk::ImageViewType::e3D;
             break;
         case TextureType::TextureCube:
-            viewInfo.viewType = vk::ImageViewType::eCube;
+            viewInfo.viewType = desc.arrayLayers > 6 ? vk::ImageViewType::eCubeArray : vk::ImageViewType::eCube;
             break;
         }
 
@@ -193,6 +200,9 @@ namespace pnkr::renderer::rhi::vulkan
         region.bufferOffset = 0;
         region.textureSubresource = subresource;
         region.textureExtent = m_extent;
+        region.textureExtent.width = std::max(1u, region.textureExtent.width >> subresource.mipLevel);
+        region.textureExtent.height = std::max(1u, region.textureExtent.height >> subresource.mipLevel);
+        region.textureExtent.depth = std::max(1u, region.textureExtent.depth >> subresource.mipLevel);
 
         cmdBuffer->copyBufferToTexture(stagingBuffer.get(), this, region);
 
@@ -240,40 +250,15 @@ namespace pnkr::renderer::rhi::vulkan
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = m_arrayLayers;
 
-        vk::PipelineStageFlags2 sourceStage;
-        vk::PipelineStageFlags2 destinationStage;
+        auto [srcStage, srcAccess] = VulkanUtils::getLayoutStageAccess(m_currentLayout);
+        auto [dstStage, dstAccess] = VulkanUtils::getLayoutStageAccess(newLayout);
 
-        // Configure barrier based on layout transition
-        if (m_currentLayout == vk::ImageLayout::eUndefined &&
-            newLayout == vk::ImageLayout::eTransferDstOptimal)
-        {
-            barrier.srcAccessMask = vk::AccessFlags2{};
-            barrier.dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
-            sourceStage = vk::PipelineStageFlagBits2::eNone;
-            destinationStage = vk::PipelineStageFlagBits2::eTransfer;
-        }
-        else if (m_currentLayout == vk::ImageLayout::eTransferDstOptimal &&
-            newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
-        {
-            barrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
-            barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
-            sourceStage = vk::PipelineStageFlagBits2::eTransfer;
-            destinationStage = vk::PipelineStageFlagBits2::eFragmentShader;
-        }
-        else
-        {
-            // General case
-            barrier.srcAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite;
-            barrier.dstAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite;
-            sourceStage = vk::PipelineStageFlagBits2::eAllCommands;
-            destinationStage = vk::PipelineStageFlagBits2::eAllCommands;
-        }
-
-        barrier.srcStageMask = sourceStage;
-        barrier.dstStageMask = destinationStage;
+        barrier.srcAccessMask = srcAccess;
+        barrier.dstAccessMask = dstAccess;
+        barrier.srcStageMask = srcStage;
+        barrier.dstStageMask = dstStage;
 
         vk::DependencyInfo depInfo{};
-        depInfo.dependencyFlags = vk::DependencyFlags{};
         depInfo.imageMemoryBarrierCount = 1;
         depInfo.pImageMemoryBarriers = &barrier;
 
@@ -384,5 +369,53 @@ namespace pnkr::renderer::rhi::vulkan
         m_device->waitIdle();
 
         m_currentLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    }
+
+    void* VulkanRHITexture::nativeView(uint32_t mipLevel, uint32_t arrayLayer) const
+    {
+        uint64_t key = (static_cast<uint64_t>(mipLevel) << 32) | arrayLayer;
+        auto it = m_subresourceViews.find(key);
+        if (it != m_subresourceViews.end())
+        {
+            return static_cast<VkImageView>(it->second);
+        }
+
+        vk::ImageViewCreateInfo viewInfo{};
+        viewInfo.image = m_image;
+        viewInfo.viewType = vk::ImageViewType::e2D; // Subresource view is usually 2D
+        viewInfo.format = VulkanUtils::toVkFormat(m_format);
+
+        viewInfo.components.r = vk::ComponentSwizzle::eIdentity;
+        viewInfo.components.g = vk::ComponentSwizzle::eIdentity;
+        viewInfo.components.b = vk::ComponentSwizzle::eIdentity;
+        viewInfo.components.a = vk::ComponentSwizzle::eIdentity;
+
+        viewInfo.subresourceRange.baseMipLevel = mipLevel;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = arrayLayer;
+        viewInfo.subresourceRange.layerCount = 1;
+
+        vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
+        if (vkFormat == vk::Format::eD16Unorm ||
+            vkFormat == vk::Format::eD32Sfloat ||
+            vkFormat == vk::Format::eD24UnormS8Uint ||
+            vkFormat == vk::Format::eD32SfloatS8Uint)
+        {
+            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
+            if (vkFormat == vk::Format::eD24UnormS8Uint ||
+                vkFormat == vk::Format::eD32SfloatS8Uint)
+            {
+                viewInfo.subresourceRange.aspectMask |= vk::ImageAspectFlagBits::eStencil;
+            }
+        }
+        else
+        {
+            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+        }
+
+        vk::ImageView view = m_device->device().createImageView(viewInfo);
+        m_subresourceViews[key] = view;
+
+        return static_cast<VkImageView>(view);
     }
 } // namespace pnkr::renderer::rhi::vulkan

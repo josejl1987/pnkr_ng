@@ -10,6 +10,7 @@ layout(push_constant) uniform PushConstants {
     mat4 model;
     mat4 viewProj;
     uint materialIndex;
+    MaterialBuffer materialBuffer;
 } pc;
 
 layout(location = 0) in vec3 inPosition;

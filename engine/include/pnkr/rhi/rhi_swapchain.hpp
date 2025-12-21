@@ -34,8 +34,12 @@ namespace pnkr::renderer::rhi
 
         // Contract:
         // - cmd must be in recording state and already contains all rendering commands targeting the acquired image.
-        // - The swapchain will record a transition to Present, end the command buffer, submit, and present.
+        // - The swapchain will record a transition to Present and end the command buffer.
         virtual bool endFrame(uint32_t frameIndex, RHICommandBuffer* cmd) = 0;
+
+        // Contract:
+        // - submit must have already completed and signaled the swapchain's render-finished semaphore.
+        virtual bool present(uint32_t frameIndex) = 0;
 
         // Explicit swapchain rebuild (used on OUT_OF_DATE / resize).
         virtual void recreate(uint32_t width, uint32_t height) = 0;

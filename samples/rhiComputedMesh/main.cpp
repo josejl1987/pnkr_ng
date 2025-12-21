@@ -269,7 +269,8 @@ public:
         m_renderer->bindPipeline(cmd, m_gfxPipeline);
         cmd->bindVertexBuffer(0, m_renderer->getBuffer(m_vertexBuffer), 0);
         cmd->bindIndexBuffer(m_renderer->getBuffer(m_indexBuffer), 0, false);
-        cmd->bindDescriptorSet(m_renderer->pipeline(m_gfxPipeline), 1, m_renderer->device()->getBindlessDescriptorSetNative());
+        renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
+        cmd->bindDescriptorSet(m_renderer->pipeline(m_gfxPipeline), 1, bindlessSet);
         m_renderer->pushConstants(cmd, m_gfxPipeline, renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
         cmd->drawIndexed(m_indexCount, 1, 0, 0, 0);
     }

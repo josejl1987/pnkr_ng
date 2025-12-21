@@ -13,7 +13,31 @@ namespace pnkr::renderer::scene
     struct MaterialData
     {
         glm::vec4 m_baseColorFactor{1.0f};
+        glm::vec3 m_emissiveFactor{0.0f};
+        float m_metallicFactor{1.0f};
+        float m_roughnessFactor{1.0f};
+        float m_alphaCutoff{0.5f};
+        float m_normalScale{1.0f};
+        float m_occlusionStrength{1.0f};
+        uint32_t m_alphaMode{0};
+
         TextureHandle m_baseColorTexture = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_normalTexture = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_metallicRoughnessTexture = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_occlusionTexture = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_emissiveTexture = INVALID_TEXTURE_HANDLE;
+
+        uint32_t m_baseColorUV{0};
+        uint32_t m_normalUV{0};
+        uint32_t m_metallicRoughnessUV{0};
+        uint32_t m_occlusionUV{0};
+        uint32_t m_emissiveUV{0};
+
+        rhi::SamplerAddressMode m_baseColorSampler{rhi::SamplerAddressMode::Repeat};
+        rhi::SamplerAddressMode m_normalSampler{rhi::SamplerAddressMode::Repeat};
+        rhi::SamplerAddressMode m_metallicRoughnessSampler{rhi::SamplerAddressMode::Repeat};
+        rhi::SamplerAddressMode m_occlusionSampler{rhi::SamplerAddressMode::Repeat};
+        rhi::SamplerAddressMode m_emissiveSampler{rhi::SamplerAddressMode::Repeat};
     };
 
     struct MeshPrimitive

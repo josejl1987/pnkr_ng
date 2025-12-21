@@ -4,7 +4,6 @@
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/transform.hpp"
 #include "pnkr/renderer/scene/Model.hpp"
-#include "pnkr/renderer/vulkan/pipeline/PipelineBuilder.h"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/rhi/rhi_descriptor.hpp"
@@ -31,7 +30,6 @@ public:
     std::unique_ptr<renderer::rhi::RHIBuffer> m_materialBuffer;
     std::unique_ptr<renderer::rhi::RHITexture> m_dummyTexture;
     std::unique_ptr<renderer::rhi::RHISampler> m_dummySampler;
-    std::unique_ptr<renderer::rhi::RHIDescriptorSet> m_materialSet;
 
     void onInit() override {
         renderer::RendererConfig config;
@@ -43,7 +41,7 @@ public:
         std::unique_ptr<renderer::RHIRenderer>::pointer baseRenderer = m_renderer.get();
         m_model = renderer::scene::Model::load(*m_renderer, baseDir() / "assets" / "structure.glb");
 
-        if (!m_model) { throw std::runtime_error("Failed to load model");
+        if (!m_model) { throw cpptrace::runtime_error("Failed to load model");
 }
 
         if (!m_dummySampler) {
@@ -55,7 +53,6 @@ public:
         }
         uploadMaterials();
         createPipeline();
-        createDescriptors();
 
         initUI();
     }
@@ -88,7 +85,7 @@ public:
         size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
         m_materialBuffer = m_renderer->device()->createBuffer({
             .size = size,
-            .usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst,
+            .usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst | renderer::rhi::BufferUsage::ShaderDeviceAddress,
             .memoryUsage = renderer::rhi::MemoryUsage::GPUOnly,
             .debugName = "MaterialBuffer"
         });
@@ -131,27 +128,11 @@ public:
         m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
     }
 
-    void createDescriptors() {
-        auto* pipeline = m_renderer->pipeline(m_pipeline);
-        if (pipeline == nullptr) {
-            throw std::runtime_error("Pipeline is null");
-        }
-
-        auto* materialLayout = pipeline->descriptorSetLayout(0);
-        if (materialLayout == nullptr) {
-            throw std::runtime_error("Pipeline descriptor set layouts are missing");
-        }
-
-        m_materialSet = m_renderer->device()->allocateDescriptorSet(materialLayout);
-        m_materialSet->updateBuffer(0, m_materialBuffer.get(), 0, m_materialBuffer->size());
-    }
-
     void onRecord(const renderer::RHIFrameContext& ctx) override {
         m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
-        m_renderer->bindDescriptorSet(ctx.commandBuffer, m_pipeline, 0, m_materialSet.get());
         
-        void* nativeSet = m_renderer->device()->getBindlessDescriptorSetNative();
-        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_pipeline), 1, nativeSet);
+        renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
+        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_pipeline), 1, bindlessSet);
 
         float aspect = (float)m_window.width() / m_window.height();
         m_camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
@@ -164,9 +145,10 @@ public:
                 pc.model = node.m_worldTransform.mat4();
                 pc.viewProj = m_camera.viewProj();
                 pc.materialIndex = prim.m_materialIndex;
+                pc.materialBuffer = m_materialBuffer->getDeviceAddress();
 
                 m_renderer->pushConstants(ctx.commandBuffer, m_pipeline,
-                    renderer::rhi::ShaderStage::Vertex,
+                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment,
                     pc);
 
                 m_renderer->bindMesh(ctx.commandBuffer, prim.m_mesh);

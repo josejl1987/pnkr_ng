@@ -1,6 +1,7 @@
 # tools/CMakeLists.txt
 
-add_executable(ShaderStructGen ShaderStructGen.cpp)
+add_executable(ShaderStructGen ShaderStructGen.cpp
+        )
 
 # --- CORRECT ORDER ---
 find_package(spirv_cross_core CONFIG REQUIRED)

@@ -41,12 +41,12 @@ public:
         // Note: You would need to provide actual cubemap face images
         // These should be 6 images in the order: +X, -X, +Y, -Y, +Z, -Z
         std::vector<std::filesystem::path> skyboxFaces = {
-            "assets/posx.jpg",
-            "assets/negx.jpg",
-            "assets/posy.jpg",
-            "assets/negy.jpg",
-            "assets/posz.jpg",
-            "assets/negz.jpg"
+            "assets/skybox/posx.jpg",
+            "assets/skybox/negx.jpg",
+            "assets/skybox/posy.jpg",
+            "assets/skybox/negy.jpg",
+            "assets/skybox/posz.jpg",
+            "assets/skybox/negz.jpg"
         };
 
         // Try to load skybox - fall back to procedural if files don't exist

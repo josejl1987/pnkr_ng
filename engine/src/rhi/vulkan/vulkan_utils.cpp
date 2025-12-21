@@ -650,4 +650,75 @@ namespace pnkr::renderer::rhi::vulkan
 
         return vkClear;
     }
+
+    vk::DynamicState VulkanUtils::toVkDynamicState(DynamicState state)
+    {
+        switch (state)
+        {
+        case DynamicState::Viewport: return vk::DynamicState::eViewport;
+        case DynamicState::Scissor: return vk::DynamicState::eScissor;
+        case DynamicState::LineWidth: return vk::DynamicState::eLineWidth;
+        case DynamicState::DepthBias: return vk::DynamicState::eDepthBias;
+        case DynamicState::BlendConstants: return vk::DynamicState::eBlendConstants;
+        case DynamicState::DepthBounds: return vk::DynamicState::eDepthBounds;
+        case DynamicState::StencilCompareMask: return vk::DynamicState::eStencilCompareMask;
+        case DynamicState::StencilWriteMask: return vk::DynamicState::eStencilWriteMask;
+        case DynamicState::StencilReference: return vk::DynamicState::eStencilReference;
+        case DynamicState::CullMode: return vk::DynamicState::eCullMode;
+        case DynamicState::FrontFace: return vk::DynamicState::eFrontFace;
+        case DynamicState::PrimitiveTopology: return vk::DynamicState::ePrimitiveTopology;
+        case DynamicState::ViewportWithCount: return vk::DynamicState::eViewportWithCount;
+        case DynamicState::ScissorWithCount: return vk::DynamicState::eScissorWithCount;
+        case DynamicState::VertexInputBindingStride: return vk::DynamicState::eVertexInputBindingStride;
+        case DynamicState::DepthTestEnable: return vk::DynamicState::eDepthTestEnable;
+        case DynamicState::DepthWriteEnable: return vk::DynamicState::eDepthWriteEnable;
+        case DynamicState::DepthCompareOp: return vk::DynamicState::eDepthCompareOp;
+        case DynamicState::DepthBoundsTestEnable: return vk::DynamicState::eDepthBoundsTestEnable;
+        case DynamicState::StencilTestEnable: return vk::DynamicState::eStencilTestEnable;
+        case DynamicState::StencilOp: return vk::DynamicState::eStencilOp;
+        case DynamicState::RasterizerDiscardEnable: return vk::DynamicState::eRasterizerDiscardEnable;
+        case DynamicState::DepthBiasEnable: return vk::DynamicState::eDepthBiasEnable;
+        case DynamicState::PrimitiveRestartEnable: return vk::DynamicState::ePrimitiveRestartEnable;
+        default: return vk::DynamicState::eViewport;
+        }
+    }
+
+    std::pair<vk::PipelineStageFlags2, vk::AccessFlags2> VulkanUtils::getLayoutStageAccess(vk::ImageLayout layout)
+    {
+        switch (layout)
+        {
+        case vk::ImageLayout::eUndefined:
+            return {vk::PipelineStageFlagBits2::eTopOfPipe, vk::AccessFlags2{}};
+
+        case vk::ImageLayout::eTransferDstOptimal:
+            return {vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferWrite};
+
+        case vk::ImageLayout::eTransferSrcOptimal:
+            return {vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferRead};
+
+        case vk::ImageLayout::eColorAttachmentOptimal:
+            return {vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                    vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite};
+
+        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            return {vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
+                    vk::AccessFlagBits2::eDepthStencilAttachmentWrite | vk::AccessFlagBits2::eDepthStencilAttachmentRead};
+
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            return {vk::PipelineStageFlagBits2::eFragmentShader | vk::PipelineStageFlagBits2::eComputeShader | vk::PipelineStageFlagBits2::eVertexShader,
+                    vk::AccessFlagBits2::eShaderRead};
+
+        case vk::ImageLayout::eGeneral:
+            return {vk::PipelineStageFlagBits2::eAllCommands,
+                    vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite};
+
+        case vk::ImageLayout::ePresentSrcKHR:
+            return {vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::AccessFlags2{}};
+
+        default:
+            // Fallback for unhandled layouts
+            return {vk::PipelineStageFlagBits2::eAllCommands,
+                    vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite};
+        }
+    }
 } // namespace pnkr::renderer::rhi::vulkan

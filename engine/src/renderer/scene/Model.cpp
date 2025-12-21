@@ -1,7 +1,6 @@
 // Model.cpp
 
 #include "pnkr/renderer/scene/Model.hpp"
-#include "pnkr/renderer/renderer.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/core/logger.hpp"
 
@@ -18,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <stb_image.h>
 #include <string>
 #include <vector>
 
@@ -97,6 +97,90 @@ namespace pnkr::renderer::scene
             return uri.uri;
         } else {
             return fastgltf::URIView{};
+        }
+    }
+
+    static rhi::SamplerAddressMode toAddressMode(fastgltf::Wrap wrap)
+    {
+        switch (wrap)
+        {
+        case fastgltf::Wrap::Repeat:
+            return rhi::SamplerAddressMode::Repeat;
+        case fastgltf::Wrap::MirroredRepeat:
+            return rhi::SamplerAddressMode::MirroredRepeat;
+        case fastgltf::Wrap::ClampToEdge:
+            return rhi::SamplerAddressMode::ClampToEdge;
+        default:
+            return rhi::SamplerAddressMode::Repeat;
+        }
+    }
+
+    template <typename T>
+    static uint32_t getTexCoordIndex(const T& info)
+    {
+        if constexpr (requires { info.texCoord; })
+        {
+            return util::u32(info.texCoord);
+        }
+        else if constexpr (requires { info.texCoordIndex; })
+        {
+            return util::u32(info.texCoordIndex);
+        }
+        else
+        {
+            return 0;
+        }
+    }
+
+    static rhi::SamplerAddressMode getSamplerAddressMode(const fastgltf::Asset& gltf, size_t textureIndex)
+    {
+        if (textureIndex >= gltf.textures.size()) {
+            return rhi::SamplerAddressMode::Repeat;
+        }
+
+        const auto& tex = gltf.textures[textureIndex];
+        if (!tex.samplerIndex.has_value() || tex.samplerIndex.value() >= gltf.samplers.size()) {
+            return rhi::SamplerAddressMode::Repeat;
+        }
+
+        const auto& sampler = gltf.samplers[tex.samplerIndex.value()];
+        fastgltf::Wrap wrapS = sampler.wrapS;
+        fastgltf::Wrap wrapT = sampler.wrapT;
+
+        if (wrapS != wrapT) {
+            core::Logger::warn("[Model] Sampler wrapS != wrapT, using wrapS for bindless sampler.");
+        }
+
+        return toAddressMode(wrapS);
+    }
+
+    static float getNormalScale(const fastgltf::NormalTextureInfo& info)
+    {
+        if constexpr (requires { info.scale; }) {
+            return static_cast<float>(info.scale);
+        }
+        return 1.0f;
+    }
+
+    static float getOcclusionStrength(const fastgltf::OcclusionTextureInfo& info)
+    {
+        if constexpr (requires { info.strength; }) {
+            return static_cast<float>(info.strength);
+        }
+        return 1.0f;
+    }
+
+    static uint32_t toAlphaMode(fastgltf::AlphaMode mode)
+    {
+        switch (mode)
+        {
+        case fastgltf::AlphaMode::Mask:
+            return 1u;
+        case fastgltf::AlphaMode::Blend:
+            return 2u;
+        case fastgltf::AlphaMode::Opaque:
+        default:
+            return 0u;
         }
     }
 
@@ -272,10 +356,33 @@ static std::vector<std::uint8_t> extractImageBytes(
 
         core::Logger::info("Loading Model (fastgltf): {} (Nodes: {})", path.string(), gltf.nodes.size());
 
+        // Determine sRGB usage per texture based on material slots.
+        std::vector<bool> textureUsesSrgb(gltf.textures.size(), false);
+        std::vector<bool> textureUsesLinear(gltf.textures.size(), false);
+        auto markTextureUsage = [&](const auto& opt, bool srgb) {
+            if (!opt.has_value()) { return; }
+            const size_t texIdx = opt.value().textureIndex;
+            if (texIdx >= gltf.textures.size()) { return; }
+            if (srgb) {
+                textureUsesSrgb[texIdx] = true;
+            } else {
+                textureUsesLinear[texIdx] = true;
+            }
+        };
+        for (const auto& mat : gltf.materials)
+        {
+            markTextureUsage(mat.pbrData.baseColorTexture, true);
+            markTextureUsage(mat.emissiveTexture, true);
+            markTextureUsage(mat.pbrData.metallicRoughnessTexture, false);
+            markTextureUsage(mat.normalTexture, false);
+            markTextureUsage(mat.occlusionTexture, false);
+        }
+
         // --- Textures ---
         model->m_textures.reserve(gltf.textures.size());
-        for (const auto& tex : gltf.textures)
+        for (size_t texIdx = 0; texIdx < gltf.textures.size(); ++texIdx)
         {
+            const auto& tex = gltf.textures[texIdx];
             const auto imgIndexOpt = pickImageIndex(tex);
             if (!imgIndexOpt)
             {
@@ -312,7 +419,12 @@ static std::vector<std::uint8_t> extractImageBytes(
                 continue;
             }
 
-            model->m_textures.push_back(renderer.createTexture(pixels, w, h, 4, true));
+            bool srgb = textureUsesSrgb[texIdx] && !textureUsesLinear[texIdx];
+            if (textureUsesSrgb[texIdx] && textureUsesLinear[texIdx]) {
+                core::Logger::warn("[Model] Texture {} used as sRGB and linear; using linear.", texIdx);
+                srgb = false;
+            }
+            model->m_textures.push_back(renderer.createTexture(pixels, w, h, 4, srgb));
             stbi_image_free(pixels);
         }
 
@@ -324,13 +436,67 @@ static std::vector<std::uint8_t> extractImageBytes(
             const auto& pbr = mat.pbrData;
 
             md.m_baseColorFactor = glm::make_vec4(pbr.baseColorFactor.data());
+            md.m_metallicFactor = pbr.metallicFactor;
+            md.m_roughnessFactor = pbr.roughnessFactor;
+            md.m_emissiveFactor = glm::make_vec3(mat.emissiveFactor.data());
+            md.m_alphaCutoff = mat.alphaCutoff;
+            md.m_alphaMode = toAlphaMode(mat.alphaMode);
 
             if (pbr.baseColorTexture.has_value())
             {
-                const size_t texIdx = pbr.baseColorTexture.value().textureIndex;
+                const auto& info = pbr.baseColorTexture.value();
+                const size_t texIdx = info.textureIndex;
                 if (texIdx < model->m_textures.size()) {
                     md.m_baseColorTexture = model->m_textures[texIdx];
-}
+                }
+                md.m_baseColorUV = getTexCoordIndex(info);
+                md.m_baseColorSampler = getSamplerAddressMode(gltf, texIdx);
+            }
+            
+            if (mat.normalTexture.has_value())
+            {
+                const auto& info = mat.normalTexture.value();
+                const size_t texIdx = info.textureIndex;
+                if (texIdx < model->m_textures.size()) {
+                    md.m_normalTexture = model->m_textures[texIdx];
+                }
+                md.m_normalUV = getTexCoordIndex(info);
+                md.m_normalSampler = getSamplerAddressMode(gltf, texIdx);
+                md.m_normalScale = getNormalScale(info);
+            }
+
+            if (pbr.metallicRoughnessTexture.has_value())
+            {
+                const auto& info = pbr.metallicRoughnessTexture.value();
+                const size_t texIdx = info.textureIndex;
+                if (texIdx < model->m_textures.size()) {
+                    md.m_metallicRoughnessTexture = model->m_textures[texIdx];
+                }
+                md.m_metallicRoughnessUV = getTexCoordIndex(info);
+                md.m_metallicRoughnessSampler = getSamplerAddressMode(gltf, texIdx);
+            }
+
+            if (mat.occlusionTexture.has_value())
+            {
+                const auto& info = mat.occlusionTexture.value();
+                const size_t texIdx = info.textureIndex;
+                if (texIdx < model->m_textures.size()) {
+                    md.m_occlusionTexture = model->m_textures[texIdx];
+                }
+                md.m_occlusionUV = getTexCoordIndex(info);
+                md.m_occlusionSampler = getSamplerAddressMode(gltf, texIdx);
+                md.m_occlusionStrength = getOcclusionStrength(info);
+            }
+
+            if (mat.emissiveTexture.has_value())
+            {
+                const auto& info = mat.emissiveTexture.value();
+                const size_t texIdx = info.textureIndex;
+                if (texIdx < model->m_textures.size()) {
+                    md.m_emissiveTexture = model->m_textures[texIdx];
+                }
+                md.m_emissiveUV = getTexCoordIndex(info);
+                md.m_emissiveSampler = getSamplerAddressMode(gltf, texIdx);
             }
 
             model->m_materials.push_back(md);

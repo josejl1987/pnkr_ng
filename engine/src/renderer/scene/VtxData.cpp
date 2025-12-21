@@ -1,7 +1,7 @@
 #include "pnkr/renderer/scene/VtxData.hpp"
 #include "pnkr/core/common.hpp"
 #include <cstdio>
-#include <stdexcept>
+#include <cpptrace/cpptrace.hpp>
 
 namespace pnkr::renderer::scene
 {
@@ -54,7 +54,7 @@ namespace pnkr::renderer::scene
     void saveUnifiedMeshData(const char* filename, const UnifiedMeshData& data)
     {
         if (data.m_boxes.size() != data.m_meshes.size())
-            throw std::runtime_error("UnifiedMeshData invariant failed: m_boxes.size() must equal m_meshes.size()");
+            throw cpptrace::runtime_error("UnifiedMeshData invariant failed: m_boxes.size() must equal m_meshes.size()");
 
         FILE* f = nullptr;
 #ifdef _MSC_VER
@@ -62,7 +62,7 @@ namespace pnkr::renderer::scene
 #else
         f = fopen(filename, "wb");
 #endif
-        if (!f) throw std::runtime_error("Failed to open file for writing");
+        if (!f) throw cpptrace::runtime_error("Failed to open file for writing");
         auto guard = util::makeScopeGuard([&] { fclose(f); });
 
         MeshFileHeader header{};
@@ -72,26 +72,26 @@ namespace pnkr::renderer::scene
         header.m_vertexDataSize = static_cast<uint32_t>(data.m_vertexData.size());
 
         if (fwrite(&header, 1, sizeof(header), f) != sizeof(header))
-            throw std::runtime_error("Write failed (header)");
+            throw cpptrace::runtime_error("Write failed (header)");
 
         if (header.m_meshCount > 0)
         {
             if (fwrite(data.m_meshes.data(), sizeof(UnifiedMesh), header.m_meshCount, f) != header.m_meshCount)
-                throw std::runtime_error("Write failed (meshes)");
+                throw cpptrace::runtime_error("Write failed (meshes)");
             if (fwrite(data.m_boxes.data(), sizeof(BoundingBox), header.m_meshCount, f) != header.m_meshCount)
-                throw std::runtime_error("Write failed (boxes)");
+                throw cpptrace::runtime_error("Write failed (boxes)");
         }
 
         if (header.m_indexDataSize > 0)
         {
             if (fwrite(data.m_indexData.data(), 1, header.m_indexDataSize, f) != header.m_indexDataSize)
-                throw std::runtime_error("Write failed (index data)");
+                throw cpptrace::runtime_error("Write failed (index data)");
         }
 
         if (header.m_vertexDataSize > 0)
         {
             if (fwrite(data.m_vertexData.data(), 1, header.m_vertexDataSize, f) != header.m_vertexDataSize)
-                throw std::runtime_error("Write failed (vertex data)");
+                throw cpptrace::runtime_error("Write failed (vertex data)");
         }
     }
 }

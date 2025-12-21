@@ -1,4 +1,6 @@
 #include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
+
+#include "pnkr/core/logger.hpp"
 #include "pnkr/rhi/vulkan/vulkan_device.hpp"
 #include "pnkr/rhi/vulkan/vulkan_buffer.hpp"
 #include "pnkr/rhi/vulkan/vulkan_texture.hpp"
@@ -6,6 +8,7 @@
 #include "pnkr/rhi/vulkan/vulkan_descriptor.hpp"
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/core/common.hpp"
+#include <cpptrace/cpptrace.hpp>
 
 using namespace pnkr::util;
 
@@ -22,7 +25,7 @@ namespace pnkr::renderer::rhi::vulkan
         auto result = device->device().allocateCommandBuffers(allocInfo);
         if (result.empty())
         {
-            throw std::runtime_error("Failed to allocate command buffer");
+            throw cpptrace::runtime_error("Failed to allocate command buffer");
         }
 
         m_commandBuffer = result[0];
@@ -69,13 +72,22 @@ namespace pnkr::renderer::rhi::vulkan
         {
             if (attachment.texture == nullptr)
             {
-                throw std::runtime_error("beginRendering: color attachment texture is null");
+                throw cpptrace::runtime_error("beginRendering: color attachment texture is null");
             }
 
-            const auto rawView = static_cast<VkImageView>(attachment.texture->nativeView());
+            VkImageView rawView = VK_NULL_HANDLE;
+            if (attachment.mipLevel > 0 || attachment.arrayLayer > 0)
+            {
+                rawView = static_cast<VkImageView>(attachment.texture->nativeView(attachment.mipLevel, attachment.arrayLayer));
+            }
+            else
+            {
+                rawView = static_cast<VkImageView>(attachment.texture->nativeView());
+            }
+
             if (rawView == VK_NULL_HANDLE)
             {
-                throw std::runtime_error("beginRendering: color attachment has null nativeView()");
+                throw cpptrace::runtime_error("beginRendering: color attachment has null nativeView()");
             }
 
             vk::RenderingAttachmentInfo vkAttachment{};
@@ -98,10 +110,19 @@ namespace pnkr::renderer::rhi::vulkan
         vk::RenderingAttachmentInfo depthAttachment{};
         if ((info.depthAttachment != nullptr) && (info.depthAttachment->texture != nullptr))
         {
-            const auto rawView = static_cast<VkImageView>(info.depthAttachment->texture->nativeView());
+            VkImageView rawView = VK_NULL_HANDLE;
+            if (info.depthAttachment->mipLevel > 0 || info.depthAttachment->arrayLayer > 0)
+            {
+                rawView = static_cast<VkImageView>(info.depthAttachment->texture->nativeView(info.depthAttachment->mipLevel, info.depthAttachment->arrayLayer));
+            }
+            else
+            {
+                rawView = static_cast<VkImageView>(info.depthAttachment->texture->nativeView());
+            }
+
             if (rawView == VK_NULL_HANDLE)
             {
-                throw std::runtime_error("beginRendering: depth attachment has null nativeView()");
+                throw cpptrace::runtime_error("beginRendering: depth attachment has null nativeView()");
             }
 
             depthAttachment.imageView = vk::ImageView(rawView);
@@ -132,6 +153,15 @@ namespace pnkr::renderer::rhi::vulkan
                 : vk::PipelineBindPoint::eCompute;
 
         m_commandBuffer.bindPipeline(bindPoint, vkPipeline->pipeline());
+
+        // Long-term robustness: auto-bind the global bindless descriptor set (set=1) when present.
+        // This prevents call-site omissions and keeps bindless behavior consistent.
+        RHIDescriptorSet* globalBindless = m_device->getBindlessDescriptorSet();
+        if (globalBindless != nullptr)
+        {
+            // set 1 is the global bindless set by ABI
+            bindDescriptorSet(pipeline, 1, globalBindless);
+        }
     }
 
     void VulkanRHICommandBuffer::bindVertexBuffer(uint32_t binding, RHIBuffer* buffer, uint64_t offset)
@@ -190,40 +220,27 @@ namespace pnkr::renderer::rhi::vulkan
                                                    RHIDescriptorSet* descriptorSet)
     {
         auto* vkPipeline = dynamic_cast<VulkanRHIPipeline*>(pipeline);
+        if (vkPipeline == nullptr)
+        {
+            throw cpptrace::runtime_error("bindDescriptorSet: pipeline is null or not a VulkanRHIPipeline");
+        }
         if (descriptorSet == nullptr)
         {
-            throw std::runtime_error("bindDescriptorSet: descriptorSet is null");
+            throw cpptrace::runtime_error("bindDescriptorSet: descriptorSet is null");
         }
+
+        const uint32_t setCount = vkPipeline->descriptorSetLayoutCount();
+        if (setIndex >= setCount)
+        {
+            core::Logger::error(
+                "bindDescriptorSet: setIndex={} is out of range for pipeline layout (setLayoutCount={}). Skipping bind.",
+                setIndex, setCount);
+            return;
+        }
+
         auto* vkSet = dynamic_cast<VulkanRHIDescriptorSet*>(descriptorSet);
         auto vkDescSet = vk::DescriptorSet(
             static_cast<VkDescriptorSet>(vkSet->nativeHandle()));
-
-        vk::PipelineBindPoint bindPoint =
-            vkPipeline->bindPoint() == PipelineBindPoint::Graphics
-                ? vk::PipelineBindPoint::eGraphics
-                : vk::PipelineBindPoint::eCompute;
-
-        m_commandBuffer.bindDescriptorSets(
-            bindPoint,
-            vkPipeline->pipelineLayout(),
-            setIndex,
-            1,
-            &vkDescSet,
-            0,
-            nullptr
-        );
-    }
-    void VulkanRHICommandBuffer::bindDescriptorSet(RHIPipeline* pipeline, uint32_t setIndex,
-                                      void* nativeDescriptorSet)
-    {
-        auto* vkPipeline = dynamic_cast<VulkanRHIPipeline*>(pipeline);
-        if (nativeDescriptorSet == nullptr)
-        {
-            throw std::runtime_error("bindDescriptorSet: nativeDescriptorSet is null");
-        }
-
-        vk::DescriptorSet vkDescSet = reinterpret_cast<VkDescriptorSet>(nativeDescriptorSet);
-
 
         vk::PipelineBindPoint bindPoint =
             vkPipeline->bindPoint() == PipelineBindPoint::Graphics
@@ -251,6 +268,31 @@ namespace pnkr::renderer::rhi::vulkan
         m_commandBuffer.setScissor(0, VulkanUtils::toVkRect2D(scissor));
     }
 
+    void VulkanRHICommandBuffer::setCullMode(CullMode mode)
+    {
+        m_commandBuffer.setCullMode(VulkanUtils::toVkCullMode(mode));
+    }
+
+    void VulkanRHICommandBuffer::setDepthTestEnable(bool enable)
+    {
+        m_commandBuffer.setDepthTestEnable(enable ? VK_TRUE : VK_FALSE);
+    }
+
+    void VulkanRHICommandBuffer::setDepthWriteEnable(bool enable)
+    {
+        m_commandBuffer.setDepthWriteEnable(enable ? VK_TRUE : VK_FALSE);
+    }
+
+    void VulkanRHICommandBuffer::setDepthCompareOp(CompareOp op)
+    {
+        m_commandBuffer.setDepthCompareOp(VulkanUtils::toVkCompareOp(op));
+    }
+
+    void VulkanRHICommandBuffer::setPrimitiveTopology(PrimitiveTopology topology)
+    {
+        m_commandBuffer.setPrimitiveTopology(VulkanUtils::toVkTopology(topology));
+    }
+
     void VulkanRHICommandBuffer::pipelineBarrier(
         ShaderStage srcStage,
         ShaderStage dstStage,
@@ -262,7 +304,8 @@ namespace pnkr::renderer::rhi::vulkan
             const vk::AccessFlags2 hostBits =
                 vk::AccessFlagBits2::eHostRead | vk::AccessFlagBits2::eHostWrite;
 
-            if ((access & hostBits) && !(stages & vk::PipelineStageFlagBits2::eHost))
+            // If stages does NOT contain Host, ensure access does NOT contain Host
+            if (!(stages & vk::PipelineStageFlagBits2::eHost))
             {
                 access &= ~hostBits;
             }
@@ -271,11 +314,14 @@ namespace pnkr::renderer::rhi::vulkan
         std::vector<vk::BufferMemoryBarrier2> bufferBarriers;
         std::vector<vk::ImageMemoryBarrier2> imageBarriers;
 
-        const vk::PipelineStageFlags2 srcStageMask = VulkanUtils::toVkPipelineStage(srcStage);
-        const vk::PipelineStageFlags2 dstStageMask = VulkanUtils::toVkPipelineStage(dstStage);
+        const vk::PipelineStageFlags2 globalSrcStageMask = VulkanUtils::toVkPipelineStage(srcStage);
+        const vk::PipelineStageFlags2 globalDstStageMask = VulkanUtils::toVkPipelineStage(dstStage);
 
         for (const auto& barrier : barriers)
         {
+            vk::PipelineStageFlags2 barrierSrcStage = (barrier.srcAccessStage != ShaderStage::None) ? VulkanUtils::toVkPipelineStage(barrier.srcAccessStage) : globalSrcStageMask;
+            vk::PipelineStageFlags2 barrierDstStage = (barrier.dstAccessStage != ShaderStage::None) ? VulkanUtils::toVkPipelineStage(barrier.dstAccessStage) : globalDstStageMask;
+
             if (barrier.buffer != nullptr)
             {
                 // Buffer barrier
@@ -283,8 +329,9 @@ namespace pnkr::renderer::rhi::vulkan
 
                 vk::BufferMemoryBarrier2 vkBarrier{};
 
-                vkBarrier.srcStageMask = srcStageMask;
-                vkBarrier.dstStageMask = dstStageMask;
+                // Fix: Map None to Top/Bottom of pipe if used explicitly as stage for buffers
+                vkBarrier.srcStageMask = (barrierSrcStage == vk::PipelineStageFlagBits2::eNone) ? vk::PipelineStageFlagBits2::eTopOfPipe : barrierSrcStage;
+                vkBarrier.dstStageMask = (barrierDstStage == vk::PipelineStageFlagBits2::eNone) ? vk::PipelineStageFlagBits2::eBottomOfPipe : barrierDstStage;
 
                 if (dstStage == ShaderStage::Transfer)
                 {
@@ -319,41 +366,24 @@ namespace pnkr::renderer::rhi::vulkan
                 const auto rawImage = getVkImageFromRHI(barrier.texture->nativeHandle());
                 if (rawImage == VK_NULL_HANDLE)
                 {
-                    throw std::runtime_error("pipelineBarrier: texture has null nativeHandle()");
+                    throw cpptrace::runtime_error("pipelineBarrier: texture has null nativeHandle()");
                 }
 
                 vk::ImageMemoryBarrier2 vkBarrier{};
-                vkBarrier.srcStageMask = srcStageMask;
-                vkBarrier.dstStageMask = dstStageMask;
                 vkBarrier.oldLayout = VulkanUtils::toVkImageLayout(barrier.oldLayout);
                 vkBarrier.newLayout = VulkanUtils::toVkImageLayout(barrier.newLayout);
 
-                // Derive access masks from layouts.
-                auto getAccessFlags = [](vk::ImageLayout layout,
-                                         vk::PipelineStageFlags2 stageMask) -> vk::AccessFlags2
-                {
-                    (void)(stageMask);
-                    switch (layout)
-                    {
-                    case vk::ImageLayout::eUndefined: return vk::AccessFlags2{};
-                    case vk::ImageLayout::eTransferDstOptimal: return vk::AccessFlagBits2::eTransferWrite;
-                    case vk::ImageLayout::eTransferSrcOptimal: return vk::AccessFlagBits2::eTransferRead;
-                    case vk::ImageLayout::eColorAttachmentOptimal:
-                        return vk::AccessFlagBits2::eColorAttachmentWrite | vk::AccessFlagBits2::eColorAttachmentRead;
-                    case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-                        return vk::AccessFlagBits2::eDepthStencilAttachmentWrite |
-                            vk::AccessFlagBits2::eDepthStencilAttachmentRead;
-                    case vk::ImageLayout::eShaderReadOnlyOptimal: return vk::AccessFlagBits2::eShaderRead;
-                    case vk::ImageLayout::ePresentSrcKHR: return vk::AccessFlags2{};
-                    case vk::ImageLayout::eGeneral:
-                        return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite |
-                            vk::AccessFlagBits2::eShaderStorageRead | vk::AccessFlagBits2::eShaderStorageWrite;
-                    default: return vk::AccessFlagBits2::eShaderRead;
-                    }
-                };
+                // Use the utility to get default Access/Stage for the layouts
+                auto [oldStage, oldAccess] = VulkanUtils::getLayoutStageAccess(vkBarrier.oldLayout);
+                auto [newStage, newAccess] = VulkanUtils::getLayoutStageAccess(vkBarrier.newLayout);
 
-                vkBarrier.srcAccessMask = getAccessFlags(vkBarrier.oldLayout, srcStageMask);
-                vkBarrier.dstAccessMask = getAccessFlags(vkBarrier.newLayout, dstStageMask);
+                // Apply User overrides if provided, otherwise use defaults
+                vkBarrier.srcStageMask = (barrierSrcStage != vk::PipelineStageFlagBits2::eNone) ? barrierSrcStage : oldStage;
+                vkBarrier.dstStageMask = (barrierDstStage != vk::PipelineStageFlagBits2::eNone) ? barrierDstStage : newStage;
+
+                vkBarrier.srcAccessMask = oldAccess;
+                vkBarrier.dstAccessMask = newAccess;
+
                 stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
                 stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);
 
@@ -415,13 +445,13 @@ namespace pnkr::renderer::rhi::vulkan
         auto* srcBuffer = dynamic_cast<VulkanRHIBuffer*>(src);
         if (dst == nullptr)
         {
-            throw std::runtime_error("copyBufferToTexture: dst is null");
+            throw cpptrace::runtime_error("copyBufferToTexture: dst is null");
         }
 
         const auto rawImage = getVkImageFromRHI(dst->nativeHandle());
         if (rawImage == VK_NULL_HANDLE)
         {
-            throw std::runtime_error("copyBufferToTexture: dst has null nativeHandle()");
+            throw cpptrace::runtime_error("copyBufferToTexture: dst has null nativeHandle()");
         }
 
         vk::BufferImageCopy copyRegion{};
@@ -455,6 +485,56 @@ namespace pnkr::renderer::rhi::vulkan
             srcBuffer->buffer(),
             vk::Image(rawImage),
             vk::ImageLayout::eTransferDstOptimal,
+            copyRegion
+        );
+    }
+
+    void VulkanRHICommandBuffer::copyTextureToBuffer(RHITexture* src, RHIBuffer* dst,
+                                                     const BufferTextureCopyRegion& region)
+    {
+        auto* dstBuffer = dynamic_cast<VulkanRHIBuffer*>(dst);
+        if (src == nullptr)
+        {
+            throw cpptrace::runtime_error("copyTextureToBuffer: src is null");
+        }
+
+        const auto rawImage = getVkImageFromRHI(src->nativeHandle());
+        if (rawImage == VK_NULL_HANDLE)
+        {
+            throw cpptrace::runtime_error("copyTextureToBuffer: src has null nativeHandle()");
+        }
+
+        vk::BufferImageCopy copyRegion{};
+        copyRegion.bufferOffset = region.bufferOffset;
+        copyRegion.bufferRowLength = region.bufferRowLength;
+        copyRegion.bufferImageHeight = region.bufferImageHeight;
+
+        vk::Format fmt = VulkanUtils::toVkFormat(src->format());
+        if (fmt == vk::Format::eD16Unorm || fmt == vk::Format::eD32Sfloat ||
+            fmt == vk::Format::eD24UnormS8Uint || fmt == vk::Format::eD32SfloatS8Uint)
+        {
+            copyRegion.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
+        }
+        else
+        {
+            copyRegion.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+        }
+
+        copyRegion.imageSubresource.mipLevel = region.textureSubresource.mipLevel;
+        copyRegion.imageSubresource.baseArrayLayer = region.textureSubresource.arrayLayer;
+        copyRegion.imageSubresource.layerCount = 1;
+
+        copyRegion.imageOffset = vk::Offset3D{
+            region.textureOffset.x,
+            region.textureOffset.y,
+            region.textureOffset.z
+        };
+        copyRegion.imageExtent = VulkanUtils::toVkExtent3D(region.textureExtent);
+
+        m_commandBuffer.copyImageToBuffer(
+            vk::Image(rawImage),
+            vk::ImageLayout::eTransferSrcOptimal,
+            dstBuffer->buffer(),
             copyRegion
         );
     }

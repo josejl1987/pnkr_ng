@@ -27,7 +27,7 @@ namespace pnkr::renderer::debug
         void initialize(RHIRenderer* renderer);
 
         // Configuration
-        void setDepthTestEnabled(bool enabled) { m_depthTestEnabled = enabled; m_pipelineDirty = true; }
+        void setDepthTestEnabled(bool enabled) { m_depthTestEnabled = enabled; }
 
         // Scene integration (optional)
         void setScene(scene::RHIScene* scene) { m_scene = scene; }
@@ -96,8 +96,12 @@ namespace pnkr::renderer::debug
         uint32_t m_maxVertices = 100000;
         bool m_initialized = false;
 
-        // Configuration
-        bool m_depthTestEnabled = true;
-        bool m_pipelineDirty = false;
-    };
-} // namespace pnkr::renderer::debug
+                // Configuration
+
+                bool m_depthTestEnabled = true;
+
+            };
+
+        } // namespace pnkr::renderer::debug
+
+        
