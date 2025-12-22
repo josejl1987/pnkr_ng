@@ -81,7 +81,7 @@ namespace pnkr::renderer::scene
 
 
         // 4. Push Constants
-        ShaderGen::GridPushConstants pc{};
+        ShaderGen::grid_vert::GridPushConstants pc{};
         pc.MVP = glm::perspective(glm::radians(45.0f), 16/9.0f, 0.1f, 1000.0f) * camera.view(); // Remove translation
         pc.cameraPos = glm::vec4(camera.position(), 1);
         pc.origin = glm::vec4(0);

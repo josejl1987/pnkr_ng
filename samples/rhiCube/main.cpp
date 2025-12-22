@@ -100,7 +100,7 @@ public:
         xform.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0F, 1.0F, 0.0F});
 
         // 2. Prepare Data
-        ShaderGen::cube_vert_PushConstants pc{};
+        ShaderGen::cube_vert::cube_vert_PushConstants pc{};
         pc.model = xform.mat4();
         pc.viewProj = m_camera.viewProj();
 

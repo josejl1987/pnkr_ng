@@ -868,6 +868,18 @@ namespace pnkr::renderer
         cmd->drawIndexed(mesh.m_indexCount, instanceCount, 0, 0, 0);
     }
 
+    void RHIRenderer::drawMeshBaseInstance(rhi::RHICommandBuffer* cmd, MeshHandle handle, uint32_t firstInstance)
+    {
+        if (handle.id >= m_meshes.size())
+        {
+            core::Logger::error("Invalid mesh handle.id: {}", handle.id);
+            return;
+        }
+
+        const auto& mesh = m_meshes[handle.id];
+        cmd->drawIndexed(mesh.m_indexCount, 1, 0, 0, firstInstance);
+    }
+
     void RHIRenderer::bindDescriptorSet(rhi::RHICommandBuffer* cmd,
                                         PipelineHandle handle,
                                         uint32_t setIndex,
@@ -940,6 +952,16 @@ namespace pnkr::renderer
         }
 
         return m_buffers[handle.id].bindlessIndex;
+    }
+
+    uint32_t RHIRenderer::getMeshIndexCount(MeshHandle handle) const
+    {
+        if (handle.id >= m_meshes.size())
+        {
+            core::Logger::error("Invalid mesh handle: {}", handle.id);
+            return 0;
+        }
+        return m_meshes[handle.id].m_indexCount;
     }
 
     uint64_t RHIRenderer::getMeshVertexBufferAddress(MeshHandle handle) const

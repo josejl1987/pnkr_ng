@@ -395,7 +395,7 @@ public:
         cmd->bindVertexBuffer(0, m_globalVertexBuffer.get(), 0);
         cmd->bindIndexBuffer(m_globalIndexBuffer.get(), 0, false); 
 
-        ShaderGen::unified_vert_PushConstants pc{};
+        ShaderGen::unified_vert::unified_vert_PushConstants pc{};
         pc.viewProj = m_scene->camera().viewProj();
         pc.model = glm::mat4(1.0f); // Identity for the whole batch
 

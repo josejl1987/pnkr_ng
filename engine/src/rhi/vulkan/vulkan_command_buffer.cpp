@@ -538,4 +538,64 @@ namespace pnkr::renderer::rhi::vulkan
             copyRegion
         );
     }
+
+    void VulkanRHICommandBuffer::copyTexture(RHITexture* src, RHITexture* dst,
+                                             const TextureCopyRegion& region)
+    {
+        if (src == nullptr || dst == nullptr)
+        {
+            throw cpptrace::runtime_error("copyTexture: src or dst is null");
+        }
+
+        const auto rawSrc = getVkImageFromRHI(src->nativeHandle());
+        const auto rawDst = getVkImageFromRHI(dst->nativeHandle());
+        if (rawSrc == VK_NULL_HANDLE || rawDst == VK_NULL_HANDLE)
+        {
+            throw cpptrace::runtime_error("copyTexture: src or dst has null nativeHandle()");
+        }
+
+        vk::ImageCopy copyRegion{};
+
+        vk::Format srcFmt = VulkanUtils::toVkFormat(src->format());
+        if (srcFmt == vk::Format::eD16Unorm || srcFmt == vk::Format::eD32Sfloat ||
+            srcFmt == vk::Format::eD24UnormS8Uint || srcFmt == vk::Format::eD32SfloatS8Uint)
+        {
+            copyRegion.srcSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
+        }
+        else
+        {
+            copyRegion.srcSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+        }
+
+        copyRegion.srcSubresource.mipLevel = region.srcSubresource.mipLevel;
+        copyRegion.srcSubresource.baseArrayLayer = region.srcSubresource.arrayLayer;
+        copyRegion.srcSubresource.layerCount = 1;
+
+        vk::Format dstFmt = VulkanUtils::toVkFormat(dst->format());
+        if (dstFmt == vk::Format::eD16Unorm || dstFmt == vk::Format::eD32Sfloat ||
+            dstFmt == vk::Format::eD24UnormS8Uint || dstFmt == vk::Format::eD32SfloatS8Uint)
+        {
+            copyRegion.dstSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
+        }
+        else
+        {
+            copyRegion.dstSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+        }
+
+        copyRegion.dstSubresource.mipLevel = region.dstSubresource.mipLevel;
+        copyRegion.dstSubresource.baseArrayLayer = region.dstSubresource.arrayLayer;
+        copyRegion.dstSubresource.layerCount = 1;
+
+        copyRegion.srcOffset = vk::Offset3D{region.srcOffset.x, region.srcOffset.y, region.srcOffset.z};
+        copyRegion.dstOffset = vk::Offset3D{region.dstOffset.x, region.dstOffset.y, region.dstOffset.z};
+        copyRegion.extent = VulkanUtils::toVkExtent3D(region.extent);
+
+        m_commandBuffer.copyImage(
+            vk::Image(rawSrc),
+            vk::ImageLayout::eTransferSrcOptimal,
+            vk::Image(rawDst),
+            vk::ImageLayout::eTransferDstOptimal,
+            copyRegion
+        );
+    }
 } // namespace pnkr::renderer::rhi::vulkan

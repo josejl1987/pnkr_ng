@@ -120,7 +120,7 @@ public:
         glm::mat4 viewProj = proj * view;
 
         // Push constants for instanced rendering
-        ShaderGen::CubePerFrameData data;
+        ShaderGen::million_cubes_vert::CubePerFrameData data;
         data.viewproj = viewProj,
         data.textureId = m_renderer->getTextureBindlessIndex(m_xorTexture),
         data.bufId = m_renderer->getBuffer(m_instanceBuffer)->getDeviceAddress(),

@@ -43,6 +43,26 @@ namespace pnkr::renderer::rhi
         Extent3D textureExtent;
     };
 
+    struct TextureCopyRegion
+    {
+        TextureSubresource srcSubresource;
+        TextureSubresource dstSubresource;
+
+        struct {
+            int32_t x = 0;
+            int32_t y = 0;
+            int32_t z = 0;
+        } srcOffset;
+
+        struct {
+            int32_t x = 0;
+            int32_t y = 0;
+            int32_t z = 0;
+        } dstOffset;
+
+        Extent3D extent;
+    };
+
     // Rendering attachment
     struct RenderingAttachment
     {
@@ -127,6 +147,8 @@ namespace pnkr::renderer::rhi
                                         const BufferTextureCopyRegion& region) = 0;
         virtual void copyTextureToBuffer(RHITexture* src, RHIBuffer* dst,
                                         const BufferTextureCopyRegion& region) = 0;
+        virtual void copyTexture(RHITexture* src, RHITexture* dst,
+                                const TextureCopyRegion& region) = 0;
 
         // Backend handle
         virtual void* nativeHandle() const = 0;

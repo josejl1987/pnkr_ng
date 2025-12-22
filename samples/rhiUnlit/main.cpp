@@ -97,7 +97,7 @@ public:
                     }
                 }
 
-                ShaderGen::PerFrameData pc{};
+                ShaderGen::unlit_vert::PerFrameData pc{};
                 pc.model = modelMat * node.m_worldTransform.mat4();
                 pc.viewProj = m_camera.viewProj();
                 pc.baseColor = glm::vec4(1.0f);

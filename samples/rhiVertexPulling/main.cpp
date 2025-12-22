@@ -77,11 +77,11 @@ public:
     void uploadMaterials()
     {
         const auto& modelMaterials = m_model->materials();
-        std::vector<ShaderGen::MaterialData> gpuMaterials;
+        std::vector<ShaderGen::vertex_pulling_vert::MaterialData> gpuMaterials;
 
         for (const auto& mat : modelMaterials)
         {
-            ShaderGen::MaterialData m{};
+            ShaderGen::vertex_pulling_vert::MaterialData m{};
             m.baseColorFactor = mat.m_baseColorFactor;
             m.emissiveFactor = glm::vec4(0.0F);
             if (mat.m_baseColorTexture != INVALID_TEXTURE_HANDLE)
@@ -108,7 +108,7 @@ public:
             gpuMaterials.push_back({});
         }
 
-        size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
+        size_t size = gpuMaterials.size() * sizeof(ShaderGen::vertex_pulling_vert::MaterialData);
         renderer::rhi::BufferDescriptor bufferDesc;
         bufferDesc.size = size;
         bufferDesc.usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst | renderer::rhi::BufferUsage::ShaderDeviceAddress;
@@ -165,7 +165,7 @@ public:
 
             for (const auto& prim : node.m_meshPrimitives)
             {
-                ShaderGen::vertex_pulling_vert_PushConstants pc{};
+                ShaderGen::vertex_pulling_vert::vertex_pulling_vert_PushConstants pc{};
                 pc.model = node.m_worldTransform.mat4();
                 pc.viewProj = m_camera.viewProj();
                 pc.materialIndex = prim.m_materialIndex;

@@ -113,12 +113,12 @@ public:
     void uploadMaterials()
     {
         const auto& modelMaterials = m_model->materials();
-        std::vector<ShaderGen::MaterialData> gpuMaterials;
+        std::vector<ShaderGen::gltf_bindless_frag::MaterialData> gpuMaterials;
 
         for (const auto& mat : modelMaterials)
         {
 
-            ShaderGen::MaterialData m{};
+            ShaderGen::gltf_bindless_frag::MaterialData m{};
             m.baseColorFactor = mat.m_baseColorFactor;
             m.emissiveFactor = glm::vec4(0.0F);
             if (mat.m_baseColorTexture != INVALID_TEXTURE_HANDLE)
@@ -145,7 +145,7 @@ public:
             gpuMaterials.push_back({});
         }
 
-        size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
+        size_t size = gpuMaterials.size() * sizeof(ShaderGen::gltf_bindless_frag::MaterialData);
         renderer::rhi::BufferDescriptor bufferDesc;
         bufferDesc.size = size;
         bufferDesc.usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst | renderer::rhi::BufferUsage::ShaderDeviceAddress;
@@ -209,7 +209,7 @@ public:
 
             for (const auto& prim : node.m_meshPrimitives)
             {
-                ShaderGen::gltf_bindless_frag_PushConstants pc{};
+                ShaderGen::gltf_bindless_frag::gltf_bindless_frag_PushConstants pc{};
                 pc.model = node.m_worldTransform.mat4();
                 pc.viewProj = m_camera.viewProj();
                 pc.cameraPos = glm::vec4(m_cameraController.position(), 1.0F);

@@ -3,7 +3,6 @@
 #include "pnkr/rhi/rhi_shader.hpp" // Use the RHI shader abstraction
 #include <glm/gtc/matrix_transform.hpp>
 
-#include "../../../../cmake-build-debug-clang-cl/samples/rhiPBR/generated/pbr.vert.h"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "generated/skybox.vert.h"
 
@@ -117,7 +116,7 @@ namespace pnkr::renderer::scene
         }
 
         // 4. Push Constants
-        ShaderGen::SkyboxPushConstants pc{};
+        ShaderGen::skybox_vert::SkyboxPushConstants pc{};
         pc.view = glm::mat4(glm::mat3(camera.view())); // Remove translation
         pc.proj = camera.proj();
         pc.textureIndex = m_renderer->getTextureBindlessIndex(m_cubemapHandle);

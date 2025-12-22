@@ -196,6 +196,19 @@ namespace pnkr::renderer::scene
         return 1.0f;
     }
 
+    template <typename T>
+    static float getOptionalFloat(const T& value, float fallback)
+    {
+        if constexpr (requires { value.has_value(); })
+        {
+            return value.has_value() ? static_cast<float>(value.value()) : fallback;
+        }
+        else
+        {
+            return static_cast<float>(value);
+        }
+    }
+
     static uint32_t toAlphaMode(fastgltf::AlphaMode mode)
     {
         switch (mode)
@@ -401,7 +414,14 @@ namespace pnkr::renderer::scene
             fastgltf::Extensions::KHR_texture_basisu |
             fastgltf::Extensions::MSFT_texture_dds |
             fastgltf::Extensions::EXT_texture_webp |
-            fastgltf::Extensions::KHR_materials_pbrSpecularGlossiness);
+            fastgltf::Extensions::KHR_materials_pbrSpecularGlossiness |
+            fastgltf::Extensions::KHR_materials_clearcoat |
+            fastgltf::Extensions::KHR_materials_sheen |
+            fastgltf::Extensions::KHR_materials_specular |
+            fastgltf::Extensions::KHR_materials_ior |
+            fastgltf::Extensions::KHR_materials_transmission |
+            fastgltf::Extensions::KHR_materials_volume |
+            fastgltf::Extensions::KHR_materials_emissive_strength);
 
         auto data = fastgltf::GltfDataBuffer::FromPath(path);
         if (data.error() != fastgltf::Error::None)
@@ -458,6 +478,40 @@ namespace pnkr::renderer::scene
                 markTextureUsage(sg.specularGlossinessTexture, true);
             }
 #endif
+
+            if (mat.clearcoat)
+            {
+                const auto& cc = *mat.clearcoat;
+                markTextureUsage(cc.clearcoatTexture, false);
+                markTextureUsage(cc.clearcoatRoughnessTexture, false);
+                markTextureUsage(cc.clearcoatNormalTexture, false);
+            }
+
+            if (mat.sheen)
+            {
+                const auto& sh = *mat.sheen;
+                markTextureUsage(sh.sheenColorTexture, true);
+                markTextureUsage(sh.sheenRoughnessTexture, false);
+            }
+
+            if (mat.specular)
+            {
+                const auto& sp = *mat.specular;
+                markTextureUsage(sp.specularTexture, false);
+                markTextureUsage(sp.specularColorTexture, true);
+            }
+
+            if (mat.transmission)
+            {
+                const auto& tr = *mat.transmission;
+                markTextureUsage(tr.transmissionTexture, false);
+            }
+
+            if (mat.volume)
+            {
+                const auto& vol = *mat.volume;
+                markTextureUsage(vol.thicknessTexture, false);
+            }
         }
 
         // --- Textures ---
@@ -588,6 +642,9 @@ namespace pnkr::renderer::scene
 
             md.m_alphaMode = toAlphaMode(mat.alphaMode);
 
+            md.m_ior = getOptionalFloat(mat.ior, md.m_ior);
+            md.m_emissiveStrength = getOptionalFloat(mat.emissiveStrength, md.m_emissiveStrength);
+
 
             if (mat.normalTexture.has_value())
 
@@ -646,6 +703,149 @@ namespace pnkr::renderer::scene
                 md.m_emissiveSampler = getSamplerAddressMode(gltf, texIdx);
             }
 
+            if (mat.clearcoat)
+            {
+                const auto& cc = *mat.clearcoat;
+                md.m_clearcoatFactor = cc.clearcoatFactor;
+                md.m_clearcoatRoughnessFactor = cc.clearcoatRoughnessFactor;
+
+                if (cc.clearcoatTexture.has_value())
+                {
+                    const auto& info = cc.clearcoatTexture.value();
+                    const size_t texIdx = info.textureIndex;
+                    if (texIdx < model->m_textures.size())
+                    {
+                        md.m_clearcoatTexture = model->m_textures[texIdx];
+                    }
+                    md.m_clearcoatUV = getTexCoordIndex(info);
+                    md.m_clearcoatSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+
+                if (cc.clearcoatRoughnessTexture.has_value())
+                {
+                    const auto& info = cc.clearcoatRoughnessTexture.value();
+                    const size_t texIdx = info.textureIndex;
+                    if (texIdx < model->m_textures.size())
+                    {
+                        md.m_clearcoatRoughnessTexture = model->m_textures[texIdx];
+                    }
+                    md.m_clearcoatRoughnessUV = getTexCoordIndex(info);
+                    md.m_clearcoatRoughnessSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+
+                if (cc.clearcoatNormalTexture.has_value())
+                {
+                    const auto& info = cc.clearcoatNormalTexture.value();
+                    const size_t texIdx = info.textureIndex;
+                    if (texIdx < model->m_textures.size())
+                    {
+                        md.m_clearcoatNormalTexture = model->m_textures[texIdx];
+                    }
+                    md.m_clearcoatNormalUV = getTexCoordIndex(info);
+                    md.m_clearcoatNormalSampler = getSamplerAddressMode(gltf, texIdx);
+                    md.m_clearcoatNormalScale = getNormalScale(info);
+                }
+            }
+
+            if (mat.sheen)
+            {
+                const auto& sh = *mat.sheen;
+                md.m_sheenColorFactor = glm::make_vec3(sh.sheenColorFactor.data());
+                md.m_sheenRoughnessFactor = sh.sheenRoughnessFactor;
+
+                if (sh.sheenColorTexture.has_value())
+                {
+                    const auto& info = sh.sheenColorTexture.value();
+                    const size_t texIdx = info.textureIndex;
+                    if (texIdx < model->m_textures.size())
+                    {
+                        md.m_sheenColorTexture = model->m_textures[texIdx];
+                    }
+                    md.m_sheenColorUV = getTexCoordIndex(info);
+                    md.m_sheenColorSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+
+                if (sh.sheenRoughnessTexture.has_value())
+                {
+                    const auto& info = sh.sheenRoughnessTexture.value();
+                    const size_t texIdx = info.textureIndex;
+                    if (texIdx < model->m_textures.size())
+                    {
+                        md.m_sheenRoughnessTexture = model->m_textures[texIdx];
+                    }
+                    md.m_sheenRoughnessUV = getTexCoordIndex(info);
+                    md.m_sheenRoughnessSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+            }
+
+            if (mat.specular)
+            {
+                const auto& sp = *mat.specular;
+                md.m_specularFactorScalar = sp.specularFactor;
+                md.m_specularColorFactor = glm::make_vec3(sp.specularColorFactor.data());
+
+                if (sp.specularTexture.has_value())
+                {
+                    const auto& info = sp.specularTexture.value();
+                    const size_t texIdx = info.textureIndex;
+                    if (texIdx < model->m_textures.size())
+                    {
+                        md.m_specularTexture = model->m_textures[texIdx];
+                    }
+                    md.m_specularUV = getTexCoordIndex(info);
+                    md.m_specularSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+
+                if (sp.specularColorTexture.has_value())
+                {
+                    const auto& info = sp.specularColorTexture.value();
+                    const size_t texIdx = info.textureIndex;
+                    if (texIdx < model->m_textures.size())
+                    {
+                        md.m_specularColorTexture = model->m_textures[texIdx];
+                    }
+                    md.m_specularColorUV = getTexCoordIndex(info);
+                    md.m_specularColorSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+            }
+
+            if (mat.transmission)
+            {
+                const auto& tr = *mat.transmission;
+                md.m_transmissionFactor = tr.transmissionFactor;
+
+                if (tr.transmissionTexture.has_value())
+                {
+                    const auto& info = tr.transmissionTexture.value();
+                    const size_t texIdx = info.textureIndex;
+                    if (texIdx < model->m_textures.size())
+                    {
+                        md.m_transmissionTexture = model->m_textures[texIdx];
+                    }
+                    md.m_transmissionUV = getTexCoordIndex(info);
+                    md.m_transmissionSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+            }
+
+            if (mat.volume)
+            {
+                const auto& vol = *mat.volume;
+                md.m_volumeThicknessFactor = vol.thicknessFactor;
+                md.m_volumeAttenuationDistance = vol.attenuationDistance;
+                md.m_volumeAttenuationColor = glm::make_vec3(vol.attenuationColor.data());
+
+                if (vol.thicknessTexture.has_value())
+                {
+                    const auto& info = vol.thicknessTexture.value();
+                    const size_t texIdx = info.textureIndex;
+                    if (texIdx < model->m_textures.size())
+                    {
+                        md.m_volumeThicknessTexture = model->m_textures[texIdx];
+                    }
+                    md.m_volumeThicknessUV = getTexCoordIndex(info);
+                    md.m_volumeThicknessSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+            }
 
             model->m_materials.push_back(md);
         }

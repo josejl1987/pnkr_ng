@@ -68,6 +68,8 @@ namespace pnkr::renderer::rhi::vulkan
                                 const BufferTextureCopyRegion& region) override;
         void copyTextureToBuffer(RHITexture* src, RHIBuffer* dst,
                                 const BufferTextureCopyRegion& region) override;
+        void copyTexture(RHITexture* src, RHITexture* dst,
+                        const TextureCopyRegion& region) override;
 
         void* nativeHandle() const override {
             return static_cast<VkCommandBuffer>(m_commandBuffer);

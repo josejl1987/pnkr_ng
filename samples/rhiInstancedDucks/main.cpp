@@ -266,7 +266,7 @@ public:
         m_renderer->bindComputePipeline(ctx.commandBuffer, m_computePipeline);
 
         // Push constants for compute shader
-        ShaderGen::PushData computeData{};
+        ShaderGen::instanced_ducks_vert::PushData computeData{};
         computeData.time = time;
         computeData.instanceCount = kNumInstances;
         computeData.bufPosAngleIdPtr = m_renderer->getBuffer(m_instanceBuffer)->getDeviceAddress();
@@ -290,7 +290,7 @@ public:
         ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_graphicsPipeline), 1, bindlessSet);
 
         // Push constants for graphics shader
-        ShaderGen::PushData graphicsData{};
+        ShaderGen::instanced_ducks_vert::PushData graphicsData{};
         graphicsData.viewproj = viewProj;
         graphicsData.textureId = m_renderer->getTextureBindlessIndex(m_duckTexture);
         graphicsData.instanceCount = kNumInstances;

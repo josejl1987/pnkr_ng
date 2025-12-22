@@ -222,13 +222,18 @@ namespace pnkr::renderer::rhi::vulkan
         features13.synchronization2 = VK_TRUE;
         features13.maintenance4 = VK_TRUE;
 
+        // Vulkan 1.1 features
+        vk::PhysicalDeviceVulkan11Features features11{};
+        features11.shaderDrawParameters = VK_TRUE;
+
         // Vulkan 16-bit storage features (Promoted to 1.1, kept separate as we don't use Vulkan11Features struct)
         vk::PhysicalDevice16BitStorageFeatures features16bit{};
         features16bit.storageBuffer16BitAccess = VK_TRUE;
 
-        // Chain features: 13 -> 12 -> 16bit -> Core
+        // Chain features: 13 -> 12 -> 11 -> 16bit -> Core
         features13.pNext = &features12;
-        features12.pNext = &features16bit;
+        features12.pNext = &features11;
+        features11.pNext = &features16bit;
         // indexingFeatures struct is removed completely
 
         // 3. Create Info

@@ -104,15 +104,8 @@ void ImGuiLayer::init(pnkr::renderer::RHIRenderer* renderer, pnkr::platform::Win
 
     m_initialized = true;
 
-    // 6. Upload Fonts (Using RHI Command Buffer interface)
-    auto cmd = m_renderer->device()->createCommandBuffer();
-    cmd->begin();
-
-    // We must downcast here to get the raw handle for ImGui
+    // 6. Upload Fonts (ImGui backend handles its own command buffer)
     ImGui_ImplVulkan_CreateFontsTexture();
-
-    cmd->end();
-    m_renderer->device()->submitCommands(cmd.get());
     m_renderer->device()->waitIdle();
 
 

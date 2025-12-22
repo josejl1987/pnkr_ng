@@ -90,6 +90,7 @@ namespace pnkr::renderer
         void bindMesh(rhi::RHICommandBuffer* cmd, MeshHandle handle);
         void drawMesh(rhi::RHICommandBuffer* cmd, MeshHandle handle);
         void drawMeshInstanced(rhi::RHICommandBuffer* cmd, MeshHandle handle, uint32_t instanceCount);
+        void drawMeshBaseInstance(rhi::RHICommandBuffer* cmd, MeshHandle handle, uint32_t firstInstance);
         void bindDescriptorSet(rhi::RHICommandBuffer* cmd,
                                PipelineHandle handle,
                                uint32_t setIndex,
@@ -119,6 +120,7 @@ namespace pnkr::renderer
         [[nodiscard]] rhi::RHIBuffer* getBuffer(BufferHandle handle) const;
         [[nodiscard]] uint32_t getBufferBindlessIndex(BufferHandle handle) const;
 
+        [[nodiscard]] uint32_t getMeshIndexCount(MeshHandle handle) const;
         uint64_t getMeshVertexBufferAddress(MeshHandle handle) const;
 
         // Format queries
@@ -128,6 +130,9 @@ namespace pnkr::renderer
 
         // Device access
         rhi::RHIDevice* device() const { return m_device.get(); }
+        rhi::RHITexture* getBackbuffer() const { return m_backbuffer; }
+        rhi::RHITexture* getBackbufferTexture() const { return m_backbuffer; }
+        rhi::RHITexture* getDepthTexture() const { return m_depthTarget.get(); }
 
         void setVsync(bool enabled);
 
