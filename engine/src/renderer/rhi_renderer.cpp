@@ -427,8 +427,10 @@ namespace pnkr::renderer
             gv.color = glm::vec4(v.m_color, 1.0f);
             gv.normal = glm::vec4(v.m_normal, 0.0f);
             gv.tangent = v.m_tangent;
-            gv.uv.x = v.m_texCoord.x;
-            gv.uv.y = v.m_texCoord.y;
+            gv.uv.x = v.m_texCoord0.x;
+            gv.uv.y = v.m_texCoord0.y;
+            gv.uv.z = v.m_texCoord1.x;
+            gv.uv.w = v.m_texCoord1.y;
             gpuVertices.push_back(gv);
         }
 

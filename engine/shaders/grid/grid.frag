@@ -10,5 +10,8 @@ layout (location=1) in vec2 camPos;
 layout (location=0) out vec4 out_FragColor;
 
 void main() {
-    out_FragColor = gridColor(uv, camPos);
+    vec4 gridColor = gridColor(uv, camPos);
+
+    if(gridColor.a == 0) discard;
+    out_FragColor =  gridColor;
 }

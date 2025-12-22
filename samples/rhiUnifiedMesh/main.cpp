@@ -291,7 +291,8 @@ public:
                         localVertices[i].m_position = p;
                         localVertices[i].m_color = {1.0f, 1.0f, 1.0f};
                         localVertices[i].m_normal = {0, 1, 0};
-                        localVertices[i].m_texCoord = {0, 0};
+                        localVertices[i].m_texCoord0 = {0, 0};
+                        localVertices[i].m_texCoord1 = {0, 0};
                         localVertices[i].m_tangent = {0, 0, 0, 0};
                     });
 
@@ -302,7 +303,12 @@ public:
 
                 if (auto* uvIt = prim.findAttribute("TEXCOORD_0"); uvIt != prim.attributes.end()) {
                     fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uvIt->accessorIndex],
-                        [&](glm::vec2 uv, size_t i) { localVertices[i].m_texCoord = uv; });
+                        [&](glm::vec2 uv, size_t i) { localVertices[i].m_texCoord0 = uv; });
+                }
+
+                if (auto* uvIt1 = prim.findAttribute("TEXCOORD_1"); uvIt1 != prim.attributes.end()) {
+                    fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uvIt1->accessorIndex],
+                        [&](glm::vec2 uv, size_t i) { localVertices[i].m_texCoord1 = uv; });
                 }
 
                 if (prim.indicesAccessor.has_value()) {

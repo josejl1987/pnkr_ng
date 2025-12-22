@@ -11,6 +11,7 @@
 #include <cpptrace/cpptrace.hpp>
 #include <pnkr/engine.hpp>
 #include <pnkr/core/profiler.hpp>
+#include <pnkr/core/FramePacer.hpp>
 
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/ui/imgui_layer.hpp"
@@ -85,9 +86,23 @@ namespace pnkr::samples
         bool m_vsync = true;
 
     private:
+        double getRefreshRate() const
+        {
+            if (!m_window.get()) return 60.0;
+
+            SDL_DisplayID display = SDL_GetDisplayForWindow(m_window.get());
+            if (display == 0) return 60.0;
+
+            const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(display);
+            if (!mode) return 60.0;
+
+            return (mode->refresh_rate > 0.0f) ? static_cast<double>(mode->refresh_rate) : 60.0;
+        }
+
         std::filesystem::path m_baseDir;
         std::filesystem::path m_shaderDir;
         core::Timer m_timer;
+        core::FramePacer m_framePacer;
 
     protected:
         platform::Input m_input;
@@ -161,6 +176,9 @@ namespace pnkr::samples
 
             while (m_window.isRunning())
             {
+                double targetFPS = m_vsync ? getRefreshRate() : 0.0;
+                m_framePacer.paceFrame(targetFPS);
+
                 PNKR_PROFILE_FRAME("Main Loop");
 
                 m_input.beginFrame();

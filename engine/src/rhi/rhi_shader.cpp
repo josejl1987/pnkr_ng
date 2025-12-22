@@ -30,6 +30,14 @@ namespace pnkr::renderer::rhi
         {
             return VertexSemantic::Normal;
         }
+        if (name.find("uv0") != std::string::npos)
+        {
+            return VertexSemantic::TexCoord0;
+        }
+        if (name.find("uv1") != std::string::npos)
+        {
+            return VertexSemantic::TexCoord1;
+        }
         if (name.find("uv") != std::string::npos ||
             name.find("coord") != std::string::npos)
         {

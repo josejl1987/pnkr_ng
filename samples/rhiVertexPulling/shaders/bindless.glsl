@@ -1,7 +1,6 @@
 #ifndef BINDLESS_GLSL
 #define BINDLESS_GLSL
 
-#extension GL_EXT_nonuniform_qualifier : require
 
 struct MaterialData {
     vec4 baseColorFactor;
@@ -19,10 +18,10 @@ struct MaterialData {
     float _pad0;
 };
 
-// Set 0: Material Data (Storage Buffer)
-layout(set = 0, binding = 0, std430) readonly buffer MaterialBuffer {
+// Material Data (Storage Buffer via Reference)
+layout(buffer_reference, std430) readonly buffer MaterialBuffer {
     MaterialData materials[];
-} materialBuffer;
+};
 
 // Set 1: Global Bindless Textures
 layout(set = 1, binding = 0) uniform texture2D bindlessTextures[];
@@ -47,8 +46,8 @@ vec4 textureBindless2D(uint textureId, vec2 uv) {
     return textureBindless2D(textureId, kDefaultSamplerIndex, uv);
 }
 
-MaterialData getMaterial(uint index) {
-    return materialBuffer.materials[index];
+MaterialData getMaterial(MaterialBuffer buf, uint index) {
+    return buf.materials[index];
 }
 
 #endif

@@ -33,7 +33,6 @@ public:
     std::unique_ptr<renderer::RHIRenderer> m_renderer;
     PipelineHandle m_pipeline;
     std::unique_ptr<renderer::rhi::RHIBuffer> m_materialBuffer;
-    std::unique_ptr<renderer::rhi::RHITexture> m_dummyTexture;
     std::unique_ptr<renderer::rhi::RHISampler> m_dummySampler;
 
     void onInit() override
@@ -45,7 +44,6 @@ public:
         m_camera.lookAt({2.0F, 2.0F, 2.0F}, {0.F, 0.5F, 0.F}, {0.F, 1.F, 0.F});
 
         m_model = renderer::scene::Model::load(*m_renderer, baseDir() / "assets" / "duck.glb", true);
-
 
         if (!m_model)
         {
@@ -110,83 +108,77 @@ public:
             gpuMaterials.push_back({});
         }
 
-                size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
+        size_t size = gpuMaterials.size() * sizeof(ShaderGen::MaterialData);
+        renderer::rhi::BufferDescriptor bufferDesc;
+        bufferDesc.size = size;
+        bufferDesc.usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst | renderer::rhi::BufferUsage::ShaderDeviceAddress;
+        bufferDesc.memoryUsage = renderer::rhi::MemoryUsage::GPUOnly;
+        m_materialBuffer = m_renderer->device()->createBuffer(bufferDesc);
 
-                renderer::rhi::BufferDescriptor bufferDesc;
+        renderer::rhi::BufferDescriptor stagingDesc;
+        stagingDesc.size = size;
+        stagingDesc.usage = renderer::rhi::BufferUsage::TransferSrc;
+        stagingDesc.memoryUsage = renderer::rhi::MemoryUsage::CPUToGPU;
+        stagingDesc.data = gpuMaterials.data();
 
-                bufferDesc.size = size;
+        auto staging = m_renderer->device()->createBuffer(stagingDesc);
 
-                bufferDesc.usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::TransferDst | renderer::rhi::BufferUsage::ShaderDeviceAddress;
+        auto cmd = m_renderer->device()->createCommandBuffer();
+        cmd->begin();
+        cmd->copyBuffer(staging.get(), m_materialBuffer.get(), 0, 0, size);
+        cmd->end();
+        m_renderer->device()->submitCommands(cmd.get());
+        m_renderer->device()->waitIdle();
+    }
 
-                bufferDesc.memoryUsage = renderer::rhi::MemoryUsage::GPUOnly;
+    void createPipeline()
+    {
+        renderer::rhi::ReflectionConfig config;
+        auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex, getShaderPath("vertex_pulling.vert.spv"), config);
+        auto fs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Fragment, getShaderPath("gltf_bindless.frag.spv"), config);
 
-                m_materialBuffer = m_renderer->device()->createBuffer(bufferDesc);
+        auto builder = renderer::rhi::RHIPipelineBuilder()
+                       .setShaders(vs.get(), fs.get())
+                       .setTopology(renderer::rhi::PrimitiveTopology::TriangleList)
+                       .setCullMode(renderer::rhi::CullMode::Back)
+                       .enableDepthTest()
+                       .setColorFormat(m_renderer->getDrawColorFormat())
+                       .setDepthFormat(m_renderer->getDrawDepthFormat())
+                       .setName("VertexPullingPipeline");
 
-        
+        m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+    }
 
-                renderer::rhi::BufferDescriptor stagingDesc;
+    void recordFrame(const renderer::RHIFrameContext& ctx)
+    {
+        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
 
-        // ... (omitting some lines)
+        renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
+        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_pipeline), 1, bindlessSet);
 
-            void recordFrame(const renderer::RHIFrameContext& ctx)
+        float aspect = (float)m_window.width() / m_window.height();
+        m_camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
 
+        std::function<void(int)> drawNode = [&](int nodeIdx)
+        {
+            const auto& node = m_model->nodes()[nodeIdx];
+
+            for (const auto& prim : node.m_meshPrimitives)
             {
+                ShaderGen::vertex_pulling_vert_PushConstants pc{};
+                pc.model = node.m_worldTransform.mat4();
+                pc.viewProj = m_camera.viewProj();
+                pc.materialIndex = prim.m_materialIndex;
+                pc.vtx = prim.m_vertexBufferAddress;
+                pc.materialBuffer = m_materialBuffer->getDeviceAddress();
 
-                m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
+                m_renderer->pushConstants(ctx.commandBuffer, m_pipeline,
+                                          renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment,
+                                          pc);
 
-        
-
-                renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
-
-                ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_pipeline), 1, bindlessSet);
-
-        
-
-                float aspect = (float)m_window.width() / m_window.height();
-
-                m_camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
-
-        
-
-                std::function<void(int)> drawNode = [&](int nodeIdx)
-
-                {
-
-                    const auto& node = m_model->nodes()[nodeIdx];
-
-        
-
-                    for (const auto& prim : node.m_meshPrimitives)
-
-                    {
-
-                        ShaderGen::vertex_pulling_vert_PushConstants pc{};
-
-                        pc.model = node.m_worldTransform.mat4();
-
-                        pc.viewProj = m_camera.viewProj();
-
-                        pc.materialIndex = prim.m_materialIndex;
-
-                        pc.vtx = prim.m_vertexBufferAddress;
-
-                        pc.materialBuffer = m_materialBuffer->getDeviceAddress();
-
-                        m_renderer->pushConstants(ctx.commandBuffer, m_pipeline,
-
-                                                  renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment,
-
-                                                  pc);
-
-        
-
-                        m_renderer->bindMesh(ctx.commandBuffer, prim.m_mesh);
-
-                        m_renderer->drawMesh(ctx.commandBuffer, prim.m_mesh);
-
-                    }
-
-        
+                m_renderer->bindMesh(ctx.commandBuffer, prim.m_mesh);
+                m_renderer->drawMesh(ctx.commandBuffer, prim.m_mesh);
+            }
 
             for (int child : node.m_children)
             {
@@ -208,12 +200,10 @@ public:
         }
     }
 
-
     void onShutdown() override
     {
     }
 };
-
 
 int main(int argc, char** argv)
 {

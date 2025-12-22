@@ -26,6 +26,22 @@ namespace pnkr::renderer::scene
         core::Logger::info("Skybox initialized. Handle: {}", m_cubemapHandle.id);
     }
 
+    void Skybox::init(RHIRenderer& renderer, TextureHandle cubemap)
+    {
+        m_renderer = &renderer;
+        m_cubemapHandle = cubemap;
+
+        if (!m_cubemapHandle)
+        {
+            core::Logger::error("Failed to initialize skybox cubemap");
+            return;
+        }
+
+        createSkyboxPipeline();
+
+        core::Logger::info("Skybox initialized from cubemap. Handle: {}", m_cubemapHandle.id);
+    }
+
     void Skybox::destroy()
     {
         // In a real engine, you'd release the TextureHandle and PipelineHandle

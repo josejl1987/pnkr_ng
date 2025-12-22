@@ -21,6 +21,10 @@ namespace pnkr::renderer::scene
         float m_occlusionStrength{1.0f};
         uint32_t m_alphaMode{0};
 
+        glm::vec3 m_specularFactor{1.0f};
+        float m_glossinessFactor{1.0f};
+        bool m_isSpecularGlossiness{false};
+
         TextureHandle m_baseColorTexture = INVALID_TEXTURE_HANDLE;
         TextureHandle m_normalTexture = INVALID_TEXTURE_HANDLE;
         TextureHandle m_metallicRoughnessTexture = INVALID_TEXTURE_HANDLE;

@@ -1,8 +1,33 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
 
 #include "bindless.glsl"
+
+struct GPUVertex {
+    vec4 pos;
+    vec4 color;
+    vec4 normal;
+    vec4 tangent;
+    vec2 uv;
+    vec2 _pad;
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer Vertices {
+    GPUVertex in_Vertices[];
+};
+
+// Push constants for per-draw data
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    mat4 viewProj;
+    uint materialIndex;
+    Vertices vtx;
+    MaterialBuffer materialBuffer;
+} pc;
 
 layout(location = 0) in GS_OUT {
     vec3 normal;
@@ -18,7 +43,7 @@ layout(location = 7) in vec3 barycoords;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    MaterialData mat = getMaterial(fsIn.materialIndex);
+    MaterialData mat = getMaterial(pc.materialBuffer, fsIn.materialIndex);
 
     vec4 baseColor = mat.baseColorFactor;
 

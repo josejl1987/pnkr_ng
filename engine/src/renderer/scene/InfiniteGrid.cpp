@@ -45,7 +45,6 @@ namespace pnkr::renderer::scene
         builder.setShaders(vertShader.get(), fragShader.get(), nullptr)
                .setTopology(rhi::PrimitiveTopology::TriangleList)
                .setPolygonMode(rhi::PolygonMode::Fill)
-               // Depth: Lequal so it draws at the far plane (z=1.0)
                .enableDepthTest(true, rhi::CompareOp::LessOrEqual)
                .setAlphaBlend()
                .setCullMode(rhi::CullMode::None)

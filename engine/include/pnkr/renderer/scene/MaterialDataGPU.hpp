@@ -7,21 +7,33 @@ namespace pnkr::renderer::scene
 {
     struct MaterialDataGPU
     {
+        // MR: BaseColor | SG: DiffuseColor
         glm::vec4 baseColorFactor;
+
+        // MR: {Metallic, Roughness, NormalScale, OcclusionStrength}
+        // SG: {unused, Glossiness, NormalScale, OcclusionStrength}
         glm::vec4 metallicRoughnessNormalOcclusion;
+
         glm::vec4 emissiveFactorAlphaCutoff;
+
+        // SG: SpecularFactor(RGB), Workflow(A)
+        // Workflow: 0.0 = Metallic/Roughness, 1.0 = Specular/Glossiness
+        glm::vec4 specularFactorWorkflow;
 
         uint32_t occlusionTexture;
         uint32_t occlusionTextureSampler;
         uint32_t occlusionTextureUV;
-        uint32_t emissiveTexture;
 
+        uint32_t emissiveTexture;
         uint32_t emissiveTextureSampler;
         uint32_t emissiveTextureUV;
+
+        // MR: BaseColor Texture | SG: Diffuse Texture
         uint32_t baseColorTexture;
         uint32_t baseColorTextureSampler;
-
         uint32_t baseColorTextureUV;
+
+        // MR: MetallicRoughness Texture | SG: SpecularGlossiness Texture
         uint32_t metallicRoughnessTexture;
         uint32_t metallicRoughnessTextureSampler;
         uint32_t metallicRoughnessTextureUV;
@@ -30,5 +42,8 @@ namespace pnkr::renderer::scene
         uint32_t normalTextureSampler;
         uint32_t normalTextureUV;
         uint32_t alphaMode;
+
+        uint32_t _pad0;
+        uint32_t _pad1;
     };
 }

@@ -10,6 +10,7 @@ layout(location = 0) in vec3 inWorldPos;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV0;
 layout(location = 3) in vec2 inUV1;
+layout(location = 4) in vec3 inColor;
 
 
 layout (location=0) out vec4 out_FragColor;
@@ -22,9 +23,20 @@ void main()
 
     MetallicRoughnessDataGPU mat = getMaterialPbrMR(getMaterialId());
 
+    vec4 Kd  = sampleAlbedo(tc, mat);
+    
+    // Apply Vertex Color
+    Kd.rgb *= inColor;
+
+    // Alpha Masking
+    if (mat.alphaMode == 1) {
+        if (Kd.a < mat.emissiveFactorAlphaCutoff.w) {
+            discard;
+        }
+    }
+
     vec4 Kao = sampleAO(tc, mat);
     vec4 Ke  = sampleEmissive(tc, mat);
-    vec4 Kd  = sampleAlbedo(tc, mat);
     vec4 mrSample = sampleMetallicRoughness(tc, mat);
 
     // world-space normal
@@ -37,7 +49,7 @@ void main()
 
     if (!gl_FrontFacing) n *= -1.0f;
 
-    PBRInfo pbrInputs = calculatePBRInputsMetallicRoughness(
+    PBRInfo pbrInputs = calculatePBRInputs(
         Kd, n, perFrame.drawable.cameraPos.xyz, inWorldPos, mrSample);
 
     vec3 specular_color = getIBLRadianceContributionGGX(pbrInputs, 1.0);

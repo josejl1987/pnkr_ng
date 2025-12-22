@@ -11,7 +11,8 @@ namespace pnkr::renderer
         glm::vec3 m_position;
         glm::vec3 m_color;
         glm::vec3 m_normal;
-        glm::vec2 m_texCoord;
+        glm::vec2 m_texCoord0;
+        glm::vec2 m_texCoord1;
         glm::vec4 m_tangent;
 
         struct SemanticMap
@@ -27,7 +28,9 @@ namespace pnkr::renderer
                 {rhi::VertexSemantic::Position, offsetof(Vertex, m_position), rhi::Format::R32G32B32_SFLOAT},
                 {rhi::VertexSemantic::Color, offsetof(Vertex, m_color), rhi::Format::R32G32B32_SFLOAT},
                 {rhi::VertexSemantic::Normal, offsetof(Vertex, m_normal), rhi::Format::R32G32B32_SFLOAT},
-                {rhi::VertexSemantic::TexCoord, offsetof(Vertex, m_texCoord), rhi::Format::R32G32_SFLOAT},
+                {rhi::VertexSemantic::TexCoord0, offsetof(Vertex, m_texCoord0), rhi::Format::R32G32_SFLOAT},
+                {rhi::VertexSemantic::TexCoord, offsetof(Vertex, m_texCoord0), rhi::Format::R32G32_SFLOAT}, // Fallback
+                {rhi::VertexSemantic::TexCoord1, offsetof(Vertex, m_texCoord1), rhi::Format::R32G32_SFLOAT},
                 {rhi::VertexSemantic::Tangent, offsetof(Vertex, m_tangent), rhi::Format::R32G32B32A32_SFLOAT}
             };
         }

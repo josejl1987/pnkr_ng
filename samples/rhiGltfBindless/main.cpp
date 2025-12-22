@@ -141,7 +141,7 @@ public:
             const auto& node = m_model->nodes()[nodeIdx];
 
             for (const auto& prim : node.m_meshPrimitives) {
-                ShaderGen::PushConstants pc{};
+                ShaderGen::gltf_bindless_vert_PushConstants pc{};
                 pc.model = node.m_worldTransform.mat4();
                 pc.viewProj = m_camera.viewProj();
                 pc.materialIndex = prim.m_materialIndex;

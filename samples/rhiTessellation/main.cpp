@@ -8,17 +8,16 @@
 #include "pnkr/renderer/scene/Model.hpp"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
-#include "pnkr/rhi/rhi_descriptor.hpp"
 
 #include "pnkr/ui/imgui_layer.hpp"
 
 #include "generated/gltf_bindless.frag.h"
-#include "generated/tessellation.vert.h"
 
 #include "../common/RhiSampleApp.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <variant>
+
 
 using namespace pnkr;
 
@@ -210,7 +209,7 @@ public:
 
             for (const auto& prim : node.m_meshPrimitives)
             {
-                ShaderGen::PushConstants pc{};
+                ShaderGen::gltf_bindless_frag_PushConstants pc{};
                 pc.model = node.m_worldTransform.mat4();
                 pc.viewProj = m_camera.viewProj();
                 pc.cameraPos = glm::vec4(m_cameraController.position(), 1.0F);

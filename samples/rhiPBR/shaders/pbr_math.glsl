@@ -113,53 +113,81 @@ float microfacetDistribution(PBRInfo pbrInputs) {
     return roughnessSq / (M_PI * f * f);
 }
 
-PBRInfo calculatePBRInputsMetallicRoughness( vec4 albedo, vec3 normal, vec3 cameraPos, vec3 worldPos, vec4 mrSample) {
+PBRInfo calculatePBRInputs(vec4 albedoSample, vec3 normal, vec3 cameraPos, vec3 worldPos, vec4 pbrMapSample) {
     PBRInfo pbrInputs;
 
     MetallicRoughnessDataGPU mat = getMaterialPbrMR(getMaterialId());
-    float perceptualRoughness = getRoughnessFactor(mat);
-    float metallic = getMetallicFactor(mat) * mrSample.b;
-    metallic = clamp(metallic, 0.0, 1.0);
 
-    // Roughness is stored in the 'g' channel, metallic is stored in the 'b' channel.
-    // This layout intentionally reserves the 'r' channel for (optional) occlusion map data
-    perceptualRoughness = mrSample.g * perceptualRoughness;
+    float perceptualRoughness;
+    vec3 diffuseColor;
+    vec3 specularColor;
+    vec3 f0;
+
+    // Determine Workflow (0.0 = Metallic/Roughness, 1.0 = Specular/Glossiness)
+    float workflow = mat.specularFactorWorkflow.w;
+    bool isSpecGloss = (workflow > 0.5);
+
+    if (isSpecGloss) {
+        // --- Specular Glossiness Workflow ---
+        // pbrMapSample (Texture) -> RGB: Specular, A: Glossiness
+        // metallicRoughnessNormalOcclusion.y (Uniform) -> Glossiness Factor
+
+        float glossiness = pbrMapSample.a * mat.metallicRoughnessNormalOcclusion.y;
+        perceptualRoughness = 1.0 - glossiness; // Convert Glossiness -> Roughness
+
+        // Specular Color
+        f0 = pbrMapSample.rgb * mat.specularFactorWorkflow.rgb;
+        specularColor = f0;
+
+        // Diffuse Color
+        // Conservation of energy: Diffuse is reduced by the amount of Specular
+        float maxSpec = max(max(f0.r, f0.g), f0.b);
+        diffuseColor = albedoSample.rgb * (1.0 - maxSpec);
+    }
+    else {
+        // --- Metallic Roughness Workflow ---
+        // pbrMapSample (Texture) -> G: Roughness, B: Metallic
+        // metallicRoughnessNormalOcclusion.y (Uniform) -> Roughness Factor
+        // metallicRoughnessNormalOcclusion.x (Uniform) -> Metallic Factor
+
+        float roughness = pbrMapSample.g * mat.metallicRoughnessNormalOcclusion.y;
+        float metallic = pbrMapSample.b * mat.metallicRoughnessNormalOcclusion.x;
+        metallic = clamp(metallic, 0.0, 1.0);
+
+        perceptualRoughness = roughness;
+
+        vec3 dielectricF0 = vec3(0.04);
+        vec3 baseColor = albedoSample.rgb;
+
+        f0 = mix(dielectricF0, baseColor, metallic);
+        diffuseColor = mix(baseColor, vec3(0.0), metallic);
+        specularColor = f0;
+    }
+
+    // Clamp values
     const float c_MinRoughness = 0.04;
-
     perceptualRoughness = clamp(perceptualRoughness, c_MinRoughness, 1.0);
-
-    // Roughness is authored as perceptual roughness; as is convention,
-    // convert to material roughness by squaring the perceptual roughness [2].
     float alphaRoughness = perceptualRoughness * perceptualRoughness;
 
-    // The albedo may be defined from a base texture or a flat color
-    vec4 baseColor = albedo;
+    // Compute Reflectance at grazing angle (Fresnel)
+    float maxF0 = max(max(f0.r, f0.g), f0.b);
+    float reflectance90 = clamp(maxF0 * 25.0, 0.0, 1.0);
+    vec3 specularEnvironmentR90 = vec3(1.0) * reflectance90;
 
-    vec3 f0 = vec3(0.04);
-    vec3 diffuseColor = mix(baseColor.rgb, vec3(0), metallic);
-    vec3 specularColor = mix(f0, baseColor.rgb, metallic);
-
-    // Compute reflectance.
-    float reflectance = max(max(specularColor.r, specularColor.g), specularColor.b);
-
-    // For typical incident reflectance range (between 4% to 100%) set the grazing reflectance to 100% for typical fresnel effect.
-    // For very low reflectance range on highly diffuse objects (below 4%), incrementally reduce grazing reflecance to 0%.
-    float reflectance90 = clamp(reflectance * 25.0, 0.0, 1.0);
-    vec3 specularEnvironmentR0 = specularColor.rgb;
-    vec3 specularEnvironmentR90 = vec3(1.0, 1.0, 1.0) * reflectance90;
-
-    vec3 n = normalize(normal);          // normal at surface point
-    vec3 v = normalize(cameraPos - worldPos);  // Vector from surface point to camera
-
-    pbrInputs.NdotV = clamp(abs(dot(n, v)), 0.001, 1.0);
+    // Fill Output
     pbrInputs.perceptualRoughness = perceptualRoughness;
-    pbrInputs.reflectance0 = specularEnvironmentR0;
+    pbrInputs.reflectance0 = f0;
     pbrInputs.reflectance90 = specularEnvironmentR90;
     pbrInputs.alphaRoughness = alphaRoughness;
     pbrInputs.diffuseColor = diffuseColor;
     pbrInputs.specularColor = specularColor;
+
+    // Geometry
+    vec3 n = normalize(normal);
+    vec3 v = normalize(cameraPos - worldPos);
     pbrInputs.n = n;
     pbrInputs.v = v;
+    pbrInputs.NdotV = clamp(abs(dot(n, v)), 0.001, 1.0);
 
     return pbrInputs;
 }

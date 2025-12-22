@@ -129,8 +129,13 @@ target_compile_definitions(pnkr_engine
     TRACY_ENABLE=1
     PRIVATE
     VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
-
 )
+
+if(MSVC OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
+  target_compile_options(pnkr_engine PUBLIC /UFASTGLTF_ENABLE_DEPRECATED_EXT /DFASTGLTF_ENABLE_DEPRECATED_EXT=1)
+else()
+  target_compile_options(pnkr_engine PUBLIC -UFASTGLTF_ENABLE_DEPRECATED_EXT -DFASTGLTF_ENABLE_DEPRECATED_EXT=1)
+endif()
 
 # Unity build to reduce per-TU header parsing overhead
 set_target_properties(pnkr_engine PROPERTIES
@@ -166,8 +171,11 @@ target_link_libraries(pnkr_engine
     ${PNKR_SPDLOG_TARGET}
     SDL3::SDL3
     Vulkan::Vulkan
-
 )
+
+if(WIN32)
+  target_link_libraries(pnkr_engine PUBLIC Winmm)
+endif()
 
 # GLM (this one is usually a proper CMake package)
 find_package(glm CONFIG REQUIRED)

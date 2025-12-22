@@ -12,6 +12,9 @@ layout(set = 1, binding = 4, rgba8) uniform image2D bindlessStorageImages[];
 const uint kDefaultSamplerIndex = 0u;
 
 vec4 textureBindless2D(uint textureId, uint samplerId, vec2 uv) {
+    // Safety check for invalid textures (0xFFFFFFFF)
+    if (textureId >= 100000) return vec4(1.0, 1.0, 1.0, 1.0);
+
     return texture(
         sampler2D(
             nonuniformEXT(bindlessTextures[textureId]),

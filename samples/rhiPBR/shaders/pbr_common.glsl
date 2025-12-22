@@ -54,8 +54,13 @@ struct InputAttributes {
 // corresponds to MetallicRoughnessDataGPU from Chapter06/04_MetallicRoughness/src/main.cpp
 struct MetallicRoughnessDataGPU {
     vec4 baseColorFactor;
-    vec4 metallicRoughnessNormalOcclusion; // packed metallicFactor, roughnessFactor, normalScale, occlusionStrength
+    vec4 metallicRoughnessNormalOcclusion; // MR: {Metallic, Roughness, Scale, Strength} | SG: {unused, Glossiness, Scale, Strength}
     vec4 emissiveFactorAlphaCutoff;        // packed vec3 emissiveFactor + float AlphaCutoff
+
+    // SG: SpecularFactor(RGB), Workflow(A)
+    // Workflow: 0.0 = Metallic/Roughness, 1.0 = Specular/Glossiness
+    vec4 specularFactorWorkflow;
+
     uint occlusionTexture;
     uint occlusionTextureSampler;
     uint occlusionTextureUV;
@@ -72,6 +77,11 @@ struct MetallicRoughnessDataGPU {
     uint normalTextureSampler;
     uint normalTextureUV;
     uint alphaMode;
+
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
+    uint _pad3;
 };
 
 // corresponds to EnvironmentMapDataGPU from shared/UtilsGLTF.h
@@ -153,7 +163,8 @@ vec2 getNormalUV(InputAttributes tc, MetallicRoughnessDataGPU mat) {
 }
 
 vec4 sampleAO(InputAttributes tc, MetallicRoughnessDataGPU mat) {
-    return textureBindless2D(mat.occlusionTexture, mat.occlusionTextureSampler, tc.uv[mat.occlusionTextureUV]);
+    float ao = textureBindless2D(mat.occlusionTexture, mat.occlusionTextureSampler, tc.uv[mat.occlusionTextureUV]).r;
+    return vec4(mix(1.0, ao, mat.metallicRoughnessNormalOcclusion.w));
 }
 
 vec4 sampleEmissive(InputAttributes tc, MetallicRoughnessDataGPU mat) {

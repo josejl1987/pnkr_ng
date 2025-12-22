@@ -30,9 +30,9 @@ public:
         // Create triangle mesh
         // Note: pnkr::renderer::Vertex has {pos, color, normal, texCoord}
         std::vector<renderer::Vertex> vertices = {
-            {.m_position={-0.5F, -0.5F, 0.0F}, .m_color={1.0F, 0.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord={0.0F, 0.0F}},
-            {.m_position={0.5F, -0.5F, 0.0F}, .m_color={0.0F, 1.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord={1.0F, 0.0F}},
-            {.m_position={0.0F, 0.5F, 0.0F}, .m_color={0.0F, 0.0F, 1.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord={0.5F, 1.0F}}
+            {.m_position={-0.5F, -0.5F, 0.0F}, .m_color={1.0F, 0.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={0.0F, 0.0F}, .m_texCoord1={0.0F, 0.0F}},
+            {.m_position={0.5F, -0.5F, 0.0F}, .m_color={0.0F, 1.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={1.0F, 0.0F}, .m_texCoord1={0.0F, 0.0F}},
+            {.m_position={0.0F, 0.5F, 0.0F}, .m_color={0.0F, 0.0F, 1.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={0.5F, 1.0F}, .m_texCoord1={0.0F, 0.0F}}
         };
 
         std::vector<uint32_t> indices = {0, 1, 2};
@@ -81,8 +81,8 @@ public:
             {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_position)},
             {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_color)},
             {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_normal)},
-            {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT, .offset=offsetof(renderer::Vertex, m_texCoord)}
-        };
+                {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT, .offset=offsetof(renderer::Vertex, m_texCoord0)}
+            };
 
         // Topology
         desc.topology = renderer::rhi::PrimitiveTopology::TriangleList;

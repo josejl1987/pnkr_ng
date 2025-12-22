@@ -45,7 +45,7 @@ public:
         m_renderer->device()->immediateSubmit([&](renderer::rhi::RHICommandBuffer* cmd) {
             m_renderer->bindComputePipeline(cmd, pipeline);
 
-            ShaderGen::constants pc = {width, height,  dstBuffer->getDeviceAddress()};
+            ShaderGen::brdf_lut_comp_constants pc = {width, height,  dstBuffer->getDeviceAddress()};
 
             cmd->pushConstants(m_renderer->getPipeline(pipeline), renderer::rhi::ShaderStage::Compute, 0, sizeof(pc), &pc);
             

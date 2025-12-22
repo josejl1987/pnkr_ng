@@ -14,7 +14,7 @@ layout(location = 0) out vec3 outWorldPos;
 layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec2 outUV0;
 layout(location = 3) out vec2 outUV1;
-
+layout(location = 4) out vec3 outColor;
 
 layout(buffer_reference, std430) readonly buffer Materials { uint dummy; };
 layout(buffer_reference, std430) readonly buffer Environments { uint dummy; };
@@ -38,12 +38,13 @@ layout(push_constant) uniform PerFrameData {
 void main() {
     vec4 worldPos = perFrame.drawable.model * vec4(inPos, 1.0);
     outWorldPos = worldPos.xyz;
-
+ 
     mat3 normalMatrix = transpose(inverse(mat3(perFrame.drawable.model)));
     outNormal = normalize(normalMatrix * inNormal);
 
     outUV0 = inUV0;
     outUV1 = inUV1;
+    outColor = inColor;
 
     gl_Position = (perFrame.drawable.proj * perFrame.drawable.view) * worldPos;
 }

@@ -252,6 +252,8 @@ namespace pnkr::renderer::rhi
         Color,
         Normal,
         TexCoord,
+        TexCoord0,
+        TexCoord1,
         Tangent,
         Bitangent,
         BoneIds,

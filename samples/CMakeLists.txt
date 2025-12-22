@@ -7,7 +7,6 @@ include(ShaderTools)
 # Include sample subdirectories
 add_subdirectory(rhiTriangle)
 add_subdirectory(rhiCube)
-add_subdirectory(rhiGltfBindless)
 add_subdirectory(rhiSkybox)
 add_subdirectory(debug_canvas)
 add_subdirectory(rhiVertexPulling)
