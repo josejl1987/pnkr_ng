@@ -25,6 +25,12 @@ namespace pnkr::renderer::rhi::vulkan
 
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VulkanUtils::toVmaMemoryUsage(desc.memoryUsage);
+        if (desc.memoryUsage == MemoryUsage::CPUToGPU)
+        {
+            allocInfo.flags =
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        }
 
         // VMA still uses C types, need to convert
         auto cBufferInfo = static_cast<VkBufferCreateInfo>(bufferInfo);
@@ -40,6 +46,14 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         m_buffer = cBuffer;
+
+        if (desc.memoryUsage == MemoryUsage::CPUToGPU)
+        {
+            VmaAllocationInfo ainfo{};
+            vmaGetAllocationInfo(m_allocator, m_allocation, &ainfo);
+            m_mappedData = ainfo.pMappedData;
+            m_isPersistentlyMapped = (m_mappedData != nullptr);
+        }
 
         // Debug naming with vulkan-hpp
         if (desc.debugName != nullptr) {
@@ -63,6 +77,9 @@ namespace pnkr::renderer::rhi::vulkan
 
     void* VulkanRHIBuffer::map()
     {
+        if (m_isPersistentlyMapped && m_mappedData != nullptr) {
+            return m_mappedData;
+        }
         if (m_mappedData != nullptr) {
             return m_mappedData;
         }
@@ -80,6 +97,9 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHIBuffer::unmap()
     {
+        if (m_isPersistentlyMapped) {
+            return;
+        }
         if (m_mappedData != nullptr) {
             vmaUnmapMemory(m_allocator, m_allocation);
             m_mappedData = nullptr;
@@ -88,6 +108,11 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHIBuffer::uploadData(const void* data, uint64_t size, uint64_t offset)
     {
+        if (offset + size > m_size) {
+            core::Logger::error("uploadData out of bounds: offset={} size={} bufSize={}", offset, size, m_size);
+            return;
+        }
+
         void* mapped = map();
         if (mapped == nullptr) {
             core::Logger::error("Failed to map buffer for upload");
@@ -95,6 +120,7 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         std::memcpy(static_cast<char*>(mapped) + offset, data, size);
+        vmaFlushAllocation(m_allocator, m_allocation, offset, size);
         unmap();
     }
 

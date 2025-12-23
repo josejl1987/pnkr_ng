@@ -154,7 +154,7 @@ namespace ShaderGen
     template <typename T>
     struct Vec3
     {
-        T x{}, y{}, z{}, _pad{};
+        T x{}, y{}, z{};
 
 
         Vec3() = default;

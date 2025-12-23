@@ -59,17 +59,17 @@ static bool isCppKeyword(const std::string& s)
 {
     // Keep this set small-but-safe; extend if you ever hit an edge case.
     static const std::unordered_set<std::string> kw = {
-        "alignas","alignof","and","and_eq","asm","auto","bitand","bitor","bool","break",
-        "case","catch","char","char8_t","char16_t","char32_t","class","compl","concept",
-        "const","consteval","constexpr","constinit","const_cast","continue","co_await",
-        "co_return","co_yield","decltype","default","delete","do","double","dynamic_cast",
-        "else","enum","explicit","export","extern","false","float","for","friend","goto",
-        "if","inline","int","long","mutable","namespace","new","noexcept","not","not_eq",
-        "nullptr","operator","or","or_eq","private","protected","public","register",
-        "reinterpret_cast","requires","return","short","signed","sizeof","static",
-        "static_assert","static_cast","struct","switch","template","this","thread_local",
-        "throw","true","try","typedef","typeid","typename","union","unsigned","using",
-        "virtual","void","volatile","wchar_t","while","xor","xor_eq"
+        "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break",
+        "case", "catch", "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept",
+        "const", "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await",
+        "co_return", "co_yield", "decltype", "default", "delete", "do", "double", "dynamic_cast",
+        "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
+        "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "not_eq",
+        "nullptr", "operator", "or", "or_eq", "private", "protected", "public", "register",
+        "reinterpret_cast", "requires", "return", "short", "signed", "sizeof", "static",
+        "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local",
+        "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using",
+        "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq"
     };
     return kw.count(s) != 0;
 }
@@ -135,7 +135,7 @@ class StructGenerator
 public:
     StructGenerator(StructInspector& compiler, std::ostream& out, const std::string& shaderName)
         : comp(compiler), os(out), shaderStem(shaderName)
-        , shaderNamespace(sanitizeNamespaceIdent(shaderName, "Shader"))
+          , shaderNamespace(sanitizeNamespaceIdent(shaderName, "Shader"))
     {
     }
 
@@ -338,7 +338,7 @@ private:
         // Arrays
         if (!type.array.empty())
         {
-            bool checkStride = comp.has_member_decoration(structId, memberIdx, spv::DecorationOffset);
+            bool checkStride = comp.has_member_decoration(structId, memberIdx, spv::DecorationArrayStride);
             uint32_t stride = 0;
             if (checkStride) stride = comp.type_struct_member_array_stride(comp.get_type(structId), memberIdx);
 
@@ -353,8 +353,14 @@ private:
                 return CppType{"/*stride_mismatch*/", 0, false, true};
 
             if (type.array.back() == 0)
+            {
+                // Runtime array: no sizeof/layout validation here.
                 return {"ShaderGen::RuntimeArray<" + elType.name + ">", 0, true, false};
-            else
+            }
+
+            // Fixed-size array: validate stride if present
+            if (checkStride && stride > 0 && stride != elType.sizeBytes)
+                return CppType{"/*stride_mismatch*/", 0, false, true};
             {
                 size_t totalSize = elType.sizeBytes * type.array.back();
                 return {
@@ -370,8 +376,10 @@ private:
     CppType mapBaseType(const spirv_cross::SPIRType& t)
     {
         // Device Address / Buffer Reference
-        if (t.storage == spv::StorageClassPhysicalStorageBuffer || t.pointer)
+        if (t.pointer)
+        {
             return {"ShaderGen::DeviceAddress", 8, false, false};
+        }
 
         // Structs
         if (t.basetype == spirv_cross::SPIRType::Struct)
@@ -411,21 +419,52 @@ private:
 
     std::string mapScalarName(spirv_cross::SPIRType::BaseType bt, uint32_t width)
     {
+        using BT = spirv_cross::SPIRType::BaseType;
+
         switch (bt)
         {
-        case spirv_cross::SPIRType::Float: return width == 64 ? "double" : "float";
-        case spirv_cross::SPIRType::Int:
-            if (width == 64) return "int64_t";
-            if (width == 16) return "int16_t";
-            if (width == 8) return "int8_t";
-            return "int32_t";
-        case spirv_cross::SPIRType::UInt:
-            if (width == 64) return "uint64_t";
-            if (width == 16) return "uint16_t";
-            if (width == 8) return "uint8_t";
-            return "uint32_t";
-        case spirv_cross::SPIRType::Boolean: return "uint32_t";
-        default: return "uint32_t";
+            // Floating point
+        case BT::Float:   return (width == 64) ? "double" : "float";
+        case BT::Half:    return "uint16_t";   // storage for fp16; interpret elsewhere if needed
+        case BT::Double:  return "double";
+        case BT::BFloat16:return "uint16_t";   // storage
+        case BT::FloatE4M3:
+        case BT::FloatE5M2:
+            return "uint8_t";                  // storage (vendor/experimental); treat as blob if you prefer
+
+            // Signed integers
+        case BT::SByte:   return "int8_t";
+        case BT::Short:   return "int16_t";
+        case BT::Int:     return (width == 64) ? "int64_t" : "int32_t";
+        case BT::Int64:   return "int64_t";
+
+            // Unsigned integers
+        case BT::UByte:   return "uint8_t";
+        case BT::UShort:  return "uint16_t";
+        case BT::UInt:    return (width == 64) ? "uint64_t" : "uint32_t";
+        case BT::UInt64:  return "uint64_t";
+
+            // Bool (SPIR-V bool is logical; in buffers it’s typically represented as 32-bit)
+        case BT::Boolean: return "uint32_t";
+
+            // Non-scalar / should not reach scalar mapper in a correct pipeline
+        case BT::Struct:
+        case BT::Image:
+        case BT::SampledImage:
+        case BT::Sampler:
+        case BT::AccelerationStructure:
+        case BT::RayQuery:
+        case BT::AtomicCounter:
+        case BT::ControlPointArray:
+        case BT::Interpolant:
+        case BT::Char:
+        case BT::CoopVecNV:
+        case BT::MeshGridProperties:
+        case BT::Tensor:
+        case BT::Unknown:
+        case BT::Void:
+        default:
+            return "/*non_scalar*/ uint32_t";
         }
     }
 
@@ -462,46 +501,40 @@ private:
             uint32_t mOffset = cursor;
             uint32_t mSize = (uint32_t)ct.sizeBytes;
 
-            if (hasOffset) {
+            if (hasOffset)
+            {
                 mOffset = comp.type_struct_member_offset(type, i);
                 // FETCH REAL SIZE FROM SPIR-V FIRST
                 mSize = (uint32_t)comp.get_declared_struct_member_size(type, i);
             }
 
-            // 2. Detect if it's a pointer (DeviceAddress)
-            if (hasOffset && mSize == 8 && (ct.sizeBytes == 4 || comp.get_type(type.member_types[i]).basetype == spirv_cross::SPIRType::Struct))
-            {
-                ct.name = "ShaderGen::DeviceAddress";
-                ct.sizeBytes = 8;
-            }
 
-            if (hasOffset && mSize == 8 && ct.sizeBytes == 8)
-            {
-                ct.name = "ShaderGen::DeviceAddress";
-                ct.sizeBytes = 8;
-            }
+            const bool declaredRuntimeArray = hasOffset && (mSize == 0);
 
-            if (hasOffset && mSize == 8 && ct.sizeBytes == 4) {
-                ct.name = "ShaderGen::DeviceAddress";
-                ct.sizeBytes = 8;
-            }
-            if (ct.isBlob || (hasOffset && mSize != ct.sizeBytes && !ct.hasRuntimeArray)) {
-                ct.name = "std::array<std::byte, " + std::to_string(mSize) + ">";
-                ct.sizeBytes = mSize;
-            }
-
-            if (hasOffset)
+            if (hasOffset && !declaredRuntimeArray && mSize == 8 && ct.sizeBytes != 8)
             {
-                mOffset = comp.type_struct_member_offset(type, i);
-                mSize = (uint32_t)comp.get_declared_struct_member_size(type, i);
+                const bool looksLikePtr =
+                    (mName.size() >= 3 && mName.rfind("Ptr") == (mName.size() - 3)) ||
+                    (mName.find("ptr") != std::string::npos) ||
+                    (mName.find("address") != std::string::npos);
+
+                ct.name = looksLikePtr ? "ShaderGen::DeviceAddress" : "uint64_t";
+                ct.sizeBytes = 8;
             }
 
             // Fallback to byte blob if sizing/layout is complex
-            if (ct.isBlob || (hasOffset && mSize != ct.sizeBytes && !ct.hasRuntimeArray))
+            if (!declaredRuntimeArray && (ct.isBlob || (hasOffset && mSize != ct.sizeBytes && !ct.hasRuntimeArray)))
             {
                 ct.name = "std::array<std::byte, " + std::to_string(mSize) + ">";
                 ct.sizeBytes = mSize;
             }
+            const auto& mt = comp.get_type(type.member_types[i]);
+            std::cerr << structName << "." << mName
+                << " spv(bt=" << int(mt.basetype)
+                << ", width=" << mt.width
+                << ", ptr=" << mt.pointer
+                << ") declaredSize=" << mSize
+                << " ct=(" << ct.name << "," << ct.sizeBytes << ")\n";
 
             members.push_back({mName, ct.name, mOffset, mSize, ct.hasRuntimeArray});
             cursor = mOffset + mSize;

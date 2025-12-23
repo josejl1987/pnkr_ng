@@ -230,13 +230,13 @@ namespace pnkr::renderer
             rhi::RHIMemoryBarrier depthBarrier{};
             depthBarrier.texture = m_depthTarget.get();
             depthBarrier.srcAccessStage = rhi::ShaderStage::None;
-            depthBarrier.dstAccessStage = rhi::ShaderStage::RenderTarget;
+            depthBarrier.dstAccessStage = rhi::ShaderStage::DepthStencilAttachment;
             depthBarrier.oldLayout = m_depthLayout;
             depthBarrier.newLayout = rhi::ResourceLayout::DepthStencilAttachment;
 
             m_activeCommandBuffer->pipelineBarrier(
                 rhi::ShaderStage::None,
-                rhi::ShaderStage::RenderTarget,
+                rhi::ShaderStage::DepthStencilAttachment,
                 {depthBarrier}
             );
 
@@ -528,6 +528,29 @@ namespace pnkr::renderer
         return handle;
     }
 
+    TextureHandle RHIRenderer::createTexture(const rhi::TextureDescriptor& desc)
+    {
+        auto texture = m_device->createTexture(desc);
+
+        TextureData texData{};
+        texData.texture = std::move(texture);
+        texData.bindlessIndex = 0;
+
+        if (m_useBindless && m_device)
+        {
+            auto bindlessHandle = m_device->registerBindlessTexture2D(
+                texData.texture.get()
+            );
+            texData.bindlessIndex = bindlessHandle.index;
+        }
+
+        auto handle = static_cast<TextureHandle>(m_textures.size());
+        m_textures.push_back(std::move(texData));
+
+        core::Logger::info("Created texture (desc): {}x{} mips={}", desc.extent.width, desc.extent.height, desc.mipLevels);
+
+        return handle;
+    }
 
     TextureHandle RHIRenderer::loadTexture(const std::filesystem::path& filepath, bool srgb)
     {
@@ -1026,6 +1049,8 @@ namespace pnkr::renderer
     {
         // Create white texture (1x1 white pixel)
         m_whiteTexture = createWhiteTexture();
+        m_blackTexture = createBlackTexture();
+        m_flatNormalTexture = createFlatNormalTexture();
     }
 
     rhi::RHIPipeline* RHIRenderer::getPipeline(PipelineHandle handle)
@@ -1041,6 +1066,18 @@ namespace pnkr::renderer
     {
         unsigned char white[4] = {255, 255, 255, 255};
         return createTexture(white, 1, 1, 4, false);
+    }
+
+    TextureHandle RHIRenderer::createBlackTexture()
+    {
+        unsigned char black[4] = {0, 0, 0, 255};
+        return createTexture(black, 1, 1, 4, false);
+    }
+
+    TextureHandle RHIRenderer::createFlatNormalTexture()
+    {
+        unsigned char flatNormal[4] = {128, 128, 255, 255};
+        return createTexture(flatNormal, 1, 1, 4, false);
     }
 
     void RHIRenderer::setVsync(bool enabled)

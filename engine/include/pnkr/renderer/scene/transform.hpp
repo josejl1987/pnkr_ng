@@ -11,6 +11,7 @@ struct Transform {
   glm::vec3 m_translation{0.0f};
   glm::quat m_rotation{1.0f, 0.0f, 0.0f, 0.0f};
   glm::vec3 m_scale{1.0f};
+  glm::mat4 m_matrix{1.0f};
 
   [[nodiscard]] glm::mat4 mat4() const {
 

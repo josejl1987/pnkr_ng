@@ -303,6 +303,11 @@ namespace pnkr::renderer::rhi::vulkan
         {
             flags |= vk::PipelineStageFlagBits2::eTessellationControlShader;
         }
+        if (hasFlag(stage, ShaderStage::DepthStencilAttachment))
+        {
+            flags |= vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                vk::PipelineStageFlagBits2::eLateFragmentTests;
+        }
         if (hasFlag(stage, ShaderStage::RenderTarget))
         {
             flags |= vk::PipelineStageFlagBits2::eColorAttachmentOutput |
@@ -713,7 +718,7 @@ namespace pnkr::renderer::rhi::vulkan
                     vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite};
 
         case vk::ImageLayout::ePresentSrcKHR:
-            return {vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::AccessFlags2{}};
+            return {vk::PipelineStageFlagBits2::eAllCommands, vk::AccessFlags2{}};
 
         default:
             // Fallback for unhandled layouts

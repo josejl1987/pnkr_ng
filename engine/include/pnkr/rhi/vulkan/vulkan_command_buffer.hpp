@@ -71,6 +71,10 @@ namespace pnkr::renderer::rhi::vulkan
         void copyTexture(RHITexture* src, RHITexture* dst,
                         const TextureCopyRegion& region) override;
 
+        void beginDebugLabel(const char* name, float r, float g, float b, float a) override;
+        void endDebugLabel() override;
+        void insertDebugLabel(const char* name, float r, float g, float b, float a) override;
+
         void* nativeHandle() const override {
             return static_cast<VkCommandBuffer>(m_commandBuffer);
         }
@@ -87,6 +91,7 @@ namespace pnkr::renderer::rhi::vulkan
         VulkanRHIDevice* m_device;
         vk::CommandBuffer m_commandBuffer;
         bool m_recording = false;
+        bool m_inRendering = false;
 
         // Cached pipeline for descriptor set binding
         VulkanRHIPipeline* m_boundPipeline = nullptr;

@@ -122,10 +122,12 @@ namespace pnkr::renderer::rhi
         Compute = 1 << 3,
         TessControl = 1 << 4,
         TessEval = 1 << 5,
-        RenderTarget = 1 << 6,
-        Transfer = 1 << 7,
-        Host = 1 << 8,
-        All = Vertex | Fragment | Geometry | Compute | TessControl | TessEval | RenderTarget | Transfer
+        DepthStencilAttachment = 1 << 6,
+        RenderTarget = 1 << 7,
+        Transfer = 1 << 8,
+        Host = 1 << 9,
+        All = Vertex | Fragment | Geometry | Compute | TessControl | TessEval |
+            DepthStencilAttachment | RenderTarget | Transfer
     };
 
     // Primitive topology

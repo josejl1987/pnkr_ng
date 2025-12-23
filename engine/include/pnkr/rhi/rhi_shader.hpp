@@ -7,21 +7,24 @@
 #include <filesystem>
 #include <unordered_map>
 
-namespace pnkr::renderer::rhi {
-
-    struct ReflectedInput {
+namespace pnkr::renderer::rhi
+{
+    struct ReflectedInput
+    {
         uint32_t location;
         VertexSemantic semantic;
     };
 
-    struct ShaderReflectionData {
+    struct ShaderReflectionData
+    {
         std::vector<DescriptorSetLayout> descriptorSets;
         std::vector<PushConstantRange> pushConstants;
         std::vector<ReflectedInput> inputAttributes; // Only for Vertex Stage
         std::string entryPoint = "main";
     };
 
-    struct ReflectionConfig {
+    struct ReflectionConfig
+    {
         // Map specific resource names to their descriptor counts
         std::unordered_map<std::string, uint32_t> bindlessOverrides = {
             {"bindlessTextures", 100000},
@@ -29,7 +32,11 @@ namespace pnkr::renderer::rhi {
             {"bindlessCubemaps", 100000},
             {"bindlessStorageBuffers", 100000},
             {"BindlessStorageBuffer", 100000},
-            {"bindlessStorageImages", 100000}
+            {"bindlessStorageImages", 100000},
+            {"bindlessTextures3D", 100000},
+            {"bindlessSamplersShadow", 100000},
+            {"bindlessTexturesShadow", 100000},
+
         };
 
         // Default size for runtime arrays not explicitly configured
@@ -39,10 +46,12 @@ namespace pnkr::renderer::rhi {
         bool enableRuntimeArrayDetection = true;
     };
 
-    class Shader {
+    class Shader
+    {
     public:
-        Shader(ShaderStage stage, const std::vector<uint32_t>& spirvCode, ReflectionConfig  config = {});
-        static std::unique_ptr<Shader> load(ShaderStage stage, const std::filesystem::path& path, const ReflectionConfig& config = {});
+        Shader(ShaderStage stage, const std::vector<uint32_t>& spirvCode, ReflectionConfig config = {});
+        static std::unique_ptr<Shader> load(ShaderStage stage, const std::filesystem::path& path,
+                                            const ReflectionConfig& config = {});
 
         [[nodiscard]] ShaderStage stage() const { return m_stage; }
         [[nodiscard]] const std::vector<uint32_t>& code() const { return m_code; }

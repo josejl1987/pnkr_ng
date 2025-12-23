@@ -17,7 +17,7 @@ layout(location = 0) out vec3 outWorldPos;
 layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec2 outUV0;
 layout(location = 3) out vec2 outUV1;
-layout(location = 4) out vec3 outColor;
+layout(location = 4) out vec4 outColor;
 layout(location = 5) flat out uint outInstanceIndex;
 
 void main() {
@@ -25,12 +25,12 @@ void main() {
     
     vec4 worldPos = xform.model * vec4(inPos, 1.0);
     outWorldPos = worldPos.xyz;
- 
+
     outNormal = normalize(mat3(xform.normalMatrix) * inNormal);
 
     outUV0 = inUV0;
     outUV1 = inUV1;
-    outColor = inColor;
+    outColor = vec4(inColor.xyz, 1);
     outInstanceIndex = gl_InstanceIndex;
     gl_Position = (perFrame.drawable.proj * perFrame.drawable.view) * worldPos;
 }
