@@ -37,11 +37,13 @@ namespace pnkr::renderer::scene
         // KHR_materials_specular
         float m_specularFactorScalar{1.0f};
         glm::vec3 m_specularColorFactor{1.0f};
+        bool m_hasSpecular{false};
 
         // Specular/Glossiness workflow
         glm::vec3 m_specularFactor{1.0f};
         float m_glossinessFactor{1.0f};
         bool m_isSpecularGlossiness{false};
+        bool m_isUnlit{false};
 
         // Sheen
         glm::vec3 m_sheenColorFactor{0.0f};
@@ -98,6 +100,25 @@ namespace pnkr::renderer::scene
         rhi::SamplerAddressMode m_volumeThicknessSampler{rhi::SamplerAddressMode::Repeat};
     };
 
+    enum class LightType
+    {
+        Directional = 0,
+        Point = 1,
+        Spot = 2
+    };
+
+    struct Light
+    {
+        std::string m_name;
+        LightType m_type = LightType::Directional;
+        glm::vec3 m_color{1.0f};
+        glm::vec3 m_direction{0.0f, 0.0f, -1.0f};
+        float m_intensity{1.0f};
+        float m_range{0.0f}; // 0 = infinite
+        float m_innerConeAngle{0.0f}; // Radians
+        float m_outerConeAngle{0.785398f}; // Radians (45 degrees)
+    };
+
     struct MeshPrimitive
     {
         MeshHandle m_mesh;
@@ -113,22 +134,29 @@ namespace pnkr::renderer::scene
         int m_parentIndex = -1;
         std::vector<int> m_children;
         std::vector<MeshPrimitive> m_meshPrimitives;
+        int m_lightIndex = -1;
     };
 
     class Model
     {
     public:
-        static std::unique_ptr<Model> load(RHIRenderer& renderer, const std::filesystem::path& path, bool vertexPulling = false);
+        static std::unique_ptr<Model> load(RHIRenderer& renderer, const std::filesystem::path& path,
+                                           bool vertexPulling = false);
         void updateTransforms();
 
         const std::vector<MaterialData>& materials() const { return m_materials; }
+        std::vector<MaterialData>& materialsMutable() { return m_materials; }
         const std::vector<Node>& nodes() const { return m_nodes; }
+        std::vector<Node>& nodesMutable() { return m_nodes; }
         const std::vector<int>& rootNodes() const { return m_rootNodes; }
+        const std::vector<Light>& lights() const { return m_lights; }
+        std::vector<Light>& lightsMutable() { return m_lights; }
 
     private:
         std::vector<TextureHandle> m_textures;
         std::vector<MaterialData> m_materials;
         std::vector<Node> m_nodes;
         std::vector<int> m_rootNodes;
+        std::vector<Light> m_lights;
     };
 }

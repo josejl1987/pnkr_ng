@@ -13,6 +13,13 @@
 #include "pnkr/core/logger.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <filesystem>
+#include <cmath>
+#include <algorithm>
+
+// [ADDED] Headers for Matrix Decomposition and Quaternion Math
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/euler_angles.hpp>
 
 // INCLUDE GENERATED HEADERS from ShaderStructGen
 #include "generated/gltf.frag.h"
@@ -23,7 +30,7 @@ using namespace pnkr::renderer::scene;
 
 class UnifiedGLTFSample : public samples::RhiSampleApp {
 public:
-    UnifiedGLTFSample() : samples::RhiSampleApp({
+    UnifiedGLTFSample() : RhiSampleApp({
         .title = "PNKR - Unified glTF Renderer",
         .width = 1824,
         .height = 928,
@@ -32,12 +39,24 @@ public:
 
     GLTFUnifiedContext m_ctx;
     Camera m_camera;
-    CameraController m_cameraController{{0.0f, 0.0f, -2.5f}, 90.0f, 0.0f};
+    CameraController m_cameraController{{0.0f, -3.0f, -2}, 0.0f, 90.0f};
     std::unique_ptr<InfiniteGrid> m_grid;
     std::unique_ptr<Skybox> m_skybox;
     
-    float m_rotation = 0.0f;
     TextureHandle m_irradiance, m_prefilter, m_brdfLut;
+    
+    // m_sceneColor: Main Render Target (Opaque + Transparent drawing happens here)
+    // m_transmissionCopy: Sampled by shaders (Copy of m_sceneColor after Opaque pass)
+    TextureHandle m_sceneColor;
+    TextureHandle m_transmissionCopy;
+
+    // [ADDED] Inspector State
+    bool m_showInspector = true;
+    int m_selectedNodeIndex = -1;
+    glm::vec3 m_currentEulerRotation = glm::vec3(0.0f);
+    renderer::rhi::ResourceLayout m_sceneColorLayout = renderer::rhi::ResourceLayout::Undefined;
+    renderer::rhi::ResourceLayout m_transCopyLayout = renderer::rhi::ResourceLayout::Undefined;
+    renderer::rhi::ResourceLayout m_depthLayout = renderer::rhi::ResourceLayout::Undefined;
 
     void onInit() override {
         renderer::RendererConfig config;
@@ -50,11 +69,10 @@ public:
         m_prefilter = m_renderer->loadTextureKTX("assets/piazza_bologni_1k_prefilter.ktx");
 
         // 2. Load GLTF Model via Unified Context
-        loadGLTF(m_ctx, *m_renderer, "assets/ClearcoatWicker/glTF-Binary/ClearcoatWicker.glb");
-        if (!m_ctx.model) throw cpptrace::runtime_error("Failed to load ClearcoatWicker.glb");
+        loadGLTF(m_ctx, *m_renderer, "assets/LightsPunctualLamp/glTF/LightsPunctualLamp.gltf");
+        if (!m_ctx.model) throw cpptrace::runtime_error("Failed to load TransmissionRoughnessTest.glb");
 
-        uploadMaterials();
-        uploadEnvironments();
+        uploadEnvironment(m_ctx, m_prefilter, m_irradiance, m_brdfLut);
 
         // 3. Create Pipelines
         auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex, getShaderPath("gltf.vert.spv"));
@@ -64,7 +82,7 @@ public:
             renderer::rhi::RHIPipelineBuilder()
             .setShaders(vs.get(), fs.get(), nullptr)
             .useVertexType<renderer::Vertex>()
-            .setCullMode(renderer::rhi::CullMode::Back, true)
+            .setCullMode(renderer::rhi::CullMode::None, true)
             .enableDepthTest()
             .setColorFormat(m_renderer->getDrawColorFormat())
             .setDepthFormat(m_renderer->getDrawDepthFormat())
@@ -77,7 +95,7 @@ public:
             .setShaders(vs.get(), fs.get(), nullptr)
             .useVertexType<renderer::Vertex>()
             .setCullMode(renderer::rhi::CullMode::None, true)
-            .enableDepthTest(false) // No depth write for transparency
+            .enableDepthTest(false) 
             .setAlphaBlend()
             .setColorFormat(m_renderer->getDrawColorFormat())
             .setDepthFormat(m_renderer->getDrawDepthFormat())
@@ -87,10 +105,30 @@ public:
 
         m_cameraController.applyToCamera(m_camera);
         float aspect = (float)m_window.width() / m_window.height();
-        m_camera.setPerspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
+        m_camera.setPerspective(glm::radians(45.0f), aspect, 0.01f, 100.0f);
 
         m_grid = std::make_unique<InfiniteGrid>();
         m_grid->init(*m_renderer);
+
+        // 1. Scene Color (Render Target)
+        // Stores the actual drawn geometry.
+        renderer::rhi::TextureDescriptor descRT{};
+        descRT.extent = { (uint32_t)m_window.width(), (uint32_t)m_window.height(), 1 };
+        descRT.format = m_renderer->getSwapchainColorFormat(); // Use same format as Backbuffer (SDR)
+        descRT.usage = renderer::rhi::TextureUsage::ColorAttachment | renderer::rhi::TextureUsage::TransferSrc | renderer::rhi::TextureUsage::Sampled;
+        descRT.mipLevels = 1;
+        descRT.debugName = "SceneColor";
+        m_sceneColor = m_renderer->createTexture(descRT);
+
+        // 2. Transmission Copy (Texture)
+        // Used for reading the background. Needs Mipmaps for roughness.
+        renderer::rhi::TextureDescriptor descCopy{};
+        descCopy.extent = descRT.extent;
+        descCopy.format = descRT.format;
+        descCopy.usage = renderer::rhi::TextureUsage::Sampled | renderer::rhi::TextureUsage::TransferDst | renderer::rhi::TextureUsage::TransferSrc;
+        descCopy.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(descRT.extent.width, descRT.extent.height)))) + 1;
+        descCopy.debugName = "TransmissionCopy";
+        m_transmissionCopy = m_renderer->createTexture(descCopy);
 
         auto skyboxKtx = resolveSkyboxKtx();
         if (!skyboxKtx.empty())
@@ -106,138 +144,493 @@ public:
         initUI();
     }
 
-    void uploadMaterials() {
-        std::vector<ShaderGen::gltf_frag::MetallicRoughnessDataGPU> gpuData;
-        for (const auto& mat : m_ctx.model->materials()) {
-            ShaderGen::gltf_frag::MetallicRoughnessDataGPU d{};
-
-            d.baseColorFactor = mat.m_baseColorFactor;
-            d.emissiveFactorAlphaCutoff = glm::vec4(mat.m_emissiveFactor, mat.m_alphaCutoff);
-            d.alphaMode = mat.m_alphaMode;
-            
-
-            d.specularFactorWorkflow = glm::vec4(mat.m_specularFactor, mat.m_isSpecularGlossiness ? 1.0f : 0.0f);
-
-            d.metallicRoughnessNormalOcclusion = glm::vec4(
-                mat.m_metallicFactor,
-                mat.m_roughnessFactor,
-                mat.m_normalScale,
-                mat.m_occlusionStrength
-            );
-
-            auto resolveTexture = [&](TextureHandle handle) -> uint32_t {
-                if (handle == INVALID_TEXTURE_HANDLE) return 0xFFFFFFFFu;
-                return m_renderer->getTextureBindlessIndex(handle);
-            };
-
-            auto resolveSampler = [&](renderer::rhi::SamplerAddressMode mode) -> uint32_t {
-                return m_renderer->getBindlessSamplerIndex(mode);
-            };
-
-            d.occlusionTexture = resolveTexture(mat.m_occlusionTexture);
-            d.occlusionTextureSampler = resolveSampler(mat.m_occlusionSampler);
-            d.occlusionTextureUV = mat.m_occlusionUV;
-            d.emissiveTexture = resolveTexture(mat.m_emissiveTexture);
-            d.emissiveTextureSampler = resolveSampler(mat.m_emissiveSampler);
-            d.emissiveTextureUV = mat.m_emissiveUV;
-            d.baseColorTexture = resolveTexture(mat.m_baseColorTexture);
-            d.baseColorTextureSampler = resolveSampler(mat.m_baseColorSampler);
-            d.baseColorTextureUV = mat.m_baseColorUV;
-            d.normalTexture = resolveTexture(mat.m_normalTexture);
-            d.normalTextureSampler = resolveSampler(mat.m_normalSampler);
-            d.normalTextureUV = mat.m_normalUV;
-            d.metallicRoughnessTexture = resolveTexture(mat.m_metallicRoughnessTexture);
-            d.metallicRoughnessTextureSampler = resolveSampler(mat.m_metallicRoughnessSampler);
-            d.metallicRoughnessTextureUV = mat.m_metallicRoughnessUV;
-
-            gpuData.push_back(d);
-        }
-
-        auto buffer =  m_renderer->createBuffer({
-            .size = gpuData.size() * sizeof(ShaderGen::gltf_frag::MetallicRoughnessDataGPU),
-            .usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::ShaderDeviceAddress,
-            .memoryUsage = renderer::rhi::MemoryUsage::CPUToGPU,
-            .data = gpuData.data(),
-            .debugName = "Unified Materials"
-        });
-        m_ctx.materialBuffer = buffer;
+    // [ADDED] ImGui Hook
+    void onImGui() override {
+        drawGLTFInspector();
     }
 
-    void uploadEnvironments() {
-        ShaderGen::gltf_frag::EnvironmentMapDataGPU env{};
-        env.envMapTexture = m_renderer->getTextureBindlessIndex(m_prefilter);
-        env.envMapTextureSampler = m_renderer->getBindlessSamplerIndex(renderer::rhi::SamplerAddressMode::ClampToEdge);
-        env.envMapTextureIrradiance = m_renderer->getTextureBindlessIndex(m_irradiance);
-        env.envMapTextureIrradianceSampler = m_renderer->getBindlessSamplerIndex(renderer::rhi::SamplerAddressMode::ClampToEdge);
-        env.texBRDF_LUT = m_renderer->getTextureBindlessIndex(m_brdfLut);
-        env.texBRDF_LUTSampler = m_renderer->getBindlessSamplerIndex(renderer::rhi::SamplerAddressMode::ClampToEdge);
+    void drawGLTFInspector() {
+        if (!m_showInspector || !m_ctx.model) return;
 
-        m_ctx.environmentBuffer = m_renderer->createBuffer({
-            .size = sizeof(ShaderGen::gltf_frag::EnvironmentMapDataGPU),
-            .usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::ShaderDeviceAddress,
-            .memoryUsage = renderer::rhi::MemoryUsage::CPUToGPU,
-            .data = &env,
-            .debugName = "Unified Environments"
-        });
+        if (ImGui::Begin("glTF Inspector", &m_showInspector)) {
+            
+            // 1. Scene / Node Hierarchy
+            if (ImGui::CollapsingHeader("Scene Hierarchy", ImGuiTreeNodeFlags_DefaultOpen)) {
+                // CHANGED: Iterate over rootNodes() instead of scenes
+                for (int nodeIndex : m_ctx.model->rootNodes()) {
+                    drawNodeTree(nodeIndex);
+                }
+            }
+
+            // 2. Selected Node Transform Editor
+            if (m_selectedNodeIndex >= 0 && m_selectedNodeIndex < (int)m_ctx.model->nodes().size()) {
+                ImGui::Separator();
+                if (ImGui::CollapsingHeader("Node Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    drawNodeTransformEditor(m_selectedNodeIndex);
+                }
+
+                ImGui::Separator();
+                if (ImGui::CollapsingHeader("Materials", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    drawNodeMaterialEditor(m_selectedNodeIndex);
+                }
+            }
+        }
+        ImGui::End();
+    }
+
+    void drawNodeTree(int nodeIndex) {
+        // Access Node via the Model
+        auto& node = m_ctx.model->nodesMutable()[nodeIndex];
+        
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+        if (node.m_children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+        if (m_selectedNodeIndex == nodeIndex) flags |= ImGuiTreeNodeFlags_Selected;
+
+        std::string name = node.m_name.empty() ? "Node " + std::to_string(nodeIndex) : node.m_name;
+        
+        bool open = ImGui::TreeNodeEx((void*)(intptr_t)nodeIndex, flags, "%s", name.c_str());
+
+        if (ImGui::IsItemClicked()) {
+            m_selectedNodeIndex = nodeIndex;
+            // Capture rotation from the LOCAL TRANSFORM
+            m_currentEulerRotation = glm::degrees(glm::eulerAngles(node.m_localTransform.m_rotation));
+        }
+
+        if (open) {
+            for (int childIdx : node.m_children) {
+                drawNodeTree(childIdx);
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    void drawNodeTransformEditor(int nodeIndex) {
+        auto& node = m_ctx.model->nodesMutable()[nodeIndex];
+        auto& transform = node.m_localTransform; // Access the sub-struct
+        bool dirty = false;
+
+        // Translation
+        if (ImGui::DragFloat3("Translation", &transform.m_translation.x, 0.01f)) {
+            dirty = true;
+        }
+
+        // Rotation
+        glm::vec3 euler = m_currentEulerRotation;
+        if (ImGui::DragFloat3("Rotation", &euler.x, 0.1f)) {
+            m_currentEulerRotation = euler;
+            transform.m_rotation = glm::quat(glm::radians(euler));
+            dirty = true;
+        }
+
+        // Scale
+        if (ImGui::DragFloat3("Scale", &transform.m_scale.x, 0.01f)) {
+            dirty = true;
+        }
+
+        if (dirty) {
+            // CHANGED: Call the model's update method instead of doing it manually here
+
+            // Rebuild GPU data
+            buildTransformsList(m_ctx);
+            sortTransparentNodes(m_ctx, m_camera.position());
+        }
+    }
+
+    void drawNodeMaterialEditor(int nodeIndex) {
+        auto& node = m_ctx.model->nodesMutable()[nodeIndex];
+        if (node.m_meshPrimitives.empty()) {
+            ImGui::Text("No mesh primitives on this node.");
+            return;
+        }
+
+        for (size_t i = 0; i < node.m_meshPrimitives.size(); ++i) {
+            auto& prim = node.m_meshPrimitives[i];
+            uint32_t matIdx = prim.m_materialIndex;
+            
+            std::string label = "Primitive " + std::to_string(i) + " (Material " + std::to_string(matIdx) + ")";
+            if (ImGui::TreeNode(label.c_str())) {
+                drawMaterialEditor(matIdx);
+                ImGui::TreePop();
+            }
+        }
+    }
+
+    void drawMaterialEditor(uint32_t materialIndex) {
+        if (materialIndex >= m_ctx.model->materials().size()) return;
+
+        auto& mat = m_ctx.model->materialsMutable()[materialIndex];
+        bool dirty = false;
+
+        if (ImGui::Checkbox("Unlit", &mat.m_isUnlit)) dirty = true;
+        
+        ImGui::Separator();
+        ImGui::Text("Base Material");
+
+        if (ImGui::ColorEdit4("Base Color Factor", &mat.m_baseColorFactor.x)) dirty = true;
+        
+        if (!mat.m_isUnlit) {
+            if (mat.m_isSpecularGlossiness) {
+                if (ImGui::ColorEdit3("Specular Factor", &mat.m_specularFactor.x)) dirty = true;
+                if (ImGui::SliderFloat("Glossiness Factor", &mat.m_glossinessFactor, 0.0f, 1.0f)) dirty = true;
+            } else {
+                if (ImGui::SliderFloat("Metallic Factor", &mat.m_metallicFactor, 0.0f, 1.0f)) dirty = true;
+                if (ImGui::SliderFloat("Roughness Factor", &mat.m_roughnessFactor, 0.0f, 1.0f)) dirty = true;
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Clearcoat");
+            if (ImGui::SliderFloat("Clearcoat Factor", &mat.m_clearcoatFactor, 0.0f, 1.0f)) dirty = true;
+            if (ImGui::SliderFloat("Clearcoat Roughness", &mat.m_clearcoatRoughnessFactor, 0.0f, 1.0f)) dirty = true;
+            if (ImGui::SliderFloat("Clearcoat Normal Scale", &mat.m_clearcoatNormalScale, 0.0f, 2.0f)) dirty = true;
+
+            ImGui::Separator();
+            ImGui::Text("Specular (Extension)");
+            if (ImGui::Checkbox("Has Specular", &mat.m_hasSpecular)) dirty = true;
+            if (ImGui::SliderFloat("Specular Factor Scalar", &mat.m_specularFactorScalar, 0.0f, 1.0f)) dirty = true;
+            if (ImGui::ColorEdit3("Specular Color Factor", &mat.m_specularColorFactor.x)) dirty = true;
+        }
+
+        ImGui::Separator();
+        if (ImGui::ColorEdit3("Emissive Factor", &mat.m_emissiveFactor.x)) dirty = true;
+        if (ImGui::SliderFloat("Emissive Strength", &mat.m_emissiveStrength, 0.0f, 10.0f)) dirty = true;
+        
+        ImGui::Separator();
+        if (ImGui::SliderFloat("Alpha Cutoff", &mat.m_alphaCutoff, 0.0f, 1.0f)) dirty = true;
+        if (ImGui::SliderFloat("Normal Scale", &mat.m_normalScale, 0.0f, 2.0f)) dirty = true;
+        if (ImGui::SliderFloat("Occlusion Strength", &mat.m_occlusionStrength, 0.0f, 1.0f)) dirty = true;
+
+        if (dirty) {
+            uploadMaterials(m_ctx);
+        }
     }
 
     void onUpdate(float dt) override {
         m_cameraController.update(m_input, dt);
         m_cameraController.applyToCamera(m_camera);
         float aspect = (float)m_window.width() / m_window.height();
-        m_camera.setPerspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
+        m_camera.setPerspective((45.0f), aspect, 0.01f, 100.0f);
+
     }
 
-    void onRecord(const renderer::RHIFrameContext& ctx) override {
-        auto* cmd = ctx.commandBuffer;
+     void onRecord(const renderer::RHIFrameContext& ctx) override {
+         auto* cmd = ctx.commandBuffer;
+ 
+         // MUST happen before any vkCmdPipelineBarrier2 that includes buffer/image barriers.
+         cmd->endRendering();
+ 
+         // 1. Setup Scene
+         uploadLights(m_ctx);
+         buildTransformsList(m_ctx);
+         sortTransparentNodes(m_ctx, m_camera.position());
+ 
+         // Ensure CPU-updated buffers are visible before shader reads.
+         {            std::vector<renderer::rhi::RHIMemoryBarrier> bufBarriers;
 
-        if (m_skybox) m_skybox->draw(cmd, m_camera);
+            if (m_ctx.transformBuffer != INVALID_BUFFER_HANDLE) {
+                renderer::rhi::RHIMemoryBarrier b{};
+                b.buffer = m_renderer->getBuffer(m_ctx.transformBuffer);
+                bufBarriers.push_back(b);
+            }
+            if (m_ctx.materialBuffer != INVALID_BUFFER_HANDLE) {
+                renderer::rhi::RHIMemoryBarrier b{};
+                b.buffer = m_renderer->getBuffer(m_ctx.materialBuffer);
+                bufBarriers.push_back(b);
+            }
+            if (m_ctx.environmentBuffer != INVALID_BUFFER_HANDLE) {
+                renderer::rhi::RHIMemoryBarrier b{};
+                b.buffer = m_renderer->getBuffer(m_ctx.environmentBuffer);
+                bufBarriers.push_back(b);
+            }
+            if (m_ctx.lightBuffer != INVALID_BUFFER_HANDLE) {
+                renderer::rhi::RHIMemoryBarrier b{};
+                b.buffer = m_renderer->getBuffer(m_ctx.lightBuffer);
+                bufBarriers.push_back(b);
+            }
 
-        // Build/Update transforms
-        buildTransformsList(m_ctx);
-        sortTransparentNodes(m_ctx, m_camera.position());
+            if (!bufBarriers.empty()) {
+                cmd->pipelineBarrier(
+                    renderer::rhi::ShaderStage::Host,
+                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment,
+                    bufBarriers);
+            }
+        }
 
-        // Bind Global Bindless Set (Set 1)
+        // Bind Global Bindless
         renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
         cmd->bindDescriptorSet(m_renderer->pipeline(m_ctx.pipelineSolid), 1, bindlessSet);
 
-        // Common Push Constants
+        // Update PerFrame Data
         ShaderGen::gltf_frag::PerFrameData pc {};
+        pc.drawable.model  = glm::mat4(1);
         pc.drawable.view = m_camera.view();
         pc.drawable.proj = m_camera.proj();
         pc.drawable.cameraPos = glm::vec4(m_camera.position(), 1.0f);
         pc.drawable.transformBufferPtr = m_renderer->getBuffer(m_ctx.transformBuffer)->getDeviceAddress();
         pc.drawable.materialBufferPtr = m_renderer->getBuffer(m_ctx.materialBuffer)->getDeviceAddress();
         pc.drawable.environmentBufferPtr = m_renderer->getBuffer(m_ctx.environmentBuffer)->getDeviceAddress();
+        pc.drawable.lightBufferPtr = (m_ctx.lightBuffer != INVALID_BUFFER_HANDLE) ? m_renderer->getBuffer(m_ctx.lightBuffer)->getDeviceAddress() : 0;
+        pc.drawable.lightCount = (m_ctx.lightBuffer != INVALID_BUFFER_HANDLE) ? m_ctx.activeLightCount : 0;
         pc.drawable.envId = 0u;
-        pc.drawable.transmissionTexture = 0xFFFFFFFFu;
-        pc.drawable.transmissionSampler = m_renderer->getBindlessSamplerIndex(renderer::rhi::SamplerAddressMode::ClampToEdge);
 
+        // Draw Helper
         auto drawTransform = [&](uint32_t xformId, PipelineHandle pipeline) {
             const auto& x = m_ctx.transforms[xformId];
             const auto& node = m_ctx.model->nodes()[x.nodeIndex];
             const auto& prim = node.m_meshPrimitives[x.primIndex];
 
+            std::string label = node.m_name.empty() ? "Node_" + std::to_string(x.nodeIndex) : node.m_name;
+            cmd->beginDebugLabel(label.c_str(), 0.7f, 0.7f, 0.7f, 1.0f);
+
             m_renderer->pushConstants(cmd, pipeline,
                 renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
-            
+
             m_renderer->bindMesh(cmd, prim.m_mesh);
-            // xformId passed as firstInstance -> gl_BaseInstance
             cmd->drawIndexed(m_renderer->getMeshIndexCount(prim.m_mesh), 1, 0, 0, xformId);
+
+            cmd->endDebugLabel();
         };
 
-        // 1. Opaque
-        m_renderer->bindPipeline(cmd, m_ctx.pipelineSolid);
-        for (uint32_t xformId : m_ctx.opaque) drawTransform(xformId, m_ctx.pipelineSolid);
-        for (uint32_t xformId : m_ctx.transmission) drawTransform(xformId, m_ctx.pipelineSolid);
+        // --- PHASE 1: Opaque Pass (Offscreen) ---
+        auto* mainRT = m_renderer->getTexture(m_sceneColor);
+        auto* backbuffer = m_renderer->getBackbuffer();
+        auto* depth = m_renderer->getDepthTexture();
 
-        // 2. Transparent
-        if (!m_ctx.transparent.empty()) {
-            m_renderer->bindPipeline(cmd, m_ctx.pipelineTransparent);
-            for (uint32_t xformId : m_ctx.transparent) drawTransform(xformId, m_ctx.pipelineTransparent);
+        // Barrier 1: Transition SceneColor (+ Depth) into attachment layouts.
+        {
+            std::vector<renderer::rhi::RHIMemoryBarrier> beginBarriers;
+
+            renderer::rhi::RHIMemoryBarrier rtBarrier{};
+            rtBarrier.texture = mainRT;
+            rtBarrier.oldLayout = m_sceneColorLayout;
+            rtBarrier.newLayout = renderer::rhi::ResourceLayout::ColorAttachment;
+            rtBarrier.srcAccessStage = renderer::rhi::ShaderStage::All;
+            rtBarrier.dstAccessStage = renderer::rhi::ShaderStage::RenderTarget;
+            beginBarriers.push_back(rtBarrier);
+
+            if (depth != nullptr) {
+                renderer::rhi::RHIMemoryBarrier depthBarrier{};
+                depthBarrier.texture = depth;
+                depthBarrier.oldLayout = m_depthLayout;
+                depthBarrier.newLayout = renderer::rhi::ResourceLayout::DepthStencilAttachment;
+                depthBarrier.srcAccessStage = renderer::rhi::ShaderStage::All;
+                depthBarrier.dstAccessStage = renderer::rhi::ShaderStage::DepthStencilAttachment;
+                beginBarriers.push_back(depthBarrier);
+            }
+
+            cmd->pipelineBarrier(
+                renderer::rhi::ShaderStage::All,
+                renderer::rhi::ShaderStage::RenderTarget,
+                beginBarriers);
+
+            m_sceneColorLayout = renderer::rhi::ResourceLayout::ColorAttachment;
+            if (depth != nullptr) {
+                m_depthLayout = renderer::rhi::ResourceLayout::DepthStencilAttachment;
+            }
         }
 
-        if (m_grid) m_grid->draw(cmd, m_camera);
+        renderer::rhi::RenderingInfo offscreenInfo{};
+        offscreenInfo.renderArea = {0, 0, mainRT->extent().width, mainRT->extent().height};
+
+        renderer::rhi::RenderingAttachment colorAtt{};
+        colorAtt.texture = mainRT;
+        colorAtt.loadOp = renderer::rhi::LoadOp::Clear;
+        colorAtt.storeOp = renderer::rhi::StoreOp::Store;
+        colorAtt.clearValue.isDepthStencil = false;
+        colorAtt.clearValue.color.float32[0] = colorAtt.clearValue.color.float32[1] = colorAtt.clearValue.color.float32[2] =  colorAtt.clearValue.color.float32[3] = 1.0f;
+        offscreenInfo.colorAttachments.push_back(colorAtt);
+
+        renderer::rhi::RenderingAttachment depthAtt{};
+        depthAtt.texture = depth;
+        depthAtt.loadOp = renderer::rhi::LoadOp::Clear;
+        depthAtt.storeOp = renderer::rhi::StoreOp::Store;
+        depthAtt.clearValue.isDepthStencil = true;
+        depthAtt.clearValue.depthStencil.depth = 1.0f;
+        offscreenInfo.depthAttachment = &depthAtt;
+
+        cmd->beginRendering(offscreenInfo);
+
+        renderer::rhi::Viewport vp{0, 0, (float)mainRT->extent().width, (float)mainRT->extent().height, 0, 1};
+        cmd->setViewport(vp);
+        renderer::rhi::Rect2D sc{0, 0, mainRT->extent().width, mainRT->extent().height};
+        cmd->setScissor(sc);
+
+        if (m_skybox) {
+            m_skybox->draw(cmd, m_camera);
+        }
+
+        cmd->beginDebugLabel("Opaque Pass", 1.0f, 0.5f, 0.5f, 1.0f);
+        m_renderer->bindPipeline(cmd, m_ctx.pipelineSolid);
+        for (uint32_t xformId : m_ctx.opaque) drawTransform(xformId, m_ctx.pipelineSolid);
+
+
+        cmd->endDebugLabel();
+        cmd->endRendering(); // End Opaque Pass
+
+        // --- PHASE 2: Copy & Mipmap (The Sandwich) ---
+        // Matches EID 43-84 in your log
+        if (!m_ctx.transmission.empty()) {
+            cmd->beginDebugLabel("Copy Transmission", 1.0f, 1.0f, 0.0f, 1.0f);
+
+            auto* transCopy = m_renderer->getTexture(m_transmissionCopy);
+
+            // Barrier 2: Prepare for Copy
+            // SceneColor: Current -> TransferSrc
+            // TransCopy:  Current -> TransferDst
+            renderer::rhi::RHIMemoryBarrier toSrc{};
+            toSrc.texture = mainRT;
+            toSrc.oldLayout = m_sceneColorLayout;
+            toSrc.newLayout = renderer::rhi::ResourceLayout::TransferSrc;
+            toSrc.srcAccessStage = renderer::rhi::ShaderStage::RenderTarget;
+            toSrc.dstAccessStage = renderer::rhi::ShaderStage::Transfer;
+
+            renderer::rhi::RHIMemoryBarrier toDst{};
+            toDst.texture = transCopy;
+            toDst.oldLayout = m_transCopyLayout;
+            toDst.newLayout = renderer::rhi::ResourceLayout::TransferDst;
+            toDst.srcAccessStage = renderer::rhi::ShaderStage::All;
+            toDst.dstAccessStage = renderer::rhi::ShaderStage::Transfer;
+
+            cmd->pipelineBarrier(renderer::rhi::ShaderStage::All,
+                                 renderer::rhi::ShaderStage::Transfer, {toSrc, toDst});
+            m_sceneColorLayout = renderer::rhi::ResourceLayout::TransferSrc;
+            m_transCopyLayout = renderer::rhi::ResourceLayout::TransferDst;
+
+            // Execute Copy
+            renderer::rhi::TextureCopyRegion copyR{};
+            copyR.srcSubresource = {0, 0};
+            copyR.dstSubresource = {0, 0};
+            copyR.extent = mainRT->extent();
+            cmd->copyTexture(mainRT, transCopy, copyR);
+
+            // Generate Mips (transitions to ShaderReadOnly internally)
+            transCopy->generateMipmaps(cmd);
+            m_transCopyLayout = renderer::rhi::ResourceLayout::ShaderReadOnly;
+
+            // Barrier 3: Restore for Rendering
+            // SceneColor: TransferSrc -> ColorAttachment (We are about to write to it again!)
+            renderer::rhi::RHIMemoryBarrier restoreRT{};
+            restoreRT.texture = mainRT;
+            restoreRT.oldLayout = renderer::rhi::ResourceLayout::TransferSrc;
+            restoreRT.newLayout = renderer::rhi::ResourceLayout::ColorAttachment;
+            restoreRT.srcAccessStage = renderer::rhi::ShaderStage::Transfer;
+            restoreRT.dstAccessStage = renderer::rhi::ShaderStage::RenderTarget; // Wait for copy to finish before drawing
+            cmd->pipelineBarrier(renderer::rhi::ShaderStage::Transfer,
+                                 renderer::rhi::ShaderStage::RenderTarget,
+                                 {restoreRT});
+            m_sceneColorLayout = renderer::rhi::ResourceLayout::ColorAttachment;
+
+            cmd->endDebugLabel();
+
+            // Set Push Constants
+            uint32_t fbIndex = m_renderer->getTextureBindlessIndex(m_transmissionCopy);
+            if (fbIndex == 0xFFFFFFFF) fbIndex = m_renderer->getTextureBindlessIndex(m_renderer->getWhiteTexture());
+            pc.drawable.transmissionFramebuffer = fbIndex;
+            pc.drawable.transmissionFramebufferSampler = m_renderer->getBindlessSamplerIndex(renderer::rhi::SamplerAddressMode::ClampToEdge);
+        } else {
+            pc.drawable.transmissionFramebuffer = m_renderer->getTextureBindlessIndex(m_renderer->getWhiteTexture());
+            pc.drawable.transmissionFramebufferSampler = m_renderer->getBindlessSamplerIndex(renderer::rhi::SamplerAddressMode::ClampToEdge);
+        }
+
+        // --- PHASE 3: Transmission Pass (Resume) ---
+        // Matches EID 89 in your log: vkCmdBeginRendering(C=Load, D=Load)
+        {
+            offscreenInfo.colorAttachments[0].loadOp = renderer::rhi::LoadOp::Load; // KEEP OPAQUE PIXELS
+            offscreenInfo.depthAttachment->loadOp = renderer::rhi::LoadOp::Load;    // KEEP DEPTH
+
+            cmd->beginRendering(offscreenInfo);
+            cmd->setViewport(vp);
+            cmd->setScissor(sc);
+
+            if (!m_ctx.transmission.empty()) {
+                cmd->beginDebugLabel("Transmission Pass", 0.0f, 0.5f, 1.0f, 1.0f);
+                m_renderer->bindPipeline(cmd, m_ctx.pipelineSolid);
+                for (uint32_t xformId : m_ctx.transmission) drawTransform(xformId, m_ctx.pipelineSolid);
+                cmd->endDebugLabel();
+            }
+
+            if (!m_ctx.transparent.empty()) {
+                cmd->beginDebugLabel("Transparent Pass", 0.5f, 1.0f, 0.5f, 1.0f);
+                m_renderer->bindPipeline(cmd, m_ctx.pipelineTransparent);
+                for (uint32_t xformId : m_ctx.transparent) drawTransform(xformId, m_ctx.pipelineTransparent);
+                cmd->endDebugLabel();
+            }
+
+            cmd->endRendering();
+        }
+
+        // --- PHASE 4: Final Blit ---
+        // SceneColor -> Swapchain
+        {
+            cmd->insertDebugLabel("Final Blit", 1.0f, 1.0f, 1.0f, 1.0f);
+
+            // Barrier 4: Prepare Blit
+            // SceneColor: ColorAtt -> TransferSrc
+            // Backbuffer: ColorAtt -> TransferDst
+            renderer::rhi::RHIMemoryBarrier rtToSrc{};
+            rtToSrc.texture = mainRT;
+            rtToSrc.oldLayout = m_sceneColorLayout;
+            rtToSrc.newLayout = renderer::rhi::ResourceLayout::TransferSrc;
+            rtToSrc.srcAccessStage = renderer::rhi::ShaderStage::RenderTarget;
+            rtToSrc.dstAccessStage = renderer::rhi::ShaderStage::Transfer;
+
+            renderer::rhi::RHIMemoryBarrier bbToDst{};
+            bbToDst.texture = backbuffer;
+            bbToDst.oldLayout = renderer::rhi::ResourceLayout::ColorAttachment;
+            bbToDst.newLayout = renderer::rhi::ResourceLayout::TransferDst;
+            bbToDst.srcAccessStage = renderer::rhi::ShaderStage::RenderTarget;
+            bbToDst.dstAccessStage = renderer::rhi::ShaderStage::Transfer;
+
+            cmd->pipelineBarrier(renderer::rhi::ShaderStage::RenderTarget, renderer::rhi::ShaderStage::Transfer, {rtToSrc, bbToDst});
+            m_sceneColorLayout = renderer::rhi::ResourceLayout::TransferSrc;
+
+            renderer::rhi::TextureCopyRegion blit{};
+            blit.srcSubresource = {0, 0};
+            blit.dstSubresource = {0, 0};
+            blit.extent = mainRT->extent();
+            cmd->copyTexture(mainRT, backbuffer, blit);
+
+            // Barrier 5: Restore Backbuffer for UI/Present
+            renderer::rhi::RHIMemoryBarrier bbToColor{};
+            bbToColor.texture = backbuffer;
+            bbToColor.oldLayout = renderer::rhi::ResourceLayout::TransferDst;
+            bbToColor.newLayout = renderer::rhi::ResourceLayout::ColorAttachment;
+            bbToColor.srcAccessStage = renderer::rhi::ShaderStage::Transfer;
+            bbToColor.dstAccessStage = renderer::rhi::ShaderStage::RenderTarget;
+
+            cmd->pipelineBarrier(renderer::rhi::ShaderStage::Transfer, renderer::rhi::ShaderStage::RenderTarget, {bbToColor});
+
+            renderer::rhi::RHIMemoryBarrier rtBackToColor{};
+            rtBackToColor.texture = mainRT;
+            rtBackToColor.oldLayout = renderer::rhi::ResourceLayout::TransferSrc;
+            rtBackToColor.newLayout = renderer::rhi::ResourceLayout::ColorAttachment;
+            rtBackToColor.srcAccessStage = renderer::rhi::ShaderStage::Transfer;
+            rtBackToColor.dstAccessStage = renderer::rhi::ShaderStage::RenderTarget;
+
+            cmd->pipelineBarrier(renderer::rhi::ShaderStage::Transfer, renderer::rhi::ShaderStage::RenderTarget, {rtBackToColor});
+            m_sceneColorLayout = renderer::rhi::ResourceLayout::ColorAttachment;
+        }
+        if (m_grid) {
+            cmd->insertDebugLabel("Grid");
+        //    m_grid->draw(cmd, m_camera);
+        }
+        // --- PHASE 5: Restart Swapchain Pass ---
+        // For ImGui and RHIRenderer::endFrame
+        {
+            renderer::rhi::RenderingInfo swapchainInfo{};
+            swapchainInfo.renderArea = {0, 0, backbuffer->extent().width, backbuffer->extent().height};
+
+            renderer::rhi::RenderingAttachment bbAtt{};
+            bbAtt.texture = backbuffer;
+            bbAtt.loadOp = renderer::rhi::LoadOp::Load; // Keep Blit result
+            bbAtt.storeOp = renderer::rhi::StoreOp::Store;
+            swapchainInfo.colorAttachments.push_back(bbAtt);
+
+            cmd->beginRendering(swapchainInfo);
+            renderer::rhi::Viewport bbVp{0, 0, (float)backbuffer->extent().width, (float)backbuffer->extent().height, 0, 1};
+            cmd->setViewport(bbVp);
+            renderer::rhi::Rect2D bbSc{0, 0, backbuffer->extent().width, backbuffer->extent().height};
+            cmd->setScissor(bbSc);
+        }
     }
 
 private:

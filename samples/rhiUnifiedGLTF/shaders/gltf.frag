@@ -10,7 +10,7 @@ layout(location = 0) in vec3 inWorldPos;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV0;
 layout(location = 3) in vec2 inUV1;
-layout(location = 4) in vec3 inColor;
+layout(location = 4) in vec4 inColor;
 layout(location = 5) flat in uint inInstanceIndex;
 
 
@@ -18,38 +18,20 @@ layout (location=0) out vec4 out_FragColor;
 
 
 
-// http://www.thetenthplanet.de/archives/1180
-// modified to fix handedness of the resulting cotangent frame
-mat3 cotangentFrame( vec3 N, vec3 p, vec2 uv ) {
-    // get edge vectors of the pixel triangle
-    vec3 dp1 = dFdx( p );
-    vec3 dp2 = dFdy( p );
-    vec2 duv1 = dFdx( uv );
-    vec2 duv2 = dFdy( uv );
 
-    // solve the linear system
-    vec3 dp2perp = cross( dp2, N );
-    vec3 dp1perp = cross( N, dp1 );
-    vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-    vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
 
-    // construct a scale-invariant frame
-    float invmax = inversesqrt( max( dot(T,T), dot(B,B) ) );
-
-    // calculate handedness of the resulting cotangent frame
-    float w = (dot(cross(N, T), B) < 0.0) ? -1.0 : 1.0;
-
-    // adjust tangent if needed
-    T = T * w;
-
-    return mat3( T * invmax, B * invmax, N );
+vec3 fresnelSchlick(vec3 f0, vec3 f90, float cosTheta)
+{
+    float x = clamp(1.0 - cosTheta, 0.0, 1.0);
+    float x5 = x * x * x * x * x;
+    return f0 + (f90 - f0) * x5;
 }
 
-vec3 perturbNormal(vec3 n, vec3 v, vec3 normalSample, vec2 uv) {
-    vec3 map = normalize( 2.0 * normalSample - vec3(1.0) );
-    mat3 TBN = cotangentFrame(n, v, uv);
-    return normalize(TBN * map);
+mat4 getViewProjection() {
+    return perFrame.drawable.proj * perFrame.drawable.view;
 }
+
+
 
 
 void main()
@@ -58,50 +40,200 @@ void main()
     tc.uv[0] = inUV0.xy;
     tc.uv[1] = inUV1.xy;
 
-    MetallicRoughnessDataGPU mat = getMaterialPbrMR(getMaterialId(inInstanceIndex));
+    MetallicRoughnessDataGPU mat = getMaterial(getMaterialId(inInstanceIndex));
+    EnvironmentMapDataGPU envMap = getEnvironmentMap(getEnvironmentId());
 
-    vec4 Kd  = sampleAlbedo(tc, mat);
-    
-    // Apply Vertex Color
-    Kd.rgb *= inColor;
+    vec4 Kd  = sampleAlbedo(tc, mat) * inColor;
 
-    // Alpha Masking
-    if (mat.alphaMode == 1) {
-        if (Kd.a < mat.emissiveFactorAlphaCutoff.w) {
-            discard;
-        }
+    if ((mat.alphaMode == 1) && (mat.emissiveFactorAlphaCutoff.w > Kd.a)) {
+        discard;
     }
+
+    if (isMaterialTypeUnlit(mat)) {
+        out_FragColor = Kd;
+        return;
+    }
+
 
     vec4 Kao = sampleAO(tc, mat);
     vec4 Ke  = sampleEmissive(tc, mat);
     vec4 mrSample = sampleMetallicRoughness(tc, mat);
 
-    // world-space normal
+
+    bool isSheen = isMaterialTypeSheen(mat);
+    bool isClearCoat = isMaterialTypeClearCoat(mat);
+    bool isSpecular = isMaterialTypeSpecular(mat);
+    bool isTransmission = isMaterialTypeTransmission(mat);
+    bool isVolume = isMaterialTypeVolume(mat);
+
     vec3 n = normalize(inNormal);
 
-    vec3 normalSample = sampleNormal(tc, mat).xyz;
+    PBRInfo pbrInputs = calculatePBRInputsMetallicRoughness(tc, Kd, mrSample, mat);
+    pbrInputs.n = n;
+    pbrInputs.ng = n;
 
-    // normal mapping
-    n = perturbNormal(n, inWorldPos, normalSample, getNormalUV(tc, mat));
+    if (mat.normalTexture != ~0) {
+        vec3 normalSample = sampleNormal(tc, mat).xyz;
+        perturbNormal(n, inWorldPos, normalSample, getNormalUV(tc, mat), pbrInputs);
+        n = pbrInputs.n;
+    }
+    vec3 v = normalize(perFrame.drawable.cameraPos.xyz - inWorldPos);  // Vector from surface point to camera
 
-    if (!gl_FrontFacing) n *= -1.0f;
+    pbrInputs.v = v;
+    pbrInputs.NdotV = clamp(abs(dot(pbrInputs.n, pbrInputs.v)), 0.001, 1.0);
 
-    PBRInfo pbrInputs = calculatePBRInputs(
-        Kd, n, perFrame.drawable.cameraPos.xyz, inWorldPos, mrSample, inInstanceIndex);
+    if (isSheen) {
+        pbrInputs.sheenColorFactor = getSheenColorFactor(tc, mat).rgb;
+        pbrInputs.sheenRoughnessFactor = getSheenRoughnessFactor(tc, mat);
+    }
 
-    vec3 specular_color = getIBLRadianceContributionGGX(pbrInputs, 1.0);
-    vec3 diffuse_color = getIBLRadianceLambertian(pbrInputs.NdotV, n, pbrInputs.perceptualRoughness, pbrInputs.diffuseColor, pbrInputs.reflectance0, 1.0);
-    vec3 color = specular_color + diffuse_color;
+    vec3 clearCoatContrib = vec3(0);
 
-    // one hardcoded light source
-    vec3 lightPos = vec3(0, 0, -5);
-    color += calculatePBRLightContribution(pbrInputs, normalize(lightPos - inWorldPos), vec3(1.0));
+    if (isClearCoat) {
+        pbrInputs.clearcoatFactor = getClearcoatFactor(tc, mat);
+        pbrInputs.clearcoatRoughness = clamp(getClearcoatRoughnessFactor(tc, mat), 0.0, 1.0);
+        pbrInputs.clearcoatF0 = vec3(pow((pbrInputs.ior - 1.0) / (pbrInputs.ior + 1.0), 2.0));
+        pbrInputs.clearcoatF90 = vec3(1.0);
+
+
+        if (mat.clearCoatNormalTextureUV>-1) {
+            pbrInputs.clearcoatNormal = mat3(pbrInputs.t, pbrInputs.b, pbrInputs.ng) * sampleClearcoatNormal(tc, mat).rgb;
+        } else {
+            pbrInputs.clearcoatNormal =pbrInputs.ng;
+        }
+        clearCoatContrib = getIBLRadianceGGX(pbrInputs.clearcoatNormal, pbrInputs.v, pbrInputs.clearcoatRoughness, pbrInputs.clearcoatF0, 1.0, envMap);
+    }
+
+    if (isTransmission) {
+        pbrInputs.transmissionFactor = getTransmissionFactor(tc, mat);
+    }
+
+    if (isVolume) {
+        pbrInputs.thickness = getVolumeTickness(tc, mat);
+        pbrInputs.attenuation = getVolumeAttenuation(mat);
+    }
+
+    // IBL contribution
+    vec3 specularColor = getIBLRadianceContributionGGX(pbrInputs, pbrInputs.specularWeight, envMap);
+    vec3 diffuseColor = getIBLRadianceLambertian(pbrInputs.NdotV, n, pbrInputs.perceptualRoughness, pbrInputs.diffuseColor, pbrInputs.reflectance0, pbrInputs.specularWeight, envMap);
+
+    vec3 transmission = vec3(0,0,0);
+    if (isTransmission) {
+        transmission += getIBLVolumeRefraction(mat,
+        pbrInputs.n, pbrInputs.v,
+        pbrInputs.perceptualRoughness,
+        pbrInputs.diffuseColor, pbrInputs.reflectance0, pbrInputs.reflectance90,
+        inWorldPos, getModel(inInstanceIndex), getViewProjection(),
+        pbrInputs.ior, pbrInputs.thickness, pbrInputs.attenuation.rgb, pbrInputs.attenuation.w);
+    }
+
+    vec3 sheenColor = vec3(0);
+
+    if (isSheen) {
+        sheenColor += getIBLRadianceCharlie(pbrInputs, envMap);
+    }
+
+
+    vec3 lights_diffuse = vec3(0);
+    vec3 lights_specular = vec3(0);
+    vec3 lights_sheen = vec3(0);
+    vec3 lights_clearcoat = vec3(0);
+    vec3 lights_transmission = vec3(0);
+
+    float albedoSheenScaling = 1.0;
+
+    for (uint i = 0; i < getLightsCount(); ++i)
+    {
+        LightDataGPU light = getLight(i);
+
+        vec3 pointToLight = (light.type == LightType_Directional) ? -light.direction : light.position - inWorldPos;
+
+        // BSTF
+        vec3 l = normalize(pointToLight);
+        vec3 h = normalize(l + v);
+        float NdotL = clampedDot(n, l);
+        float NdotV = clampedDot(n, v);
+        float NdotH = clampedDot(n, h);
+        float LdotH = clampedDot(l, h);
+        float VdotH = clampedDot(v, h);
+        if (NdotL > 0.0 || NdotV > 0.0)
+        {
+            // Calculation of analytical light
+            // https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#acknowledgments AppendixB
+            vec3 intensity = getLightIntensity(light, pointToLight);
+
+            lights_diffuse += intensity * NdotL *  getBRDFLambertian(pbrInputs.reflectance0, pbrInputs.reflectance90, pbrInputs.diffuseColor, pbrInputs.specularWeight, VdotH);
+            lights_specular += intensity * NdotL * getBRDFSpecularGGX(pbrInputs.reflectance0, pbrInputs.reflectance90, pbrInputs.alphaRoughness, pbrInputs.specularWeight, VdotH, NdotL, NdotV, NdotH);
+
+            if (isSheen) {
+                lights_sheen += intensity * getPunctualRadianceSheen(pbrInputs.sheenColorFactor, pbrInputs.sheenRoughnessFactor, NdotL, NdotV, NdotH);
+                albedoSheenScaling = min(1.0 - max3(pbrInputs.sheenColorFactor) * albedoSheenScalingFactor(NdotV, pbrInputs.sheenRoughnessFactor),
+                1.0 - max3(pbrInputs.sheenColorFactor) * albedoSheenScalingFactor(NdotL, pbrInputs.sheenRoughnessFactor));
+            }
+
+            if (isClearCoat) {
+                lights_clearcoat += intensity * getPunctualRadianceClearCoat(pbrInputs.clearcoatNormal, v, l, h, VdotH,
+                pbrInputs.clearcoatF0, pbrInputs.clearcoatF90, pbrInputs.clearcoatRoughness);
+            }
+        }
+        // BDTF
+        if (isTransmission) {
+            // If the light ray travels through the geometry, use the point it exits the geometry again.
+            // That will change the angle to the light source, if the material refracts the light ray.
+            vec3 transmissionRay = getVolumeTransmissionRay(n, v, pbrInputs.thickness, pbrInputs.ior, getModel(inInstanceIndex));
+            pointToLight -= transmissionRay;
+            l = normalize(pointToLight);
+
+            vec3 intensity = getLightIntensity(light, pointToLight);
+            vec3 transmittedLight = intensity * getPunctualRadianceTransmission(n, v, l, pbrInputs.alphaRoughness, pbrInputs.reflectance0, pbrInputs.clearcoatF90, pbrInputs.diffuseColor, pbrInputs.ior);
+
+            if (isVolume) {
+                transmittedLight = applyVolumeAttenuation(transmittedLight, length(transmissionRay), pbrInputs.attenuation.rgb, pbrInputs.attenuation.w);
+            }
+
+            lights_transmission += transmittedLight;
+        }
+    }
+
     // ambient occlusion
-    color = color * ( Kao.r < 0.01 ? 1.0 : Kao.r );
-    // emissive
-    color =  Ke.rgb + color;
+    float occlusion = Kao.r < 0.01 ? 1.0 : Kao.r;
+    float occlusionStrength = getOcclusionFactor(mat);
+    diffuseColor = lights_diffuse + mix(diffuseColor, diffuseColor * occlusion, occlusionStrength);
+    specularColor = lights_specular + mix(specularColor, specularColor * occlusion, occlusionStrength);
+    sheenColor = lights_sheen + mix(sheenColor, sheenColor * occlusion, occlusionStrength);
 
+    vec3 emissiveColor = Ke.rgb ;
+
+    vec3 clearcoatFresnel = vec3(0);
+    if (isClearCoat) {
+        clearcoatFresnel = F_Schlick(pbrInputs.clearcoatF0, pbrInputs.clearcoatF90, clampedDot(pbrInputs.clearcoatNormal, pbrInputs.v));
+    }
+
+    if (isTransmission) {
+        diffuseColor = mix(diffuseColor, transmission, pbrInputs.transmissionFactor);
+    }
+
+    vec3 color =  specularColor + diffuseColor + emissiveColor + sheenColor;
+    color = color * (1.0 - pbrInputs.clearcoatFactor * clearcoatFresnel) + clearCoatContrib;
+
+
+    color = pow(color, vec3(1.0/2.2));
     out_FragColor = vec4(color, 1.0);
 
 
+    //  DEBUG
+    //  out_FragColor = vec4((n + vec3(1.0))*0.5, 1.0);
+    //  out_FragColor = vec4((pbrInputs.n + vec3(1.0))*0.5, 1.0);
+    //  out_FragColor = vec4((normal + vec3(1.0))*0.5, 1.0);
+    //  out_FragColor = Kao;
+    //  out_FragColor = Ke;
+    //  out_FragColor = Kd;
+    //  vec2 MeR = mrSample.yz;
+    //  MeR.x *= getMetallicFactor(mat);
+    //  MeR.y *= getRoughnessFactor(mat);
+    //  out_FragColor = vec4(MeR.y,MeR.y,MeR.y, 1.0);
+    //  out_FragColor = vec4(MeR.x,MeR.x,MeR.x, 1.0);
+    //  out_FragColor = mrSample;
+    //  out_FragColor = vec4(transmission, 1.0);
+    //  out_FragColor = vec4(punctualColor, 1.0);
 }

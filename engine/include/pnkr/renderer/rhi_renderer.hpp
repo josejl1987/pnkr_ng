@@ -59,10 +59,11 @@ namespace pnkr::renderer
         // Resource creation
         MeshHandle createMesh(const std::vector<struct Vertex>& vertices,
                               const std::vector<uint32_t>& indices, bool enableVertexPulling);
+        TextureHandle createTexture(const unsigned char* data, int width, int height, int channels, bool srgb = true,
+                                    bool isSigned = false);
 
-        TextureHandle createTexture(const unsigned char* data,
-                                   int width, int height, int channels,
-                                   bool srgb = true);
+
+        TextureHandle createTexture(const rhi::TextureDescriptor& desc);
 
         TextureHandle loadTexture(const std::filesystem::path& filepath,
                                  bool srgb = true);
@@ -149,6 +150,9 @@ namespace pnkr::renderer
         void setGlobalIBL(TextureHandle irradiance, TextureHandle prefilter, TextureHandle brdfLut);
         [[nodiscard]] rhi::RHIDescriptorSet* getGlobalLightingDescriptorSet() const { return m_globalLightingSet.get(); }
         [[nodiscard]] rhi::RHIDescriptorSetLayout* getGlobalLightingDescriptorSetLayout() const { return m_globalLightingLayout.get(); }
+        [[nodiscard]] TextureHandle getWhiteTexture() const { return m_whiteTexture; }
+        [[nodiscard]] TextureHandle getBlackTexture() const { return m_blackTexture; }
+        [[nodiscard]] TextureHandle getFlatNormalTexture() const { return m_flatNormalTexture; }
 
     private:
         // Window reference
@@ -209,6 +213,8 @@ namespace pnkr::renderer
         bool m_bindlessSupported = false;
         bool m_useBindless = false;
         TextureHandle m_whiteTexture{INVALID_TEXTURE_HANDLE};
+        TextureHandle m_blackTexture{INVALID_TEXTURE_HANDLE};
+        TextureHandle m_flatNormalTexture{INVALID_TEXTURE_HANDLE};
 
         // Global lighting
         std::unique_ptr<rhi::RHIDescriptorSetLayout> m_globalLightingLayout;
@@ -218,7 +224,23 @@ namespace pnkr::renderer
         void createRenderTargets();
         void createDefaultResources();
         TextureHandle createWhiteTexture();
+        TextureHandle createBlackTexture();
+        TextureHandle createFlatNormalTexture();
         void uploadToBuffer(rhi::RHIBuffer* target, const void* data, uint64_t size);
+    };
+
+    struct ScopedDebugGroup
+    {
+        rhi::RHICommandBuffer* cmd;
+        ScopedDebugGroup(rhi::RHICommandBuffer* c, const char* name, float r = 1.0f, float g = 1.0f, float b = 1.0f)
+            : cmd(c)
+        {
+            if (cmd) cmd->beginDebugLabel(name, r, g, b, 1.0f);
+        }
+        ~ScopedDebugGroup()
+        {
+            if (cmd) cmd->endDebugLabel();
+        }
     };
 
 } // namespace pnkr::renderer

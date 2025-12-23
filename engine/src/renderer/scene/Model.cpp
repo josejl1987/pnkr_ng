@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <variant>
 
 #include <filesystem>
@@ -23,12 +24,26 @@
 
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/vec4.hpp>
 
 #include "pnkr/core/common.hpp"
 
 namespace pnkr::renderer::scene
 {
+    static float resolveOptionalFloat(float value, float)
+    {
+        return value;
+    }
+
+    template <typename T>
+    static auto resolveOptionalFloat(const T& value, float fallback)
+        -> decltype(value.value_or(fallback), float{})
+    {
+        return static_cast<float>(value.value_or(fallback));
+    }
+
     static Transform toTransform(const fastgltf::Node& node)
     {
         Transform t{};
@@ -38,13 +53,14 @@ namespace pnkr::renderer::scene
                            t.m_translation = glm::make_vec3(trs.translation.data());
                            t.m_rotation = glm::make_quat(trs.rotation.data());
                            t.m_scale = glm::make_vec3(trs.scale.data());
+                           t.m_matrix = t.mat4();
                        },
                        [&](const fastgltf::math::fmat4x4& mat)
                        {
-                           glm::mat4 m = glm::make_mat4(mat.data());
+                           t.m_matrix = glm::make_mat4(mat.data());
                            glm::vec3 skew{};
                            glm::vec4 perspective{};
-                           glm::decompose(m, t.m_scale, t.m_rotation, t.m_translation, skew, perspective);
+                           glm::decompose(t.m_matrix, t.m_scale, t.m_rotation, t.m_translation, skew, perspective);
                        }
                    },
                    node.transform);
@@ -414,14 +430,18 @@ namespace pnkr::renderer::scene
             fastgltf::Extensions::KHR_texture_basisu |
             fastgltf::Extensions::MSFT_texture_dds |
             fastgltf::Extensions::EXT_texture_webp |
+            fastgltf::Extensions::KHR_materials_variants|
+            fastgltf::Extensions::KHR_texture_transform|
             fastgltf::Extensions::KHR_materials_pbrSpecularGlossiness |
             fastgltf::Extensions::KHR_materials_clearcoat |
             fastgltf::Extensions::KHR_materials_sheen |
             fastgltf::Extensions::KHR_materials_specular |
             fastgltf::Extensions::KHR_materials_ior |
+            fastgltf::Extensions::KHR_materials_unlit |
             fastgltf::Extensions::KHR_materials_transmission |
             fastgltf::Extensions::KHR_materials_volume |
-            fastgltf::Extensions::KHR_materials_emissive_strength);
+            fastgltf::Extensions::KHR_materials_emissive_strength |
+            fastgltf::Extensions::KHR_lights_punctual);
 
         auto data = fastgltf::GltfDataBuffer::FromPath(path);
         if (data.error() != fastgltf::Error::None)
@@ -445,6 +465,37 @@ namespace pnkr::renderer::scene
         auto model = std::make_unique<Model>();
 
         core::Logger::info("Loading Model (fastgltf): {} (Nodes: {})", path.string(), gltf.nodes.size());
+
+        // --- Lights ---
+        model->m_lights.reserve(gltf.lights.size());
+        for (const auto& gLight : gltf.lights)
+        {
+            Light l{};
+            l.m_name = gLight.name;
+            l.m_color = glm::make_vec3(gLight.color.data());
+            l.m_intensity = gLight.intensity;
+            l.m_range = gLight.range.value_or(0.0f);
+
+            if (gLight.type == fastgltf::LightType::Directional)
+            {
+                l.m_type = LightType::Directional;
+            }
+            else if (gLight.type == fastgltf::LightType::Point)
+            {
+                l.m_type = LightType::Point;
+            }
+            else if (gLight.type == fastgltf::LightType::Spot)
+            {
+                l.m_type = LightType::Spot;
+                l.m_innerConeAngle = gLight.innerConeAngle.value_or(0.0f);
+                l.m_outerConeAngle = gLight.outerConeAngle.value_or(0.785398f);
+            }
+            model->m_lights.push_back(l);
+        }
+        if (model->m_lights.empty())
+        {
+            model->m_lights.push_back({});
+        }
 
         std::vector<bool> textureUsesSrgb(gltf.textures.size(), false);
         std::vector<bool> textureUsesLinear(gltf.textures.size(), false);
@@ -482,7 +533,7 @@ namespace pnkr::renderer::scene
             if (mat.clearcoat)
             {
                 const auto& cc = *mat.clearcoat;
-                markTextureUsage(cc.clearcoatTexture, false);
+                markTextureUsage(cc.clearcoatTexture, true);
                 markTextureUsage(cc.clearcoatRoughnessTexture, false);
                 markTextureUsage(cc.clearcoatNormalTexture, false);
             }
@@ -497,20 +548,20 @@ namespace pnkr::renderer::scene
             if (mat.specular)
             {
                 const auto& sp = *mat.specular;
-                markTextureUsage(sp.specularTexture, false);
+                markTextureUsage(sp.specularTexture, true);
                 markTextureUsage(sp.specularColorTexture, true);
             }
 
             if (mat.transmission)
             {
                 const auto& tr = *mat.transmission;
-                markTextureUsage(tr.transmissionTexture, false);
+                markTextureUsage(tr.transmissionTexture, true);
             }
 
             if (mat.volume)
             {
                 const auto& vol = *mat.volume;
-                markTextureUsage(vol.thicknessTexture, false);
+                markTextureUsage(vol.thicknessTexture, true);
             }
         }
 
@@ -570,6 +621,7 @@ namespace pnkr::renderer::scene
         for (const auto& mat : gltf.materials)
         {
             MaterialData md{};
+            md.m_isUnlit = mat.unlit;
 
             if (mat.specularGlossiness)
             {
@@ -720,7 +772,6 @@ namespace pnkr::renderer::scene
                     md.m_clearcoatUV = getTexCoordIndex(info);
                     md.m_clearcoatSampler = getSamplerAddressMode(gltf, texIdx);
                 }
-
                 if (cc.clearcoatRoughnessTexture.has_value())
                 {
                     const auto& info = cc.clearcoatRoughnessTexture.value();
@@ -781,6 +832,7 @@ namespace pnkr::renderer::scene
             if (mat.specular)
             {
                 const auto& sp = *mat.specular;
+                md.m_hasSpecular = true;
                 md.m_specularFactorScalar = sp.specularFactor;
                 md.m_specularColorFactor = glm::make_vec3(sp.specularColorFactor.data());
 
@@ -831,7 +883,8 @@ namespace pnkr::renderer::scene
             {
                 const auto& vol = *mat.volume;
                 md.m_volumeThicknessFactor = vol.thicknessFactor;
-                md.m_volumeAttenuationDistance = vol.attenuationDistance;
+                md.m_volumeAttenuationDistance =
+                    resolveOptionalFloat(vol.attenuationDistance, std::numeric_limits<float>::infinity());
                 md.m_volumeAttenuationColor = glm::make_vec3(vol.attenuationColor.data());
 
                 if (vol.thicknessTexture.has_value())
@@ -871,6 +924,7 @@ namespace pnkr::renderer::scene
 
             myNode.m_name = gNode.name;
             myNode.m_localTransform = toTransform(gNode);
+            myNode.m_lightIndex = gNode.lightIndex.has_value() ? static_cast<int>(gNode.lightIndex.value()) : -1;
 
             myNode.m_children.clear();
             myNode.m_children.reserve(gNode.children.size());
@@ -1032,37 +1086,35 @@ namespace pnkr::renderer::scene
         return model;
     }
 
+    // Helper to recursively update matrices
+    static void updateNodeHierarchy(Model& model, int nodeIndex, const glm::mat4& parentMatrix)
+    {
+        auto& node = model.nodesMutable()[nodeIndex];
+
+        // Reconstruct local matrix from TRS components
+        glm::mat4 T = glm::translate(glm::mat4(1.0f), node.m_localTransform.m_translation);
+        glm::mat4 R = glm::toMat4(node.m_localTransform.m_rotation);
+        glm::mat4 S = glm::scale(glm::mat4(1.0f), node.m_localTransform.m_scale);
+
+        // Update local matrix cache
+        node.m_localTransform.m_matrix = T * R * S;
+
+        // Calculate World Matrix
+        node.m_worldTransform.m_matrix = parentMatrix * node.m_localTransform.m_matrix;
+
+        // Recurse to children
+        for (int childIndex : node.m_children)
+        {
+            updateNodeHierarchy(model, childIndex, node.m_worldTransform.m_matrix);
+        }
+    }
+
     void Model::updateTransforms()
     {
-        std::function<void(int, const glm::mat4&)> updateNode =
-            [&](int nodeIdx, const glm::mat4& parentMat)
+        glm::mat4 identity(1.0f);
+        for (int rootIndex : m_rootNodes)
         {
-            auto& node = m_nodes[nodeIdx];
-
-            const glm::mat4 localMat = node.m_localTransform.mat4();
-            const glm::mat4 worldMat = parentMat * localMat;
-
-            glm::vec3 s{};
-            glm::vec3 t{};
-            glm::vec3 skew{};
-            glm::vec4 p{};
-            glm::quat r{};
-
-            glm::decompose(worldMat, s, r, t, skew, p);
-
-            node.m_worldTransform.m_translation = t;
-            node.m_worldTransform.m_rotation = r;
-            node.m_worldTransform.m_scale = s;
-
-            for (int child : node.m_children)
-            {
-                updateNode(child, worldMat);
-            }
-        };
-
-        for (int root : m_rootNodes)
-        {
-            updateNode(root, glm::mat4(1.0F));
+            updateNodeHierarchy(*this, rootIndex, identity);
         }
     }
 } // namespace pnkr::renderer::scene

@@ -43,6 +43,7 @@ namespace pnkr::renderer::rhi::vulkan
         BufferUsage m_usage;
         MemoryUsage m_memoryUsage;
         void* m_mappedData = nullptr;
+        bool m_isPersistentlyMapped = false;
     };
 
 } // namespace pnkr::renderer::rhi::vulkan

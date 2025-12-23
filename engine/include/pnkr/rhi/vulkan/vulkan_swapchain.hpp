@@ -28,7 +28,7 @@ namespace pnkr::renderer::rhi::vulkan
         Format format() const override { return m_format; }
         uint32_t mipLevels() const override { return 1; }
         uint32_t arrayLayers() const override { return 1; }
-        TextureUsage usage() const override { return TextureUsage::ColorAttachment | TextureUsage::TransferDst; }
+        TextureUsage usage() const override { return TextureUsage::ColorAttachment | TextureUsage::TransferDst | TextureUsage::TransferSrc; }
 
         void* nativeHandle() const override { return static_cast<VkImage>(m_image); }
         void* nativeView() const override { return static_cast<VkImageView>(m_view); }
@@ -42,6 +42,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::Image image() const { return m_image; }
         vk::ImageView imageView() const { return m_view; }
+        void generateMipmaps(RHICommandBuffer* cmd) override;
 
     private:
         vk::Image m_image{};

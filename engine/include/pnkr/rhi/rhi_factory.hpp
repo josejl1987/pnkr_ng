@@ -32,7 +32,7 @@ namespace pnkr::renderer::rhi
         static std::unique_ptr<RHISwapchain> createSwapchain(
             RHIDevice* device,
             platform::Window& window,
-            Format preferredFormat = Format::B8G8R8A8_SRGB);
+            Format preferredFormat = Format::B8G8R8A8_UNORM);
     };
 
 } // namespace pnkr::renderer::rhi

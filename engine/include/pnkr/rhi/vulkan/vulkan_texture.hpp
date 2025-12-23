@@ -28,6 +28,7 @@ namespace pnkr::renderer::rhi::vulkan
             const TextureSubresource& subresource = {}) override;
 
         void generateMipmaps() override;
+        void generateMipmaps(RHICommandBuffer* cmd) override;
 
         const Extent3D& extent() const override { return m_extent; }
         Format format() const override { return m_format; }

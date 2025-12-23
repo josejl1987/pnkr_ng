@@ -42,6 +42,7 @@ namespace pnkr::renderer::rhi
 
         // Generate mipmaps
         virtual void generateMipmaps() = 0;
+        virtual void generateMipmaps(class RHICommandBuffer* cmd) = 0;
 
         // Getters
         virtual const Extent3D& extent() const = 0;

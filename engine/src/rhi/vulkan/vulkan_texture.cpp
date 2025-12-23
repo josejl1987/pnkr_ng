@@ -269,11 +269,17 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHITexture::generateMipmaps()
     {
-        // Create command buffer
         auto cmdBuffer = m_device->createCommandBuffer();
         cmdBuffer->begin();
+        generateMipmaps(cmdBuffer.get());
+        cmdBuffer->end();
+        m_device->submitCommands(cmdBuffer.get());
+        m_device->waitIdle();
+    }
 
-        vk::CommandBuffer cmd = dynamic_cast<VulkanRHICommandBuffer*>(cmdBuffer.get())->commandBuffer();
+    void VulkanRHITexture::generateMipmaps(RHICommandBuffer* externalCmd)
+    {
+        vk::CommandBuffer cmd = dynamic_cast<VulkanRHICommandBuffer*>(externalCmd)->commandBuffer();
 
         vk::ImageMemoryBarrier2 barrier{};
         barrier.image = m_image;
@@ -361,12 +367,6 @@ namespace pnkr::renderer::rhi::vulkan
         depInfo.imageMemoryBarrierCount = 1;
         depInfo.pImageMemoryBarriers = &barrier;
         cmd.pipelineBarrier2(depInfo);
-
-        cmdBuffer->end();
-
-        // Submit and wait
-        m_device->submitCommands(cmdBuffer.get());
-        m_device->waitIdle();
 
         m_currentLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
     }

@@ -59,11 +59,17 @@ namespace pnkr::renderer::rhi::vulkan
     {
         m_commandBuffer.reset(vk::CommandBufferResetFlagBits::eReleaseResources);
         m_recording = false;
+        m_inRendering = false;
         m_boundPipeline = nullptr;
     }
 
     void VulkanRHICommandBuffer::beginRendering(const RenderingInfo& info)
     {
+        if (m_inRendering)
+        {
+            throw cpptrace::runtime_error("beginRendering called while already in rendering state");
+        }
+
         // Convert to Vulkan rendering info (dynamic rendering).
         std::vector<vk::RenderingAttachmentInfo> colorAttachments;
         colorAttachments.reserve(info.colorAttachments.size());
@@ -135,11 +141,17 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         m_commandBuffer.beginRendering(renderingInfo);
+        m_inRendering = true;
     }
 
     void VulkanRHICommandBuffer::endRendering()
     {
+        if (!m_inRendering)
+        {
+            return;
+        }
         m_commandBuffer.endRendering();
+        m_inRendering = false;
     }
 
     void VulkanRHICommandBuffer::bindPipeline(RHIPipeline* pipeline)
@@ -293,11 +305,73 @@ namespace pnkr::renderer::rhi::vulkan
         m_commandBuffer.setPrimitiveTopology(VulkanUtils::toVkTopology(topology));
     }
 
+    static vk::AccessFlags2 accessForStageSrc(vk::PipelineStageFlags2 stage)
+    {
+        if (stage & vk::PipelineStageFlagBits2::eHost)
+            return vk::AccessFlagBits2::eHostWrite;
+        if (stage & vk::PipelineStageFlagBits2::eTransfer)
+            return vk::AccessFlagBits2::eTransferWrite;
+        if (stage & vk::PipelineStageFlagBits2::eColorAttachmentOutput)
+            return vk::AccessFlagBits2::eColorAttachmentWrite;
+        if (stage & (vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests))
+            return vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+
+        // Any shader stage: assume previous writes were shader writes (storage/SSBO/UAV style)
+        const vk::PipelineStageFlags2 shaderStages =
+            vk::PipelineStageFlagBits2::eVertexShader |
+            vk::PipelineStageFlagBits2::eFragmentShader |
+            vk::PipelineStageFlagBits2::eComputeShader |
+            vk::PipelineStageFlagBits2::eTaskShaderEXT |
+            vk::PipelineStageFlagBits2::eMeshShaderEXT |
+            vk::PipelineStageFlagBits2::eGeometryShader |
+            vk::PipelineStageFlagBits2::eTessellationControlShader |
+            vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
+
+        if (stage & shaderStages)
+            return vk::AccessFlagBits2::eShaderWrite;
+
+        return vk::AccessFlagBits2::eMemoryWrite;
+    }
+
+    static vk::AccessFlags2 accessForStageDst(vk::PipelineStageFlags2 stage)
+    {
+        if (stage & vk::PipelineStageFlagBits2::eHost)
+            return vk::AccessFlagBits2::eHostRead;
+        if (stage & vk::PipelineStageFlagBits2::eTransfer)
+            return vk::AccessFlagBits2::eTransferRead;
+
+        const vk::PipelineStageFlags2 shaderStages =
+            vk::PipelineStageFlagBits2::eVertexShader |
+            vk::PipelineStageFlagBits2::eFragmentShader |
+            vk::PipelineStageFlagBits2::eComputeShader |
+            vk::PipelineStageFlagBits2::eTaskShaderEXT |
+            vk::PipelineStageFlagBits2::eMeshShaderEXT |
+            vk::PipelineStageFlagBits2::eGeometryShader |
+            vk::PipelineStageFlagBits2::eTessellationControlShader |
+            vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
+
+        if (stage & shaderStages)
+            return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eUniformRead;
+
+        if (stage & vk::PipelineStageFlagBits2::eColorAttachmentOutput)
+            return vk::AccessFlagBits2::eColorAttachmentRead;
+
+        if (stage & (vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests))
+            return vk::AccessFlagBits2::eDepthStencilAttachmentRead;
+
+        return vk::AccessFlagBits2::eMemoryRead;
+    }
+
     void VulkanRHICommandBuffer::pipelineBarrier(
         ShaderStage srcStage,
         ShaderStage dstStage,
         const std::vector<RHIMemoryBarrier>& barriers)
     {
+        if (m_inRendering)
+        {
+            throw cpptrace::runtime_error("pipelineBarrier() called inside a dynamic rendering instance. Call endRendering() first.");
+        }
+
         auto stripHostAccessIfNoHostStage =
             [](vk::PipelineStageFlags2 stages, vk::AccessFlags2& access)
         {
@@ -330,27 +404,11 @@ namespace pnkr::renderer::rhi::vulkan
                 vk::BufferMemoryBarrier2 vkBarrier{};
 
                 // Fix: Map None to Top/Bottom of pipe if used explicitly as stage for buffers
-                vkBarrier.srcStageMask = (barrierSrcStage == vk::PipelineStageFlagBits2::eNone) ? vk::PipelineStageFlagBits2::eTopOfPipe : barrierSrcStage;
-                vkBarrier.dstStageMask = (barrierDstStage == vk::PipelineStageFlagBits2::eNone) ? vk::PipelineStageFlagBits2::eBottomOfPipe : barrierDstStage;
+                vkBarrier.srcStageMask = (barrierSrcStage == vk::PipelineStageFlags2{}) ? vk::PipelineStageFlagBits2::eTopOfPipe : barrierSrcStage;
+                vkBarrier.dstStageMask = (barrierDstStage == vk::PipelineStageFlags2{}) ? vk::PipelineStageFlagBits2::eBottomOfPipe : barrierDstStage;
 
-                if (dstStage == ShaderStage::Transfer)
-                {
-                    vkBarrier.dstAccessMask = vk::AccessFlagBits2::eTransferRead;
-                }
-                else
-                {
-                    // Default to standard GPU shader read
-                    vkBarrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
-                }
-
-                if (srcStage == ShaderStage::Transfer)
-                {
-                    vkBarrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
-                }
-                else
-                {
-                    vkBarrier.srcAccessMask = vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eMemoryWrite;
-                }
+                vkBarrier.srcAccessMask = accessForStageSrc(vkBarrier.srcStageMask);
+                vkBarrier.dstAccessMask = accessForStageDst(vkBarrier.dstStageMask);
 
                 stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
                 stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);
@@ -377,12 +435,21 @@ namespace pnkr::renderer::rhi::vulkan
                 auto [oldStage, oldAccess] = VulkanUtils::getLayoutStageAccess(vkBarrier.oldLayout);
                 auto [newStage, newAccess] = VulkanUtils::getLayoutStageAccess(vkBarrier.newLayout);
 
-                // Apply User overrides if provided, otherwise use defaults
-                vkBarrier.srcStageMask = (barrierSrcStage != vk::PipelineStageFlagBits2::eNone) ? barrierSrcStage : oldStage;
-                vkBarrier.dstStageMask = (barrierDstStage != vk::PipelineStageFlagBits2::eNone) ? barrierDstStage : newStage;
+                // Stage can be overridden by caller, otherwise use layout-default.
+                vkBarrier.srcStageMask = (barrierSrcStage != vk::PipelineStageFlags2{}) ? barrierSrcStage : oldStage;
+                vkBarrier.dstStageMask = (barrierDstStage != vk::PipelineStageFlags2{}) ? barrierDstStage : newStage;
 
-                vkBarrier.srcAccessMask = oldAccess;
-                vkBarrier.dstAccessMask = newAccess;
+                // Access MUST match layout (best practice + avoids hazards on clears).
+                // However, if the user explicitly provided a stage override, they might want stage-derived access 
+                // (e.g. for general layout or if the layout helper is too generic).
+                // Minimal rule: if user sets a stage, use stage-derived access.
+                vkBarrier.srcAccessMask = (barrierSrcStage != vk::PipelineStageFlags2{}) ? accessForStageSrc(vkBarrier.srcStageMask) : oldAccess;
+                vkBarrier.dstAccessMask = (barrierDstStage != vk::PipelineStageFlags2{}) ? accessForStageDst(vkBarrier.dstStageMask) : newAccess;
+
+                // [FIX] For layouts like ColorAttachment/DepthAttachment, ensure we at least have 
+                // the layout-mandated access bits even if the stage override was provided.
+                vkBarrier.srcAccessMask |= oldAccess;
+                vkBarrier.dstAccessMask |= newAccess;
 
                 stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
                 stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);
@@ -597,5 +664,38 @@ namespace pnkr::renderer::rhi::vulkan
             vk::ImageLayout::eTransferDstOptimal,
             copyRegion
         );
+    }
+
+    void VulkanRHICommandBuffer::beginDebugLabel(const char* name, float r, float g, float b, float a)
+    {
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginDebugUtilsLabelEXT) {
+            vk::DebugUtilsLabelEXT labelInfo;
+            labelInfo.pLabelName = name;
+            labelInfo.color[0] = r;
+            labelInfo.color[1] = g;
+            labelInfo.color[2] = b;
+            labelInfo.color[3] = a;
+            m_commandBuffer.beginDebugUtilsLabelEXT(labelInfo);
+        }
+    }
+
+    void VulkanRHICommandBuffer::endDebugLabel()
+    {
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdEndDebugUtilsLabelEXT) {
+            m_commandBuffer.endDebugUtilsLabelEXT();
+        }
+    }
+
+    void VulkanRHICommandBuffer::insertDebugLabel(const char* name, float r, float g, float b, float a)
+    {
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdInsertDebugUtilsLabelEXT) {
+            vk::DebugUtilsLabelEXT labelInfo;
+            labelInfo.pLabelName = name;
+            labelInfo.color[0] = r;
+            labelInfo.color[1] = g;
+            labelInfo.color[2] = b;
+            labelInfo.color[3] = a;
+            m_commandBuffer.insertDebugUtilsLabelEXT(labelInfo);
+        }
     }
 } // namespace pnkr::renderer::rhi::vulkan

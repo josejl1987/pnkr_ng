@@ -16,9 +16,17 @@ namespace pnkr::renderer::rhi::vulkan
 
         // Color formats
         case Format::R8_UNORM: return vk::Format::eR8Unorm;
+        case Format::R8_SNORM: return vk::Format::eR8Snorm;
+
         case Format::R8G8_UNORM: return vk::Format::eR8G8Unorm;
+        case Format::R8G8_SNORM: return vk::Format::eR8G8Snorm;
+
         case Format::R8G8B8_UNORM: return vk::Format::eR8G8B8Unorm;
+        case Format::R8G8B8_SNORM: return vk::Format::eR8G8B8Snorm;
+
         case Format::R8G8B8A8_UNORM: return vk::Format::eR8G8B8A8Unorm;
+        case Format::R8G8B8A8_SNORM: return vk::Format::eR8G8B8A8Snorm;
+
         case Format::R8G8B8A8_SRGB: return vk::Format::eR8G8B8A8Srgb;
         case Format::B8G8R8A8_UNORM: return vk::Format::eB8G8R8A8Unorm;
         case Format::B8G8R8A8_SRGB: return vk::Format::eB8G8R8A8Srgb;
@@ -302,6 +310,11 @@ namespace pnkr::renderer::rhi::vulkan
         if (hasFlag(stage, ShaderStage::TessControl))
         {
             flags |= vk::PipelineStageFlagBits2::eTessellationControlShader;
+        }
+        if (hasFlag(stage, ShaderStage::DepthStencilAttachment))
+        {
+            flags |= vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                vk::PipelineStageFlagBits2::eLateFragmentTests;
         }
         if (hasFlag(stage, ShaderStage::RenderTarget))
         {
@@ -713,7 +726,7 @@ namespace pnkr::renderer::rhi::vulkan
                     vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite};
 
         case vk::ImageLayout::ePresentSrcKHR:
-            return {vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::AccessFlags2{}};
+            return {vk::PipelineStageFlagBits2::eAllCommands, vk::AccessFlags2{}};
 
         default:
             // Fallback for unhandled layouts

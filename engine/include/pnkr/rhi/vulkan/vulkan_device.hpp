@@ -158,6 +158,7 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t m_storageImageIndexCounter = 0;
     
         static constexpr uint32_t MAX_BINDLESS_RESOURCES = 100000;
+        static constexpr uint32_t MAX_SAMPLERS = 200;
 
         std::unique_ptr<VulkanRHIPhysicalDevice> m_physicalDevice;
         vk::Device m_device;

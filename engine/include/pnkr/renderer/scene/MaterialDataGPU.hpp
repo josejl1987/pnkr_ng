@@ -20,6 +20,9 @@ namespace pnkr::renderer::scene
         // Workflow: 0.0 = Metallic/Roughness, 1.0 = Specular/Glossiness
         glm::vec4 specularFactorWorkflow;
 
+        // { clearcoatFactor, clearcoatRoughnessFactor, clearcoatNormalScale, unused }
+        glm::vec4 clearcoatFactors;
+
         uint32_t occlusionTexture;
         uint32_t occlusionTextureSampler;
         uint32_t occlusionTextureUV;
@@ -41,6 +44,17 @@ namespace pnkr::renderer::scene
         uint32_t normalTexture;
         uint32_t normalTextureSampler;
         uint32_t normalTextureUV;
+
+        uint32_t clearCoatTexture;
+        uint32_t clearCoatTextureSampler;
+        uint32_t clearCoatTextureUV;
+        uint32_t clearCoatRoughnessTexture;
+        uint32_t clearCoatRoughnessTextureSampler;
+        uint32_t clearCoatRoughnessTextureUV;
+        uint32_t clearCoatNormalTexture;
+        uint32_t clearCoatNormalTextureSampler;
+        uint32_t clearCoatNormalTextureUV;
+
         uint32_t alphaMode;
 
         uint32_t _pad0;

@@ -150,6 +150,11 @@ namespace pnkr::renderer::rhi
         virtual void copyTexture(RHITexture* src, RHITexture* dst,
                                 const TextureCopyRegion& region) = 0;
 
+        // Debug Groups (RenderDoc / Nsight)
+        virtual void beginDebugLabel(const char* name, float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f) = 0;
+        virtual void endDebugLabel() = 0;
+        virtual void insertDebugLabel(const char* name, float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f) = 0;
+
         // Backend handle
         virtual void* nativeHandle() const = 0;
     };

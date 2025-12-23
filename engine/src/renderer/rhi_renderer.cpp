@@ -63,7 +63,7 @@ namespace pnkr::renderer
         m_swapchain = rhi::RHIFactory::createSwapchain(
             m_device.get(),
             m_window,
-            rhi::Format::B8G8R8A8_SRGB);
+            rhi::Format::B8G8R8A8_UNORM);
 
         if (!m_swapchain)
         {
@@ -230,13 +230,13 @@ namespace pnkr::renderer
             rhi::RHIMemoryBarrier depthBarrier{};
             depthBarrier.texture = m_depthTarget.get();
             depthBarrier.srcAccessStage = rhi::ShaderStage::None;
-            depthBarrier.dstAccessStage = rhi::ShaderStage::RenderTarget;
+            depthBarrier.dstAccessStage = rhi::ShaderStage::DepthStencilAttachment;
             depthBarrier.oldLayout = m_depthLayout;
             depthBarrier.newLayout = rhi::ResourceLayout::DepthStencilAttachment;
 
             m_activeCommandBuffer->pipelineBarrier(
                 rhi::ShaderStage::None,
-                rhi::ShaderStage::RenderTarget,
+                rhi::ShaderStage::DepthStencilAttachment,
                 {depthBarrier}
             );
 
@@ -257,9 +257,9 @@ namespace pnkr::renderer
         colorAttachment.loadOp = rhi::LoadOp::Clear;
         colorAttachment.storeOp = rhi::StoreOp::Store;
         colorAttachment.clearValue.isDepthStencil = false;
-        colorAttachment.clearValue.color.float32[0] = 0.1F;
-        colorAttachment.clearValue.color.float32[1] = 0.1F;
-        colorAttachment.clearValue.color.float32[2] = 0.1F;
+        colorAttachment.clearValue.color.float32[0] = 1.0F;
+        colorAttachment.clearValue.color.float32[1] = 1.0F;
+        colorAttachment.clearValue.color.float32[2] = 1.0F;
         colorAttachment.clearValue.color.float32[3] = 1.0F;
         renderingInfo.colorAttachments.push_back(colorAttachment);
 
@@ -479,18 +479,18 @@ namespace pnkr::renderer
 
     TextureHandle RHIRenderer::createTexture(const unsigned char* data,
                                              int width, int height, int channels,
-                                             bool srgb)
+                                             bool srgb, bool isSigned)
     {
         rhi::Format format;
         switch (channels)
         {
-        case 1: format = rhi::Format::R8_UNORM;
+        case 1: format = isSigned ? rhi::Format::R8_SNORM : rhi::Format::R8_UNORM;
             break;
-        case 2: format = rhi::Format::R8G8_UNORM;
+        case 2: format = isSigned ? rhi::Format::R8G8_SNORM : rhi::Format::R8G8_UNORM;
             break;
-        case 3: format = rhi::Format::R8G8B8_UNORM;
+        case 3: format = isSigned ? rhi::Format::R8G8B8_SNORM :  rhi::Format::R8G8B8_UNORM;
             break;
-        case 4: format = srgb ? rhi::Format::R8G8B8A8_SRGB : rhi::Format::R8G8B8A8_UNORM;
+        case 4: format =  srgb ? rhi::Format::R8G8B8A8_SRGB : isSigned ? rhi::Format::R8G8B8A8_SNORM : rhi::Format::R8G8B8A8_UNORM;
             break;
         default:
             core::Logger::error("Unsupported channel count: {}", channels);
@@ -528,6 +528,29 @@ namespace pnkr::renderer
         return handle;
     }
 
+    TextureHandle RHIRenderer::createTexture(const rhi::TextureDescriptor& desc)
+    {
+        auto texture = m_device->createTexture(desc);
+
+        TextureData texData{};
+        texData.texture = std::move(texture);
+        texData.bindlessIndex = 0;
+
+        if (m_useBindless && m_device)
+        {
+            auto bindlessHandle = m_device->registerBindlessTexture2D(
+                texData.texture.get()
+            );
+            texData.bindlessIndex = bindlessHandle.index;
+        }
+
+        auto handle = static_cast<TextureHandle>(m_textures.size());
+        m_textures.push_back(std::move(texData));
+
+        core::Logger::info("Created texture (desc): {}x{} mips={}", desc.extent.width, desc.extent.height, desc.mipLevels);
+
+        return handle;
+    }
 
     TextureHandle RHIRenderer::loadTexture(const std::filesystem::path& filepath, bool srgb)
     {
@@ -1026,6 +1049,8 @@ namespace pnkr::renderer
     {
         // Create white texture (1x1 white pixel)
         m_whiteTexture = createWhiteTexture();
+        m_blackTexture = createBlackTexture();
+        m_flatNormalTexture = createFlatNormalTexture();
     }
 
     rhi::RHIPipeline* RHIRenderer::getPipeline(PipelineHandle handle)
@@ -1041,6 +1066,18 @@ namespace pnkr::renderer
     {
         unsigned char white[4] = {255, 255, 255, 255};
         return createTexture(white, 1, 1, 4, false);
+    }
+
+    TextureHandle RHIRenderer::createBlackTexture()
+    {
+        unsigned char black[4] = {0, 0, 0, 255};
+        return createTexture(black, 1, 1, 4, false);
+    }
+
+    TextureHandle RHIRenderer::createFlatNormalTexture()
+    {
+        unsigned char flatNormal[4] = {128, 128, 255, 255};
+        return createTexture(flatNormal, 1, 1, 4, false);
     }
 
     void RHIRenderer::setVsync(bool enabled)

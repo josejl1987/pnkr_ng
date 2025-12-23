@@ -37,6 +37,11 @@ namespace pnkr::renderer::rhi::vulkan
         }
     }
 
+    void VulkanRHISwapchainImage::generateMipmaps(RHICommandBuffer* cmd)
+    {
+        (void)cmd;
+    }
+
     VulkanRHISwapchain::VulkanRHISwapchain(VulkanRHIDevice* device, platform::Window& window, Format preferredFormat)
         : m_device(device), m_window(&window)
     {
@@ -329,15 +334,16 @@ namespace pnkr::renderer::rhi::vulkan
 
         if (!m_tracyContext)
         {
-            m_device->immediateSubmit([this](RHICommandBuffer* cmd) {
-                auto* vkCmd = dynamic_cast<VulkanRHICommandBuffer*>(cmd);
+            auto  cmd = m_device->createCommandBuffer();
+
+                auto* vkCmd = dynamic_cast<VulkanRHICommandBuffer*>(cmd.get());
                 m_tracyContext = PNKR_PROFILE_GPU_CONTEXT(
                     m_device->vkPhysicalDevice(),
                     m_device->device(),
                     m_device->graphicsQueue(),
                     vkCmd->commandBuffer()
                 );
-            });
+
         }
     }
 
@@ -376,7 +382,7 @@ namespace pnkr::renderer::rhi::vulkan
         m_device->device().waitIdle();
 
         destroySwapchain();
-        createSwapchain(m_rhiFormat != Format::Undefined ? m_rhiFormat : Format::B8G8R8A8_SRGB, width, height);
+        createSwapchain(m_rhiFormat != Format::Undefined ? m_rhiFormat : Format::B8G8R8A8_UNORM, width, height);
         createSyncObjects();
 
         core::Logger::info("[VulkanRHISwapchain] Recreated ({} images, {}x{}, format={})",
@@ -443,12 +449,12 @@ namespace pnkr::renderer::rhi::vulkan
 
             RHIMemoryBarrier b{};
             b.texture = out.color;
-            b.srcAccessStage = ShaderStage::RenderTarget; // Synchronize with Acquire Semaphore
+            b.srcAccessStage = ShaderStage::None;
             b.dstAccessStage = ShaderStage::RenderTarget;
             b.oldLayout = m_layouts[imageIndex];
             b.newLayout = ResourceLayout::ColorAttachment;
 
-            cmd->pipelineBarrier(ShaderStage::RenderTarget, ShaderStage::RenderTarget, {b});
+            cmd->pipelineBarrier(ShaderStage::None, ShaderStage::RenderTarget, {b});
             m_layouts[imageIndex] = ResourceLayout::ColorAttachment;
 
             PNKR_PROFILE_GPU_COLLECT(m_tracyContext, vkCmd);
