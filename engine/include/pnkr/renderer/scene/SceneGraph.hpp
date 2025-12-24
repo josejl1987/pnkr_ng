@@ -2,7 +2,6 @@
 
 #include <vector>
 #include <string>
-#include <unordered_map>
 #include <glm/mat4x4.hpp>
 #include <memory>
 #include <cstdint>
@@ -43,16 +42,43 @@ namespace pnkr::renderer::scene {
         // Synthetic root node id (optional but recommended)
         uint32_t root = 0;
 
+        // ---------------------------------------------------------------------
+        // TransformTree dirty tracking (per-frame)
+        // ---------------------------------------------------------------------
+        std::vector<std::vector<uint32_t>> changedAtThisFrame; // indexed by level
+        std::vector<uint8_t> dirtyFlag;                        // 0/1 per node
+        std::vector<uint32_t> dirtyNodes;                      // nodes marked this frame (for fast reset)
+        uint16_t maxLevel = 0;                                 // max depth in this scene
+        uint16_t maxDirtyLevelThisFrame = 0;                   // max level touched this frame
+
         void clear() {
             local.clear(); global.clear(); hierarchy.clear();
             meshIndex.clear(); lightIndex.clear(); nameId.clear();
             names.clear(); roots.clear(); topoOrder.clear();
             root = 0;
+
+            changedAtThisFrame.clear();
+            dirtyFlag.clear();
+            dirtyNodes.clear();
+            maxLevel = 0;
+            maxDirtyLevelThisFrame = 0;
         }
 
         void appendChild(uint32_t parent, uint32_t child);
         void buildFromFastgltf(const fastgltf::Asset& gltf, size_t sceneIndex);
-        void recalculateGlobalTransforms();
+
+        // Full update (topoOrder-based). Useful after load or for debugging/fallback.
+        void recalculateGlobalTransformsFull();
+
+        // Dirty-tracked update
+        void initDirtyTracking();
+        void beginFrameDirty();               // optional: call once per frame
+        void markAsChanged(uint32_t node);    // marks node + descendants
+        void recalculateGlobalTransformsDirty();
+
+        // Hierarchy management
+        bool hierarchyDirty = false;
+        void onHierarchyChanged();
     };
 
 } // namespace pnkr::renderer::scene

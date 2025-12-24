@@ -141,18 +141,47 @@ namespace pnkr::renderer
         }
 
         out.texture = texture;
-        out.extent = rhi::Extent3D{
-            .width = texture->baseWidth,
-            .height = texture->baseHeight,
-            .depth = texture->baseDepth == 0 ? 1u : texture->baseDepth
-        };
         out.mipLevels = std::max(1u, texture->numLevels);
         out.numLayers = std::max(1u, texture->numLayers);
-        out.numFaces = std::max(1u, texture->numFaces);
-        out.arrayLayers = out.numLayers * out.numFaces;
-        out.isCubemap = texture->isCubemap == KTX_TRUE;
-        out.isArray = texture->isArray == KTX_TRUE;
-        out.type = pickTextureType(texture);
+        out.isCubemap = (texture->isCubemap == KTX_TRUE);
+        out.type      = pickTextureType(texture);
+
+        // Enforce faces semantics (avoid “weird” files / inconsistent metadata)
+        out.numFaces  = out.isCubemap ? 6u : 1u;
+
+        // Normalize depth: only 3D uses depth > 1 in Vulkan
+        out.extent = rhi::Extent3D{
+            .width  = texture->baseWidth,
+            .height = std::max(1u, texture->baseHeight),
+            .depth  = (out.type == rhi::TextureType::Texture3D)
+                        ? std::max(1u, texture->baseDepth)
+                        : 1u
+        };
+
+        // Strict validation + invariant enforcement
+        if (out.type == rhi::TextureType::Texture3D) {
+            // Vulkan 3D array textures are not supported in your engine (and are awkward in general).
+            if (texture->numLayers > 1) {
+                ktxTexture_Destroy(texture);
+                return setError(error, "KTX 3D arrays are not supported: " + pathString);
+            }
+
+            out.isCubemap   = false;
+            out.isArray     = false;
+            out.numFaces    = 1u;
+            out.numLayers   = 1u;
+            out.arrayLayers = 1u;
+        } else {
+            // Cubemap sanity
+            if (out.isCubemap && texture->numFaces != 6) {
+                ktxTexture_Destroy(texture);
+                return setError(error, "KTX cubemap must have 6 faces: " + pathString);
+            }
+
+            // “Array” in runtime terms = multiple layers (cube-array or 2D array)
+            out.isArray     = (out.numLayers > 1);
+            out.arrayLayers = out.numLayers * out.numFaces;
+        }
 
         if (texture->classId == ktxTexture2_c)
         {

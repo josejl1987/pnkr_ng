@@ -331,9 +331,15 @@ namespace pnkr::renderer
                     const uint64_t signalValue = vkDevice->advanceFrame();
 
                     std::vector<vk::Semaphore> waits = { vkSwapchain->getCurrentAcquireSemaphore() };
+                    
+                    // FIXED: Wait at AllCommands to ensure layout transitions (which happen at the 
+                    // start of the command buffer) are blocked until the image is acquired.
+                    // 'eColorAttachmentOutput' is insufficient because it allows Transfer/Barriers 
+                    // to execute before the stage is reached, causing the WRITE_AFTER_PRESENT hazard.
                     std::vector<vk::PipelineStageFlags> waitStages = {
-                        vk::PipelineStageFlagBits::eColorAttachmentOutput
+                        vk::PipelineStageFlagBits::eAllCommands
                     };
+                    
                     std::vector<vk::Semaphore> signals = { vkSwapchain->getCurrentRenderFinishedSemaphore() };
 
                     vkDevice->submitCommands(
@@ -577,7 +583,7 @@ namespace pnkr::renderer
         return handle;
     }
 
-    TextureHandle RHIRenderer::loadTextureKTX(const std::filesystem::path& filepath)
+    TextureHandle RHIRenderer::loadTextureKTX(const std::filesystem::path& filepath, bool srgb)
     {
         KTXTextureData ktxData{};
         std::string error;
@@ -587,34 +593,62 @@ namespace pnkr::renderer
             return INVALID_TEXTURE_HANDLE;
         }
 
+        struct DestroyGuard {
+            KTXTextureData* d;
+            ~DestroyGuard() { if (d) KTXUtils::destroy(*d); }
+        } guard{ &ktxData };
+
         if (ktxData.type == rhi::TextureType::TextureCube && ktxData.numFaces != 6)
         {
             core::Logger::error("KTX cubemap must have 6 faces: {}", filepath.string());
-            KTXUtils::destroy(ktxData);
             return INVALID_TEXTURE_HANDLE;
         }
 
         if (ktxData.type == rhi::TextureType::Texture3D && ktxData.numLayers > 1)
         {
             core::Logger::error("KTX 3D arrays are not supported: {}", filepath.string());
-            KTXUtils::destroy(ktxData);
             return INVALID_TEXTURE_HANDLE;
+        }
+
+        rhi::Format finalFormat = ktxData.format;
+        if (srgb)
+        {
+            if (finalFormat == rhi::Format::R8G8B8A8_UNORM) finalFormat = rhi::Format::R8G8B8A8_SRGB;
+            else if (finalFormat == rhi::Format::B8G8R8A8_UNORM) finalFormat = rhi::Format::B8G8R8A8_SRGB;
+            else if (finalFormat == rhi::Format::BC1_RGB_UNORM) finalFormat = rhi::Format::BC1_RGB_SRGB;
+            else if (finalFormat == rhi::Format::BC3_UNORM) finalFormat = rhi::Format::BC3_SRGB;
+            else if (finalFormat == rhi::Format::BC7_UNORM) finalFormat = rhi::Format::BC7_SRGB;
+        }
+        else
+        {
+            if (finalFormat == rhi::Format::R8G8B8A8_SRGB) finalFormat = rhi::Format::R8G8B8A8_UNORM;
+            else if (finalFormat == rhi::Format::B8G8R8A8_SRGB) finalFormat = rhi::Format::B8G8R8A8_UNORM;
+            else if (finalFormat == rhi::Format::BC1_RGB_SRGB) finalFormat = rhi::Format::BC1_RGB_UNORM;
+            else if (finalFormat == rhi::Format::BC3_SRGB) finalFormat = rhi::Format::BC3_UNORM;
+            else if (finalFormat == rhi::Format::BC7_SRGB) finalFormat = rhi::Format::BC7_UNORM;
         }
 
         rhi::TextureDescriptor desc{};
         desc.extent = ktxData.extent;
-        desc.format = ktxData.format;
+        desc.format = finalFormat;
         desc.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
         desc.mipLevels = ktxData.mipLevels;
-        desc.arrayLayers = ktxData.arrayLayers;
         desc.type = ktxData.type;
+
+        // Use the flattened arrayLayers (numLayers * numFaces) from KTXUtils
+        desc.arrayLayers = ktxData.arrayLayers;
+
+        if (desc.type == rhi::TextureType::TextureCube && (desc.arrayLayers % 6u) != 0u)
+        {
+            core::Logger::error("KTX cube arrayLayers must be multiple of 6: {}", filepath.string());
+            return INVALID_TEXTURE_HANDLE;
+        }
 
         auto texture = m_device->createTexture(desc);
 
         if (!texture)
         {
             core::Logger::error("Failed to create RHI texture for: {}", filepath.string());
-            KTXUtils::destroy(ktxData);
             return INVALID_TEXTURE_HANDLE;
         }
 
@@ -635,20 +669,18 @@ namespace pnkr::renderer
                     if (ktxTexture_GetImageOffset(ktxData.texture, level, layer, face, &offset) != KTX_SUCCESS)
                     {
                         core::Logger::error("KTX offset query failed: {}", filepath.string());
-                        KTXUtils::destroy(ktxData);
                         return INVALID_TEXTURE_HANDLE;
                     }
 
                     if (offset + imageSize > dataSize)
                     {
                         core::Logger::error("KTX data range out of bounds: {}", filepath.string());
-                        KTXUtils::destroy(ktxData);
                         return INVALID_TEXTURE_HANDLE;
                     }
 
                     rhi::TextureSubresource subresource{};
                     subresource.mipLevel = level;
-                    subresource.arrayLayer = layer * numFaces + face;
+                    subresource.arrayLayer = layer * numFaces + face; // matches desc.arrayLayers flattening
 
                     texture->uploadData(srcData + offset, imageSize, subresource);
                 }
@@ -681,7 +713,6 @@ namespace pnkr::renderer
         m_textures.push_back(std::move(texData));
 
         core::Logger::info("Loaded KTX texture: {}", filepath.string());
-        KTXUtils::destroy(ktxData);
 
         return handle;
     }

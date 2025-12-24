@@ -16,6 +16,8 @@ add_library(pnkr_engine STATIC
         src/renderer/scene/ModelDOD.cpp
         src/renderer/scene/GLTFUnified.cpp
         src/renderer/scene/GLTFUnifiedDOD.cpp
+        src/renderer/scene/SpriteSystem.cpp
+        src/renderer/scene/SpriteRenderer.cpp
         include/pnkr/core/Timer.h
         include/pnkr/renderer/scene/Model.hpp
         include/pnkr/renderer/scene/SceneGraph.hpp
@@ -25,6 +27,9 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/scene/Node.hpp
         include/pnkr/renderer/scene/RHIScene.hpp
         include/pnkr/renderer/scene/Skybox.hpp
+        include/pnkr/renderer/scene/Sprite.hpp
+        include/pnkr/renderer/scene/SpriteSystem.hpp
+        include/pnkr/renderer/scene/SpriteRenderer.hpp
         include/pnkr/renderer/material/Material.hpp
         include/pnkr/renderer/ktx_utils.hpp
         include/pnkr/ui/imgui_layer.hpp
@@ -82,12 +87,15 @@ target_sources(pnkr_engine
         include/pnkr/renderer/scene/Model.hpp
         include/pnkr/renderer/scene/SceneGraph.hpp
         include/pnkr/renderer/scene/ModelDOD.hpp
-        include/pnkr/renderer/scene/GLTFUnified.hpp
-        include/pnkr/renderer/scene/GLTFUnifiedDOD.hpp
-        include/pnkr/renderer/scene/Node.hpp
-        include/pnkr/renderer/scene/RHIScene.hpp
-        include/pnkr/renderer/scene/Skybox.hpp
-        include/pnkr/renderer/material/Material.hpp
+      include/pnkr/renderer/scene/GLTFUnified.hpp
+      include/pnkr/renderer/scene/GLTFUnifiedDOD.hpp
+      include/pnkr/renderer/scene/Node.hpp
+      include/pnkr/renderer/scene/RHIScene.hpp
+      include/pnkr/renderer/scene/Skybox.hpp
+      include/pnkr/renderer/scene/Sprite.hpp
+      include/pnkr/renderer/scene/SpriteSystem.hpp
+      include/pnkr/renderer/scene/SpriteRenderer.hpp
+      include/pnkr/renderer/material/Material.hpp
 )
 
 # ============================================================================
@@ -314,6 +322,12 @@ add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 add_shader_target("shaders/grid/grid.frag")
 add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 
+add_shader_target("shaders/sprite_billboard.vert")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/sprite_billboard.frag")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
 # Include generated headers
 target_include_directories(pnkr_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
@@ -324,6 +338,10 @@ set_source_files_properties( src/renderer/scene/Skybox.cpp PROPERTIES
 
 set_source_files_properties( src/renderer/scene/InfiniteGrid.cpp PROPERTIES
         OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/grid.vert.h"
+)
+
+set_source_files_properties( src/renderer/scene/SpriteRenderer.cpp PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/sprite_billboard.vert.h"
 )
 
 add_custom_command(TARGET pnkr_engine POST_BUILD

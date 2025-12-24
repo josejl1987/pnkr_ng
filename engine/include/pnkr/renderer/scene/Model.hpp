@@ -11,6 +11,59 @@
 
 namespace pnkr::renderer::scene
 {
+    enum MaterialFlags : uint32_t {
+        Material_CastShadow    = 0x1,
+        Material_ReceiveShadow = 0x2,
+        Material_Transparent   = 0x4,
+        Material_Unlit         = 0x8,
+        Material_SpecularGlossiness = 0x10,
+        Material_DoubleSided   = 0x20,
+    };
+
+    struct MaterialCPU
+    {
+        float baseColorFactor[4]  = {1,1,1,1};
+        float emissiveFactor[4]   = {0,0,0,0}; // w is strength
+
+        float metallic            = 1.0f;
+        float roughness           = 1.0f;
+        float alphaCutoff         = 0.5f;
+        float ior                 = 1.5f;
+
+        float transmissionFactor  = 0.0f;
+        float clearcoatFactor     = 0.0f;
+        float clearcoatRoughness  = 0.0f;
+        float clearcoatNormalScale = 1.0f;
+
+        float specularFactorScalar = 1.0f;
+        float specularColorFactor[3] = {1,1,1};
+        
+        float sheenColorFactor[3] = {0,0,0};
+        float sheenRoughnessFactor = 0.0f;
+
+        float volumeThicknessFactor = 0.0f;
+        float volumeAttenuationDistance = 1e30f; // infinity substitute
+        float volumeAttenuationColor[3] = {1,1,1};
+
+        int32_t baseColorTex      = -1;
+        int32_t normalTex         = -1;
+        int32_t metallicRoughnessTex = -1;
+        int32_t occlusionTex      = -1;
+        int32_t emissiveTex       = -1;
+        int32_t clearcoatTex      = -1;
+        int32_t clearcoatRoughnessTex = -1;
+        int32_t clearcoatNormalTex = -1;
+        int32_t specularTex       = -1;
+        int32_t specularColorTex  = -1;
+        int32_t transmissionTex   = -1;
+        int32_t sheenColorTex     = -1;
+        int32_t sheenRoughnessTex = -1;
+        int32_t volumeThicknessTex = -1;
+
+        uint32_t flags            = Material_CastShadow | Material_ReceiveShadow;
+    };
+    static_assert(std::is_trivially_copyable_v<MaterialCPU>);
+
     struct MaterialData
     {
         glm::vec4 m_baseColorFactor{1.0f};

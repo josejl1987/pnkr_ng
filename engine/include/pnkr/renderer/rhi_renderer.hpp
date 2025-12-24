@@ -68,7 +68,7 @@ namespace pnkr::renderer
         TextureHandle loadTexture(const std::filesystem::path& filepath,
                                  bool srgb = true);
 
-        TextureHandle loadTextureKTX(const std::filesystem::path& filepath);
+        TextureHandle loadTextureKTX(const std::filesystem::path& filepath, bool srgb = true);
 
         TextureHandle createCubemap(const std::vector<std::filesystem::path>& faces,
                                    bool srgb = true);

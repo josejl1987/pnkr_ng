@@ -28,6 +28,9 @@ namespace pnkr::renderer::scene
         static std::unique_ptr<ModelDOD> load(RHIRenderer& renderer, const std::filesystem::path& path,
                                               bool vertexPulling = false);
 
+        bool saveCache(const std::filesystem::path& path);
+        bool loadCache(const std::filesystem::path& path, RHIRenderer& renderer);
+
         // Assets
         const std::vector<MaterialData>& materials() const { return m_materials; }
         const std::vector<Light>& lights() const { return m_lights; }
@@ -37,6 +40,9 @@ namespace pnkr::renderer::scene
         std::vector<Light>& lightsMutable() { return m_lights; }
         std::vector<TextureHandle>& texturesMutable() { return m_textures; }
         std::vector<MeshDOD>& meshesMutable() { return m_meshes; }
+
+        const std::vector<MaterialCPU>& materialsCPU() const { return m_materialsCPU; }
+        const std::vector<std::string>& textureFiles() const { return m_textureFiles; }
 
         // The DOD Scene
         SceneGraphDOD& scene() { return m_scene; }
@@ -52,6 +58,10 @@ namespace pnkr::renderer::scene
         std::vector<Light> m_lights;
         std::vector<MeshDOD> m_meshes;
 
+        std::vector<MaterialCPU> m_materialsCPU;
+        std::vector<std::string> m_textureFiles;
+        std::vector<uint8_t> m_textureIsSrgb;
+
         SceneGraphDOD m_scene;
     };
-}
+} // namespace pnkr::renderer::scene

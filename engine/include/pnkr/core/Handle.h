@@ -38,3 +38,12 @@ inline constexpr MeshHandle INVALID_MESH_HANDLE{};
 inline constexpr PipelineHandle INVALID_PIPELINE_HANDLE{};
 inline constexpr TextureHandle INVALID_TEXTURE_HANDLE{};
 inline constexpr BufferHandle INVALID_BUFFER_HANDLE{};
+
+namespace std {
+template <typename Tag>
+struct hash<pnkr::core::Handle<Tag>> {
+    size_t operator()(const pnkr::core::Handle<Tag>& h) const noexcept {
+        return hash<uint32_t>{}(h.id);
+    }
+};
+} // namespace std

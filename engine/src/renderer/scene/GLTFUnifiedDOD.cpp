@@ -173,18 +173,19 @@ namespace pnkr::renderer::scene
         if (!ctx.model || !ctx.renderer) return;
 
         std::vector<ShaderGen::gltf_frag::LightDataGPU> gpuLights;
-        const auto& scene = ctx.model->scene();
+        auto& scene = ctx.model->scene();
         const auto& modelLights = ctx.model->lights();
 
-        for (size_t i = 0; i < scene.lightIndex.size(); ++i)
+        for (uint32_t nodeId : scene.topoOrder)
         {
-            const int32_t lightIdx = scene.lightIndex[i];
+            if (nodeId >= scene.lightIndex.size()) continue;
+            const int32_t lightIdx = scene.lightIndex[nodeId];
             if (lightIdx < 0 || static_cast<size_t>(lightIdx) >= modelLights.size()) continue;
 
             const auto& lightDef = modelLights[static_cast<size_t>(lightIdx)];
             ShaderGen::gltf_frag::LightDataGPU l{};
 
-            const glm::mat4& M = scene.global[i];
+            const glm::mat4& M = scene.global[nodeId];
 
             l.direction = glm::normalize(glm::vec3(M * glm::vec4(lightDef.m_direction, 0.0f)));
             l.range = lightDef.m_range == 0.0f ? 10000.0f : lightDef.m_range;
@@ -197,7 +198,7 @@ namespace pnkr::renderer::scene
             l.outerConeCos = std::cos(lightDef.m_outerConeAngle);
 
             l.type = static_cast<uint32_t>(lightDef.m_type);
-            l.nodeId = static_cast<int32_t>(i);
+            l.nodeId = static_cast<int32_t>(nodeId);
             l._pad = 0;
 
             gpuLights.push_back(l);
@@ -261,24 +262,20 @@ namespace pnkr::renderer::scene
         ctx.transparent.clear();
         ctx.volumetricMaterial = false;
 
-        if (!ctx.model) return;
-
-        // Update globals (fast path uses topoOrder inside the scene graph)
-        ctx.model->scene().recalculateGlobalTransforms();
+        if (!ctx.model || !ctx.renderer) return;
 
         const auto& scene = ctx.model->scene();
-        const auto& h = scene.hierarchy;
         const auto& globalTransforms = scene.global;
         const auto& meshIndex = scene.meshIndex;
 
         const auto& meshes = ctx.model->meshes();
         const auto& materials = ctx.model->materials();
 
-        // Linear iteration over all nodes
-        // Note: node 0 is synthetic root; meshIndex[0] should be -1.
-        const size_t nodeCount = h.size();
-        for (size_t nodeId = 0; nodeId < nodeCount; ++nodeId)
+        // Iterate in parent-before-child order for cache-friendly access.
+        for (uint32_t nodeId : scene.topoOrder)
         {
+            if (nodeId == scene.root) continue;
+
             const int32_t mi = (nodeId < meshIndex.size()) ? meshIndex[nodeId] : -1;
             if (mi < 0) continue;
 

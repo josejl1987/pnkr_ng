@@ -273,6 +273,8 @@ public:
 
         if (dirty) {
             scene.local[nodeId] = composeTRS(trs);
+            scene.markAsChanged(nodeId); // mark node + descendants for next recalc
+            scene.recalculateGlobalTransformsDirty();
             GLTFUnifiedDOD::buildTransformsList(m_ctx);
             sortTransparentNodes(m_ctx, m_camera.position());
         }
@@ -369,6 +371,9 @@ public:
          cmd->endRendering();
 
          // 1. Setup Scene
+         auto& scene = m_ctx.model->scene();
+         scene.recalculateGlobalTransformsDirty();
+
          uploadLights(m_ctx);
          GLTFUnifiedDOD::buildTransformsList(m_ctx);
          sortTransparentNodes(m_ctx, m_camera.position());
@@ -423,14 +428,11 @@ public:
         pc.drawable.envId = 0u;
 
         // Draw Helper
-        auto drawTransform = [&](uint32_t xformId, PipelineHandle pipeline) {
+        auto drawTransform = [&](uint32_t xformId) {
             const auto& x = m_ctx.transforms[xformId];
             const auto& scene = m_ctx.model->scene();
             const std::string label = getNodeLabel(scene, x.nodeIndex);
             cmd->beginDebugLabel(label.c_str(), 0.7f, 0.7f, 0.7f, 1.0f);
-
-            m_renderer->pushConstants(cmd, pipeline,
-                renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
 
             const auto& dc = m_ctx.drawCalls[xformId];
             cmd->drawIndexed(dc.indexCount, dc.instanceCount, dc.firstIndex, dc.vertexOffset, dc.firstInstance);
@@ -515,7 +517,9 @@ public:
 
         cmd->beginDebugLabel("Opaque Pass", 1.0f, 0.5f, 0.5f, 1.0f);
         m_renderer->bindPipeline(cmd, m_ctx.pipelineSolid);
-        for (uint32_t xformId : m_ctx.opaque) drawTransform(xformId, m_ctx.pipelineSolid);
+        m_renderer->pushConstants(cmd, m_ctx.pipelineSolid,
+            renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
+        for (uint32_t xformId : m_ctx.opaque) drawTransform(xformId);
 
 
         cmd->endDebugLabel();
@@ -599,14 +603,19 @@ public:
             if (!m_ctx.transmission.empty()) {
                 cmd->beginDebugLabel("Transmission Pass", 0.0f, 0.5f, 1.0f, 1.0f);
                 m_renderer->bindPipeline(cmd, m_ctx.pipelineSolid);
-                for (uint32_t xformId : m_ctx.transmission) drawTransform(xformId, m_ctx.pipelineSolid);
+                m_renderer->pushConstants(cmd, m_ctx.pipelineSolid,
+                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
+                for (uint32_t xformId : m_ctx.transmission) drawTransform(xformId);
                 cmd->endDebugLabel();
             }
 
             if (!m_ctx.transparent.empty()) {
                 cmd->beginDebugLabel("Transparent Pass", 0.5f, 1.0f, 0.5f, 1.0f);
                 m_renderer->bindPipeline(cmd, m_ctx.pipelineTransparent);
-                for (uint32_t xformId : m_ctx.transparent) drawTransform(xformId, m_ctx.pipelineTransparent);
+                cmd->bindDescriptorSet(m_renderer->pipeline(m_ctx.pipelineTransparent), 1, bindlessSet);
+                m_renderer->pushConstants(cmd, m_ctx.pipelineTransparent,
+                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
+                for (uint32_t xformId : m_ctx.transparent) drawTransform(xformId);
                 cmd->endDebugLabel();
             }
 

@@ -208,7 +208,7 @@ namespace pnkr::samples
                     m_imgui.endFrame();
                 }
 
-                float deltaTime = std::min(m_timer.deltaTime(), 0.05f);
+                float deltaTime = std::clamp(m_timer.deltaTime(), 0.0f, 0.1f);
 
                 {
                     PNKR_PROFILE_SCOPE("Update");

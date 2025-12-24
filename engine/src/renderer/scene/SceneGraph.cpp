@@ -58,7 +58,7 @@ namespace pnkr::renderer::scene
         // Allocate fixed-size arrays
         local.resize(N + 1, glm::mat4(1.0f));
         global.resize(N + 1, glm::mat4(1.0f));
-        hierarchy.resize(N + 1);
+        hierarchy.assign(N + 1, HierarchyDOD{});
 
         meshIndex.assign(N + 1, -1);
         lightIndex.assign(N + 1, -1);
@@ -98,19 +98,11 @@ namespace pnkr::renderer::scene
             const auto& children = gltf.nodes[p].children;
             if (children.empty()) continue;
 
-            hierarchy[pid].firstChild = (int32_t)(BASE + (uint32_t)children.front());
-
-            int32_t prev = -1;
-            for (size_t k = 0; k < children.size(); ++k)
+            for (auto childIdx : children)
             {
-                const uint32_t c = (uint32_t)children[k];
-                const uint32_t cid = BASE + c;
-
-                hierarchy[cid].parent = (int32_t)pid;
-                if (prev != -1) hierarchy[(uint32_t)prev].nextSibling = (int32_t)cid;
-                prev = (int32_t)cid;
+                const uint32_t cid = BASE + (uint32_t)childIdx;
+                appendChild(pid, cid);
             }
-            hierarchy[pid].lastChild = prev;
         }
 
         // 3) Attach glTF scene roots under synthetic root
@@ -151,11 +143,12 @@ namespace pnkr::renderer::scene
         }
 
         // 5) Compute globals once
-        recalculateGlobalTransforms();
+        recalculateGlobalTransformsFull();
+        initDirtyTracking();
     }
 
 
-    void SceneGraphDOD::recalculateGlobalTransforms()
+    void SceneGraphDOD::recalculateGlobalTransformsFull()
     {
         if (local.size() != global.size() || hierarchy.size() != local.size()) return;
         if (topoOrder.empty()) return;
@@ -169,5 +162,137 @@ namespace pnkr::renderer::scene
             if (p < 0) { global[n] = local[n]; continue; } // defensive
             global[n] = global[(uint32_t)p] * local[n];
         }
+    }
+
+    void SceneGraphDOD::initDirtyTracking()
+    {
+        // Determine maxLevel (already computed in buildFromFastgltf() usually).
+        maxLevel = 0;
+        for (const auto& h : hierarchy) maxLevel = std::max<uint16_t>(maxLevel, h.level);
+
+        changedAtThisFrame.clear();
+        changedAtThisFrame.resize((size_t)maxLevel + 1);
+
+        dirtyFlag.assign(hierarchy.size(), 0);
+        dirtyNodes.clear();
+        dirtyNodes.reserve(hierarchy.size());
+        maxDirtyLevelThisFrame = 0;
+    }
+
+    void SceneGraphDOD::beginFrameDirty()
+    {
+        // Reset flags from last frame cheaply (no O(N) clear).
+        for (uint32_t n : dirtyNodes) dirtyFlag[n] = 0;
+        dirtyNodes.clear();
+
+        // Clear per-level lists scaling with what changed.
+        const uint16_t lim = std::min<uint16_t>(
+            maxDirtyLevelThisFrame,
+            changedAtThisFrame.empty() ? (uint16_t)0 : (uint16_t)(changedAtThisFrame.size() - 1));
+        
+        for (uint16_t i = 0; i <= lim && i < changedAtThisFrame.size(); ++i)
+            changedAtThisFrame[i].clear();
+
+        maxDirtyLevelThisFrame = 0;
+    }
+
+    void SceneGraphDOD::markAsChanged(uint32_t node)
+    {
+        if (node >= hierarchy.size()) return;
+        if (changedAtThisFrame.empty()) initDirtyTracking();
+
+        // Iterative DFS: mark node + descendants.
+        std::vector<uint32_t> stack;
+        stack.push_back(node);
+
+        while (!stack.empty()) {
+            const uint32_t n = stack.back();
+            stack.pop_back();
+
+            if (n >= hierarchy.size()) continue;
+            if (dirtyFlag[n]) continue;
+
+            dirtyFlag[n] = 1;
+            dirtyNodes.push_back(n);
+
+            const uint16_t lvl = hierarchy[n].level;
+            if ((size_t)lvl >= changedAtThisFrame.size()) {
+                // Defensive: if level is out-of-range, expand.
+                changedAtThisFrame.resize((size_t)lvl + 1);
+            }
+            changedAtThisFrame[lvl].push_back(n);
+            maxDirtyLevelThisFrame = std::max(maxDirtyLevelThisFrame, lvl);
+
+            for (int32_t ch = hierarchy[n].firstChild; ch != -1; ch = hierarchy[(uint32_t)ch].nextSibling) {
+                stack.push_back((uint32_t)ch);
+            }
+        }
+    }
+
+    void SceneGraphDOD::recalculateGlobalTransformsDirty()
+    {
+        if (changedAtThisFrame.empty()) return;
+        if (local.size() != global.size() || hierarchy.size() != local.size()) return;
+
+        // Always ensure root is correct (future-proof if root becomes editable).
+        global[root] = local[root];
+
+        // Level 0: roots (synthetic root is usually the only one at level 0).
+        if (!changedAtThisFrame[0].empty()) {
+            for (uint32_t c : changedAtThisFrame[0]) {
+                global[c] = local[c];
+            }
+            changedAtThisFrame[0].clear();
+        }
+
+        // IMPORTANT: do NOT break on first empty level (gaps are legal).
+        for (uint16_t lvl = 1; lvl <= maxDirtyLevelThisFrame && (size_t)lvl < changedAtThisFrame.size(); ++lvl) {
+            auto& list = changedAtThisFrame[lvl];
+            if (list.empty()) continue;
+
+            for (uint32_t c : list) {
+                const int32_t p = hierarchy[c].parent;
+                if (p < 0) { global[c] = local[c]; continue; }
+                global[c] = global[(uint32_t)p] * local[c];
+            }
+            list.clear();
+        }
+
+        // Clear dirty flags now (so multiple recalc calls in same frame still work).
+        for (uint32_t n : dirtyNodes) dirtyFlag[n] = 0;
+        dirtyNodes.clear();
+        maxDirtyLevelThisFrame = 0;
+    }
+
+    void SceneGraphDOD::onHierarchyChanged()
+    {
+        // Recompute levels + topoOrder from current hierarchy (BFS from root).
+        topoOrder.clear();
+        topoOrder.reserve(hierarchy.size());
+
+        std::vector<uint32_t> queue;
+        queue.reserve(hierarchy.size());
+        queue.push_back(root);
+        hierarchy[root].level = 0;
+
+        maxLevel = 0;
+
+        for (size_t qi = 0; qi < queue.size(); ++qi)
+        {
+            const uint32_t n = queue[qi];
+            topoOrder.push_back(n);
+
+            const uint16_t nextLevel = (uint16_t)(hierarchy[n].level + 1);
+            for (int32_t ch = hierarchy[n].firstChild; ch != -1; ch = hierarchy[(uint32_t)ch].nextSibling)
+            {
+                hierarchy[(uint32_t)ch].level = nextLevel;
+                maxLevel = std::max<uint16_t>(maxLevel, nextLevel);
+                queue.push_back((uint32_t)ch);
+            }
+        }
+
+        recalculateGlobalTransformsFull();
+        initDirtyTracking();
+        hierarchyDirty = false;
     }
 } // namespace pnkr::renderer::scene

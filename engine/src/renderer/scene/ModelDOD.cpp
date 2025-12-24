@@ -2,6 +2,7 @@
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
+#include "pnkr/core/cache.hpp"
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/types.hpp>
@@ -18,6 +19,8 @@
 #include <stb_image.h>
 #include <string>
 #include <vector>
+#include <cstring>
+#include <unordered_map>
 
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
@@ -25,8 +28,373 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/vec4.hpp>
 
+#include <ktx.h>
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include <stb_image_resize2.h>
+
 namespace pnkr::renderer::scene
 {
+    using namespace pnkr::core;
+
+    namespace {
+        struct MeshRange { uint32_t primCount; };
+
+        struct TextureMetaCPU {
+            uint8_t isSrgb = 1;   // 1 = sRGB, 0 = linear
+            uint8_t _pad[3] = {};
+        };
+
+        static uint64_t fnv1a64(std::string_view s)
+        {
+            uint64_t h = 14695981039346656037ull;
+            for (unsigned char c : s) { h ^= uint64_t(c); h *= 1099511628211ull; }
+            return h;
+        }
+
+        static std::filesystem::path makeTextureCacheDir(const std::filesystem::path& assetPath)
+        {
+            return assetPath.parent_path() / ".cache" / "textures";
+        }
+
+        static std::filesystem::path makeCachedKtx2Path(
+            const std::filesystem::path& cacheDir,
+            std::string_view sourceKey,
+            uint32_t maxSize,
+            bool srgb)
+        {
+            const std::string key = std::string(sourceKey) + "|" + std::to_string(maxSize) + "|" + (srgb ? "srgb" : "lin");
+            const uint64_t h = fnv1a64(key);
+
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)h);
+            return cacheDir / (std::string(buf) + ".ktx2");
+        }
+
+        static uint32_t calcMipLevels(int w, int h)
+        {
+            uint32_t levels = 1;
+            while (w > 1 || h > 1) {
+                w = std::max(1, w / 2);
+                h = std::max(1, h / 2);
+                ++levels;
+            }
+            return levels;
+        }
+
+        static bool writeKtx2RGBA8Mipmapped(
+            const std::filesystem::path& outFile,
+            const uint8_t* rgba,
+            int origW, int origH,
+            uint32_t maxSize,
+            bool srgb)
+        {
+            if (!rgba || origW <= 0 || origH <= 0) return false;
+
+            const int newW = std::min(origW, int(maxSize));
+            const int newH = std::min(origH, int(maxSize));
+            const uint32_t mips = calcMipLevels(newW, newH);
+
+            ktxTextureCreateInfo ci{};
+            ci.vkFormat      = srgb ? 43 : 37; // VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM
+            ci.baseWidth     = (uint32_t)newW;
+            ci.baseHeight    = (uint32_t)newH;
+            ci.baseDepth     = 1;
+            ci.numDimensions = 2;
+            ci.numLevels     = mips;
+            ci.numLayers     = 1;
+            ci.numFaces      = 1;
+            ci.generateMipmaps = KTX_FALSE;
+
+            ktxTexture2* tex = nullptr;
+            if (ktxTexture2_Create(&ci, KTX_TEXTURE_CREATE_ALLOC_STORAGE, &tex) != KTX_SUCCESS)
+                return false;
+
+            int w = newW;
+            int h = newH;
+
+            for (uint32_t level = 0; level < mips; ++level) {
+                size_t offset = 0;
+                ktxTexture_GetImageOffset(ktxTexture(tex), level, 0, 0, &offset);
+                uint8_t* dst = ktxTexture_GetData(ktxTexture(tex)) + offset;
+
+                stbir_resize_uint8_linear(
+                    rgba, origW, origH, 0,
+                    dst, w, h, 0,
+                    STBIR_RGBA);
+
+                w = std::max(1, w / 2);
+                h = std::max(1, h / 2);
+            }
+
+            std::filesystem::create_directories(outFile.parent_path());
+            const auto outStr = outFile.string();
+            const KTX_error_code wr = ktxTexture_WriteToNamedFile(ktxTexture(tex), outStr.c_str());
+            ktxTexture_Destroy(ktxTexture(tex));
+            return wr == KTX_SUCCESS;
+        }
+
+        static void markTextureSrgb(std::vector<uint8_t>& isSrgb, size_t texIdx, bool srgb)
+        {
+            if (texIdx < isSrgb.size()) {
+                isSrgb[texIdx] = srgb ? 1 : isSrgb[texIdx];
+            }
+        }
+
+        static std::vector<uint8_t> computeTextureSrgbUsage(const fastgltf::Asset& gltf)
+        {
+            std::vector<uint8_t> isSrgb(gltf.textures.size(), 0);
+
+            for (const auto& mat : gltf.materials) {
+                const auto& pbr = mat.pbrData;
+                if (pbr.baseColorTexture) markTextureSrgb(isSrgb, pbr.baseColorTexture->textureIndex, true);
+                if (mat.emissiveTexture)  markTextureSrgb(isSrgb, mat.emissiveTexture->textureIndex, true);
+                if (mat.specular) {
+                    if (mat.specular->specularColorTexture) markTextureSrgb(isSrgb, mat.specular->specularColorTexture->textureIndex, true);
+                }
+                if (mat.sheen) {
+                    if (mat.sheen->sheenColorTexture) markTextureSrgb(isSrgb, mat.sheen->sheenColorTexture->textureIndex, true);
+                }
+            }
+            return isSrgb;
+        }
+
+        static MaterialCPU toMaterialCPU(const MaterialData& md, const std::vector<TextureHandle>& textures) {
+            MaterialCPU mc{};
+            
+            std::unordered_map<TextureHandle, int32_t> texToIndex;
+            texToIndex.reserve(textures.size());
+            for (size_t i = 0; i < textures.size(); ++i) texToIndex[textures[i]] = (int32_t)i;
+
+            auto getTexIndex = [&](TextureHandle h) -> int32_t {
+                if (h == INVALID_TEXTURE_HANDLE) return -1;
+                auto it = texToIndex.find(h);
+                return (it != texToIndex.end()) ? it->second : -1;
+            };
+
+            std::memcpy(mc.baseColorFactor, glm::value_ptr(md.m_baseColorFactor), 4 * sizeof(float));
+            std::memcpy(mc.emissiveFactor, glm::value_ptr(md.m_emissiveFactor), 3 * sizeof(float));
+            mc.emissiveFactor[3] = md.m_emissiveStrength;
+
+            mc.metallic = md.m_metallicFactor;
+            mc.roughness = md.m_roughnessFactor;
+            mc.alphaCutoff = md.m_alphaCutoff;
+            mc.ior = md.m_ior;
+
+            mc.transmissionFactor = md.m_transmissionFactor;
+            mc.clearcoatFactor = md.m_clearcoatFactor;
+            mc.clearcoatRoughness = md.m_clearcoatRoughnessFactor;
+            mc.clearcoatNormalScale = md.m_clearcoatNormalScale;
+
+            mc.specularFactorScalar = md.m_specularFactorScalar;
+            std::memcpy(mc.specularColorFactor, glm::value_ptr(md.m_specularColorFactor), 3 * sizeof(float));
+
+            std::memcpy(mc.sheenColorFactor, glm::value_ptr(md.m_sheenColorFactor), 3 * sizeof(float));
+            mc.sheenRoughnessFactor = md.m_sheenRoughnessFactor;
+
+            mc.volumeThicknessFactor = md.m_volumeThicknessFactor;
+            mc.volumeAttenuationDistance = md.m_volumeAttenuationDistance;
+            std::memcpy(mc.volumeAttenuationColor, glm::value_ptr(md.m_volumeAttenuationColor), 3 * sizeof(float));
+
+            mc.baseColorTex = getTexIndex(md.m_baseColorTexture);
+            mc.normalTex = getTexIndex(md.m_normalTexture);
+            mc.metallicRoughnessTex = getTexIndex(md.m_metallicRoughnessTexture);
+            mc.occlusionTex = getTexIndex(md.m_occlusionTexture);
+            mc.emissiveTex = getTexIndex(md.m_emissiveTexture);
+            mc.clearcoatTex = getTexIndex(md.m_clearcoatTexture);
+            mc.clearcoatRoughnessTex = getTexIndex(md.m_clearcoatRoughnessTexture);
+            mc.clearcoatNormalTex = getTexIndex(md.m_clearcoatNormalTexture);
+            mc.specularTex = getTexIndex(md.m_specularTexture);
+            mc.specularColorTex = getTexIndex(md.m_specularColorTexture);
+            mc.transmissionTex = getTexIndex(md.m_transmissionTexture);
+            mc.sheenColorTex = getTexIndex(md.m_sheenColorTexture);
+            mc.sheenRoughnessTex = getTexIndex(md.m_sheenRoughnessTexture);
+            mc.volumeThicknessTex = getTexIndex(md.m_volumeThicknessTexture);
+
+            mc.flags = 0;
+            if (md.m_isUnlit) mc.flags |= Material_Unlit;
+            if (md.m_isSpecularGlossiness) mc.flags |= Material_SpecularGlossiness;
+            if (md.m_hasSpecular) mc.flags |= Material_CastShadow | Material_ReceiveShadow; // placeholder logic
+            mc.flags |= Material_CastShadow | Material_ReceiveShadow;
+            if (md.m_alphaMode == 2) mc.flags |= Material_Transparent;
+
+            return mc;
+        }
+
+        static MaterialData fromMaterialCPU(const MaterialCPU& mc, const std::vector<TextureHandle>& textures) {
+            MaterialData md{};
+            
+            auto getTexHandle = [&](int32_t idx) -> TextureHandle {
+                if (idx < 0 || static_cast<size_t>(idx) >= textures.size()) return INVALID_TEXTURE_HANDLE;
+                return textures[idx];
+            };
+
+            md.m_baseColorFactor = glm::make_vec4(mc.baseColorFactor);
+            md.m_emissiveFactor = glm::make_vec3(mc.emissiveFactor);
+            md.m_emissiveStrength = mc.emissiveFactor[3];
+
+            md.m_metallicFactor = mc.metallic;
+            md.m_roughnessFactor = mc.roughness;
+            md.m_alphaCutoff = mc.alphaCutoff;
+            md.m_ior = mc.ior;
+
+            md.m_transmissionFactor = mc.transmissionFactor;
+            md.m_clearcoatFactor = mc.clearcoatFactor;
+            md.m_clearcoatRoughnessFactor = mc.clearcoatRoughness;
+            md.m_clearcoatNormalScale = mc.clearcoatNormalScale;
+
+            md.m_specularFactorScalar = mc.specularFactorScalar;
+            md.m_specularColorFactor = glm::make_vec3(mc.specularColorFactor);
+
+            md.m_sheenColorFactor = glm::make_vec3(mc.sheenColorFactor);
+            md.m_sheenRoughnessFactor = mc.sheenRoughnessFactor;
+
+            md.m_volumeThicknessFactor = mc.volumeThicknessFactor;
+            md.m_volumeAttenuationDistance = mc.volumeAttenuationDistance;
+            md.m_volumeAttenuationColor = glm::make_vec3(mc.volumeAttenuationColor);
+
+            md.m_baseColorTexture = getTexHandle(mc.baseColorTex);
+            md.m_normalTexture = getTexHandle(mc.normalTex);
+            md.m_metallicRoughnessTexture = getTexHandle(mc.metallicRoughnessTex);
+            md.m_occlusionTexture = getTexHandle(mc.occlusionTex);
+            md.m_emissiveTexture = getTexHandle(mc.emissiveTex);
+            md.m_clearcoatTexture = getTexHandle(mc.clearcoatTex);
+            md.m_clearcoatRoughnessTexture = getTexHandle(mc.clearcoatRoughnessTex);
+            md.m_clearcoatNormalTexture = getTexHandle(mc.clearcoatNormalTex);
+            md.m_specularTexture = getTexHandle(mc.specularTex);
+            md.m_specularColorTexture = getTexHandle(mc.specularColorTex);
+            md.m_transmissionTexture = getTexHandle(mc.transmissionTex);
+            md.m_sheenColorTexture = getTexHandle(mc.sheenColorTex);
+            md.m_sheenRoughnessTexture = getTexHandle(mc.sheenRoughnessTex);
+            md.m_volumeThicknessTexture = getTexHandle(mc.volumeThicknessTex);
+
+            md.m_isUnlit = (mc.flags & Material_Unlit) != 0;
+            md.m_isSpecularGlossiness = (mc.flags & Material_SpecularGlossiness) != 0;
+            md.m_alphaMode = (mc.flags & Material_Transparent) ? 2 : 0;
+
+            return md;
+        }
+    } // anonymous namespace
+
+    bool ModelDOD::saveCache(const std::filesystem::path& path)
+    {
+        CacheWriter writer(path.string());
+        if (!writer.isOpen()) return false;
+
+        // 1. Materials
+        std::vector<MaterialCPU> matsCPU;
+        matsCPU.reserve(m_materials.size());
+        for (const auto& m : m_materials) matsCPU.push_back(toMaterialCPU(m, m_textures));
+        writer.writeChunk(makeFourCC("MATL"), 1, matsCPU);
+        writer.writeStringListChunk(makeFourCC("TXFN"), 1, m_textureFiles);
+
+        std::vector<TextureMetaCPU> texMeta;
+        texMeta.resize(m_textureFiles.size());
+        for (size_t i = 0; i < texMeta.size(); ++i) {
+            texMeta[i].isSrgb = (i < m_textureIsSrgb.size()) ? m_textureIsSrgb[i] : 1;
+        }
+        writer.writeChunk(makeFourCC("TXMD"), 1, texMeta);
+
+        // 2. Scene Graph
+        writer.writeChunk(makeFourCC("SLOC"), 1, m_scene.local);
+        writer.writeChunk(makeFourCC("SGLO"), 1, m_scene.global);
+        writer.writeChunk(makeFourCC("SHIE"), 1, m_scene.hierarchy);
+        writer.writeChunk(makeFourCC("SMES"), 1, m_scene.meshIndex);
+        writer.writeChunk(makeFourCC("SLIT"), 1, m_scene.lightIndex);
+        writer.writeChunk(makeFourCC("SNID"), 1, m_scene.nameId);
+        writer.writeStringListChunk(makeFourCC("SNMS"), 1, m_scene.names);
+        writer.writeChunk(makeFourCC("SROT"), 1, m_scene.roots);
+        writer.writeChunk(makeFourCC("STOP"), 1, m_scene.topoOrder);
+
+        // 3. Meshes
+        std::vector<MeshRange> meshRanges;
+        std::vector<PrimitiveDOD> allPrims;
+        std::vector<std::string> meshNames;
+        for (const auto& m : m_meshes) {
+            meshRanges.push_back({ (uint32_t)m.primitives.size() });
+            meshNames.push_back(m.name);
+            for (const auto& p : m.primitives) allPrims.push_back(p);
+        }
+        writer.writeChunk(makeFourCC("MRNG"), 1, meshRanges);
+        writer.writeChunk(makeFourCC("MPRI"), 1, allPrims);
+        writer.writeStringListChunk(makeFourCC("MNAM"), 1, meshNames);
+
+        return true;
+    }
+
+    bool ModelDOD::loadCache(const std::filesystem::path& path, RHIRenderer& renderer)
+    {
+        CacheReader reader(path.string());
+        if (!reader.isOpen()) return false;
+
+        auto chunks = reader.listChunks();
+        
+        std::vector<MaterialCPU> matsCPU;
+        std::vector<MeshRange> meshRanges;
+        std::vector<PrimitiveDOD> allPrims;
+        std::vector<std::string> meshNames;
+        std::vector<TextureMetaCPU> texMeta;
+
+        for (const auto& c : chunks) {
+            uint32_t fcc = c.header.fourcc;
+            if (fcc == makeFourCC("MATL")) reader.readChunk(c, matsCPU);
+            else if (fcc == makeFourCC("TXFN")) reader.readStringListChunk(c, m_textureFiles);
+            else if (fcc == makeFourCC("TXMD")) reader.readChunk(c, texMeta);
+            else if (fcc == makeFourCC("SLOC")) reader.readChunk(c, m_scene.local);
+            else if (fcc == makeFourCC("SGLO")) reader.readChunk(c, m_scene.global);
+            else if (fcc == makeFourCC("SHIE")) reader.readChunk(c, m_scene.hierarchy);
+            else if (fcc == makeFourCC("SMES")) reader.readChunk(c, m_scene.meshIndex);
+            else if (fcc == makeFourCC("SLIT")) reader.readChunk(c, m_scene.lightIndex);
+            else if (fcc == makeFourCC("SNID")) reader.readChunk(c, m_scene.nameId);
+            else if (fcc == makeFourCC("SNMS")) reader.readStringListChunk(c, m_scene.names);
+            else if (fcc == makeFourCC("SROT")) reader.readChunk(c, m_scene.roots);
+            else if (fcc == makeFourCC("STOP")) reader.readChunk(c, m_scene.topoOrder);
+            else if (fcc == makeFourCC("MRNG")) reader.readChunk(c, meshRanges);
+            else if (fcc == makeFourCC("MPRI")) reader.readChunk(c, allPrims);
+            else if (fcc == makeFourCC("MNAM")) reader.readStringListChunk(c, meshNames);
+        }
+
+        // Reconstruct Meshes
+        m_meshes.clear();
+        size_t primOffset = 0;
+        for (size_t i = 0; i < meshRanges.size(); ++i) {
+            MeshDOD m;
+            m.name = (i < meshNames.size()) ? meshNames[i] : "";
+            for (size_t p = 0; p < meshRanges[i].primCount; ++p) {
+                if (primOffset < allPrims.size()) {
+                    m.primitives.push_back(allPrims[primOffset++]);
+                }
+            }
+            m_meshes.push_back(std::move(m));
+        }
+
+        // Textures must be loaded from m_textureFiles
+        m_textures.clear();
+        m_textureIsSrgb.clear();
+        m_textures.reserve(m_textureFiles.size());
+        m_textureIsSrgb.reserve(m_textureFiles.size());
+        for (size_t i = 0; i < m_textureFiles.size(); ++i) {
+            const auto& texPath = m_textureFiles[i];
+            const bool srgb = (i < texMeta.size()) ? (texMeta[i].isSrgb != 0) : true;
+            m_textureIsSrgb.push_back(srgb ? 1 : 0);
+
+            if (texPath.empty()) {
+                m_textures.push_back(INVALID_TEXTURE_HANDLE);
+            } else {
+                auto handle = renderer.loadTextureKTX(texPath, srgb); 
+                m_textures.push_back(handle);
+            }
+        }
+
+        // Reconstruct MaterialData
+        m_materials.clear();
+        for (const auto& mc : matsCPU) {
+            m_materials.push_back(fromMaterialCPU(mc, m_textures));
+        }
+
+        m_scene.initDirtyTracking();
+
+        return true;
+    }
 
     static std::vector<std::uint8_t> readFileBytes(const std::filesystem::path& p)
     {
@@ -199,18 +567,69 @@ namespace pnkr::renderer::scene
         }
         if (model->m_lights.empty()) model->m_lights.push_back({});
 
-        // --- Textures ---
-        model->m_textures.reserve(gltf.textures.size());
+        // --- Textures (precached to KTX2) ---
+        const uint32_t kMaxTextureSize = 2048;
+        const auto cacheDir = makeTextureCacheDir(path);
+
+        model->m_textureIsSrgb = computeTextureSrgbUsage(gltf);
+        model->m_textures.resize(gltf.textures.size(), INVALID_TEXTURE_HANDLE);
+        model->m_textureFiles.resize(gltf.textures.size());
+
         for (size_t texIdx = 0; texIdx < gltf.textures.size(); ++texIdx) {
             const auto imgIndexOpt = pickImageIndex(gltf.textures[texIdx]);
-            if (!imgIndexOpt) { model->m_textures.push_back(INVALID_TEXTURE_HANDLE); continue; }
-            const auto encoded = extractImageBytes(gltf, gltf.images[*imgIndexOpt], path.parent_path());
-            if (encoded.empty()) { model->m_textures.push_back(INVALID_TEXTURE_HANDLE); continue; }
-            int w, h, comp;
-            stbi_uc* pixels = stbi_load_from_memory(encoded.data(), util::u32(encoded.size()), &w, &h, &comp, 4);
-            if (!pixels) { model->m_textures.push_back(INVALID_TEXTURE_HANDLE); continue; }
-            model->m_textures.push_back(renderer.createTexture(pixels, w, h, 4, true)); 
-            stbi_image_free(pixels);
+            if (!imgIndexOpt) { 
+                model->m_textures[texIdx] = INVALID_TEXTURE_HANDLE; 
+                model->m_textureFiles[texIdx].clear();
+                continue; 
+            }
+            
+            const auto& img = gltf.images[*imgIndexOpt];
+            std::string sourceKey;
+            std::string uriPath;
+
+            std::visit(fastgltf::visitor{
+                [&](const fastgltf::sources::URI& uriSrc) {
+                    const auto uri = getUriView(uriSrc);
+                    if (uri.valid() && uri.isLocalPath()) {
+                        uriPath = (path.parent_path() / uri.fspath()).lexically_normal().string();
+                    }
+                },
+                [](auto&) {}
+            }, img.data);
+
+            const auto encoded = extractImageBytes(gltf, img, path.parent_path());
+            if (encoded.empty()) {
+                model->m_textureFiles[texIdx].clear();
+                model->m_textures[texIdx] = INVALID_TEXTURE_HANDLE;
+                continue;
+            }
+
+            if (!uriPath.empty()) {
+                sourceKey = uriPath;
+            } else {
+                const uint64_t contentHash = fnv1a64(std::string_view((const char*)encoded.data(), encoded.size()));
+                sourceKey = path.string() + "#img" + std::to_string(*imgIndexOpt) + "#tex" + std::to_string(texIdx) +
+                            "#h" + std::to_string((unsigned long long)contentHash);
+            }
+
+            const bool srgb = (texIdx < model->m_textureIsSrgb.size()) ? (model->m_textureIsSrgb[texIdx] != 0) : true;
+            const auto ktxPath = makeCachedKtx2Path(cacheDir, sourceKey, kMaxTextureSize, srgb);
+
+            if (!std::filesystem::exists(ktxPath)) {
+                int w = 0, h = 0, comp = 0;
+                stbi_uc* rgba = stbi_load_from_memory(encoded.data(), util::u32(encoded.size()), &w, &h, &comp, 4);
+
+                if (rgba) {
+                    (void)writeKtx2RGBA8Mipmapped(ktxPath, rgba, w, h, kMaxTextureSize, srgb);
+                    stbi_image_free(rgba);
+                } else {
+                    const uint8_t white[4] = { 255, 255, 255, 255 };
+                    (void)writeKtx2RGBA8Mipmapped(ktxPath, white, 1, 1, 1, srgb);
+                }
+            }
+
+            model->m_textureFiles[texIdx] = ktxPath.lexically_normal().string();
+            model->m_textures[texIdx] = renderer.loadTextureKTX(model->m_textureFiles[texIdx], srgb);
         }
 
         // --- Materials ---
