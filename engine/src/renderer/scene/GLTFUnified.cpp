@@ -70,11 +70,11 @@ namespace pnkr::renderer::scene
             if (handle == INVALID_TEXTURE_HANDLE) handle = ctx.renderer->getWhiteTexture();
             return ctx.renderer->getTextureBindlessIndex(handle);
         };
-        // auto resolveTextureBlackDefault = [&](TextureHandle handle) -> uint32_t
-        // {
-        //     if (handle == INVALID_TEXTURE_HANDLE) handle = ctx.renderer->getBlackTexture();
-        //     return ctx.renderer->getTextureBindlessIndex(handle);
-        // };
+        auto resolveTextureBlackDefault = [&](TextureHandle handle) -> uint32_t
+        {
+            if (handle == INVALID_TEXTURE_HANDLE) handle = ctx.renderer->getBlackTexture();
+            return ctx.renderer->getTextureBindlessIndex(handle);
+        };
 
         auto resolveSampler = [&](rhi::SamplerAddressMode mode) -> uint32_t
         {
@@ -108,7 +108,7 @@ namespace pnkr::renderer::scene
             d.occlusionTexture = resolveTextureWhiteDefault(mat.m_occlusionTexture);
             d.occlusionTextureSampler = resolveSampler(mat.m_occlusionSampler);
             d.occlusionTextureUV = mat.m_occlusionUV;
-            d.emissiveTexture = resolveTextureWhiteDefault(mat.m_emissiveTexture);
+            d.emissiveTexture = resolveTextureBlackDefault(mat.m_emissiveTexture);
             d.emissiveTextureSampler = resolveSampler(mat.m_emissiveSampler);
             d.emissiveTextureUV = mat.m_emissiveUV;
             d.baseColorTexture = resolveTextureWhiteDefault(mat.m_baseColorTexture);

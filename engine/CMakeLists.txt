@@ -12,10 +12,16 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/scene/camera.hpp
         src/renderer/scene.cpp
         src/renderer/scene/Model.cpp
+        src/renderer/scene/SceneGraph.cpp
+        src/renderer/scene/ModelDOD.cpp
         src/renderer/scene/GLTFUnified.cpp
+        src/renderer/scene/GLTFUnifiedDOD.cpp
         include/pnkr/core/Timer.h
         include/pnkr/renderer/scene/Model.hpp
+        include/pnkr/renderer/scene/SceneGraph.hpp
+        include/pnkr/renderer/scene/ModelDOD.hpp
         include/pnkr/renderer/scene/GLTFUnified.hpp
+        include/pnkr/renderer/scene/GLTFUnifiedDOD.hpp
         include/pnkr/renderer/scene/Node.hpp
         include/pnkr/renderer/scene/RHIScene.hpp
         include/pnkr/renderer/scene/Skybox.hpp
@@ -74,7 +80,10 @@ target_sources(pnkr_engine
       include/pnkr/rhi/vulkan/vulkan_swapchain.hpp
       include/pnkr/rhi/vulkan/vulkan_descriptor.hpp
         include/pnkr/renderer/scene/Model.hpp
+        include/pnkr/renderer/scene/SceneGraph.hpp
+        include/pnkr/renderer/scene/ModelDOD.hpp
         include/pnkr/renderer/scene/GLTFUnified.hpp
+        include/pnkr/renderer/scene/GLTFUnifiedDOD.hpp
         include/pnkr/renderer/scene/Node.hpp
         include/pnkr/renderer/scene/RHIScene.hpp
         include/pnkr/renderer/scene/Skybox.hpp

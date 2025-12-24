@@ -33,7 +33,6 @@ mat4 getViewProjection() {
 
 
 
-
 void main()
 {
     InputAttributes tc;
@@ -48,6 +47,8 @@ void main()
     if ((mat.alphaMode == 1) && (mat.emissiveFactorAlphaCutoff.w > Kd.a)) {
         discard;
     }
+
+
 
     if (isMaterialTypeUnlit(mat)) {
         out_FragColor = Kd;

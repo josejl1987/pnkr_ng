@@ -39,7 +39,7 @@ public:
 
     GLTFUnifiedContext m_ctx;
     Camera m_camera;
-    CameraController m_cameraController{{0.0f, -3.0f, -2}, 0.0f, 90.0f};
+    CameraController m_cameraController{{-19.261f, 8.465f, -7.317f}, 20.801124201214570, -16.146098030003937f};
     std::unique_ptr<InfiniteGrid> m_grid;
     std::unique_ptr<Skybox> m_skybox;
     
@@ -69,7 +69,7 @@ public:
         m_prefilter = m_renderer->loadTextureKTX("assets/piazza_bologni_1k_prefilter.ktx");
 
         // 2. Load GLTF Model via Unified Context
-        loadGLTF(m_ctx, *m_renderer, "assets/LightsPunctualLamp/glTF/LightsPunctualLamp.gltf");
+        loadGLTF(m_ctx, *m_renderer, "assets/Bistro.glb");
         if (!m_ctx.model) throw cpptrace::runtime_error("Failed to load TransmissionRoughnessTest.glb");
 
         uploadEnvironment(m_ctx, m_prefilter, m_irradiance, m_brdfLut);
