@@ -7,10 +7,12 @@
 #include "pnkr/renderer/scene/Sprite.hpp"
 #include "generated/sprite_billboard.vert.h"
 
-#include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <string>
+#include <vector>
 
 namespace pnkr::renderer::scene
 {
@@ -23,7 +25,7 @@ namespace pnkr::renderer::scene
             glm::vec4 color;
             glm::uvec4 tex;
             glm::vec4 uvRect;
-            glm::vec4 pivot_pad;
+            glm::vec4 pivot_cutoff; // xy=pivot, z=alphaCutoff, w=unused
         };
 
         static_assert(sizeof(SpriteInstanceGPU) % 16 == 0, "SpriteInstanceGPU must be 16-byte aligned");
@@ -31,6 +33,20 @@ namespace pnkr::renderer::scene
         constexpr uint32_t kFlagScreenSpace = 1u << 0u;
         constexpr size_t kDefaultFrameCount = 3;
         constexpr size_t kDefaultCapacity = 1024;
+
+        static uint32_t floatToSortableUint(float f)
+        {
+            // Total ordering for IEEE754 floats:
+            //  - flip sign bit for positives
+            //  - invert all bits for negatives
+            uint32_t u = std::bit_cast<uint32_t>(f);
+            return (u & 0x80000000u) ? ~u : (u | 0x80000000u);
+        }
+
+        static uint32_t orderToKey(int16_t order)
+        {
+            return static_cast<uint32_t>(static_cast<uint16_t>(order + 32768));
+        }
     }
 
     SpriteRenderer::SpriteRenderer(RHIRenderer& renderer)
@@ -68,38 +84,83 @@ namespace pnkr::renderer::scene
 
         if (!vertShader || !fragShader) { core::Logger::error("SpriteRenderer: failed to load shaders."); return; }
 
-        auto baseBuilder = rhi::RHIPipelineBuilder()
+        auto base = rhi::RHIPipelineBuilder()
                                .setShaders(vertShader.get(), fragShader.get(), nullptr)
                                .useVertexType<Vertex>()
                                .setTopology(rhi::PrimitiveTopology::TriangleList)
                                .setCullMode(rhi::CullMode::None)
-                               .enableDepthTest(false, rhi::CompareOp::LessOrEqual)
                                .setColorFormat(m_renderer.getDrawColorFormat())
                                .setDepthFormat(m_renderer.getDrawDepthFormat());
 
-        auto alphaDesc = baseBuilder;
-        alphaDesc.setAlphaBlend().setName("SpriteAlpha");
-        m_alphaPipeline = m_renderer.createGraphicsPipeline(alphaDesc.buildGraphics());
+        // World pipelines
+        {
+            auto worldCutout = base;
+            worldCutout.enableDepthTest(true, rhi::CompareOp::LessOrEqual)
+                       .setNoBlend()
+                       .setName("SpriteWorldCutout");
+            m_worldCutoutPipeline = m_renderer.createGraphicsPipeline(worldCutout.buildGraphics());
 
-        auto additiveDesc = baseBuilder;
-        additiveDesc.setAdditiveBlend().setName("SpriteAdditive");
-        m_additivePipeline = m_renderer.createGraphicsPipeline(additiveDesc.buildGraphics());
+            auto worldAlpha = base;
+            worldAlpha.enableDepthTest(false, rhi::CompareOp::LessOrEqual)
+                      .setAlphaBlend()
+                      .setName("SpriteWorldAlpha");
+            m_worldAlphaPipeline = m_renderer.createGraphicsPipeline(worldAlpha.buildGraphics());
 
-        auto premulDesc = baseBuilder;
-        premulDesc.setAlphaBlend().setName("SpritePremultiplied");
-        auto premul = premulDesc.buildGraphics();
-        if (premul.blend.attachments.empty()) premul.blend.attachments.resize(1);
-        auto& att = premul.blend.attachments[0];
-        att.blendEnable = true;
-        att.srcColorBlendFactor = rhi::BlendFactor::One;
-        att.dstColorBlendFactor = rhi::BlendFactor::OneMinusSrcAlpha;
-        att.colorBlendOp = rhi::BlendOp::Add;
-        att.srcAlphaBlendFactor = rhi::BlendFactor::One;
-        att.dstAlphaBlendFactor = rhi::BlendFactor::OneMinusSrcAlpha;
-        att.alphaBlendOp = rhi::BlendOp::Add;
-        m_premultipliedPipeline = m_renderer.createGraphicsPipeline(premul);
+            auto worldAdd = base;
+            worldAdd.enableDepthTest(false, rhi::CompareOp::LessOrEqual)
+                    .setAdditiveBlend()
+                    .setName("SpriteWorldAdditive");
+            m_worldAdditivePipeline = m_renderer.createGraphicsPipeline(worldAdd.buildGraphics());
 
-        auto* pipeline = m_renderer.getPipeline(m_alphaPipeline);
+            auto worldPremul = base;
+            worldPremul.enableDepthTest(false, rhi::CompareOp::LessOrEqual)
+                       .setAlphaBlend()
+                       .setName("SpriteWorldPremultiplied");
+            auto premulDesc = worldPremul.buildGraphics();
+            if (premulDesc.blend.attachments.empty()) premulDesc.blend.attachments.resize(1);
+            auto& att = premulDesc.blend.attachments[0];
+            att.blendEnable = true;
+            att.srcColorBlendFactor = rhi::BlendFactor::One;
+            att.dstColorBlendFactor = rhi::BlendFactor::OneMinusSrcAlpha;
+            att.colorBlendOp = rhi::BlendOp::Add;
+            att.srcAlphaBlendFactor = rhi::BlendFactor::One;
+            att.dstAlphaBlendFactor = rhi::BlendFactor::OneMinusSrcAlpha;
+            att.alphaBlendOp = rhi::BlendOp::Add;
+            m_worldPremultipliedPipeline = m_renderer.createGraphicsPipeline(premulDesc);
+        }
+
+        // UI pipelines (depth off)
+        {
+            auto uiAlpha = base;
+            uiAlpha.disableDepthTest()
+                   .setAlphaBlend()
+                   .setName("SpriteUIAlpha");
+            m_uiAlphaPipeline = m_renderer.createGraphicsPipeline(uiAlpha.buildGraphics());
+
+            auto uiAdd = base;
+            uiAdd.disableDepthTest()
+                 .setAdditiveBlend()
+                 .setName("SpriteUIAdditive");
+            m_uiAdditivePipeline = m_renderer.createGraphicsPipeline(uiAdd.buildGraphics());
+
+            auto uiPremul = base;
+            uiPremul.disableDepthTest()
+                    .setAlphaBlend()
+                    .setName("SpriteUIPremultiplied");
+            auto premulDesc = uiPremul.buildGraphics();
+            if (premulDesc.blend.attachments.empty()) premulDesc.blend.attachments.resize(1);
+            auto& att = premulDesc.blend.attachments[0];
+            att.blendEnable = true;
+            att.srcColorBlendFactor = rhi::BlendFactor::One;
+            att.dstColorBlendFactor = rhi::BlendFactor::OneMinusSrcAlpha;
+            att.colorBlendOp = rhi::BlendOp::Add;
+            att.srcAlphaBlendFactor = rhi::BlendFactor::One;
+            att.dstAlphaBlendFactor = rhi::BlendFactor::OneMinusSrcAlpha;
+            att.alphaBlendOp = rhi::BlendOp::Add;
+            m_uiPremultipliedPipeline = m_renderer.createGraphicsPipeline(premulDesc);
+        }
+
+        auto* pipeline = m_renderer.getPipeline(m_worldAlphaPipeline);
         if (pipeline != nullptr) m_instanceLayout = pipeline->descriptorSetLayout(0);
     }
 
@@ -148,13 +209,33 @@ namespace pnkr::renderer::scene
     {
         if (sprites.empty() || !m_quadMesh) return;
 
-        std::vector<SpriteInstanceGPU> alphaBatch;
-        std::vector<SpriteInstanceGPU> additiveBatch;
-        std::vector<SpriteInstanceGPU> premulBatch;
+        struct DrawItem
+        {
+            uint64_t key = 0;
+            SpriteInstanceGPU inst{};
+        };
 
-        alphaBatch.reserve(sprites.size());
-        additiveBatch.reserve(sprites.size() / 4);
-        premulBatch.reserve(sprites.size() / 4);
+        // Buckets:
+        //  - WorldCutout (no blending)
+        //  - WorldTranslucent: alpha/additive/premul
+        //  - UI: alpha/additive/premul
+        std::vector<DrawItem> worldCutout;
+        std::vector<DrawItem> worldAlpha;
+        std::vector<DrawItem> worldAdd;
+        std::vector<DrawItem> worldPremul;
+        std::vector<DrawItem> uiAlpha;
+        std::vector<DrawItem> uiAdd;
+        std::vector<DrawItem> uiPremul;
+
+        worldCutout.reserve(sprites.size() / 4);
+        worldAlpha.reserve(sprites.size());
+        worldAdd.reserve(sprites.size() / 4);
+        worldPremul.reserve(sprites.size() / 4);
+        uiAlpha.reserve(sprites.size() / 2);
+        uiAdd.reserve(sprites.size() / 8);
+        uiPremul.reserve(sprites.size() / 8);
+
+        uint32_t seq = 0;
 
         for (const Sprite* sprite : sprites)
         {
@@ -170,17 +251,96 @@ namespace pnkr::renderer::scene
             instance.color = sprite->color;
             instance.tex = glm::uvec4(textureIndex, samplerIndex, flags, 0u);
             instance.uvRect = glm::vec4(sprite->uvMin, sprite->uvMax);
-            instance.pivot_pad = glm::vec4(sprite->pivot, 0.0F, 0.0F);
+            instance.pivot_cutoff = glm::vec4(sprite->pivot, sprite->alphaCutoff, 0.0F);
 
-            switch (sprite->blend)
+            // Resolve effective pass (Auto behavior)
+            SpritePass pass = sprite->pass;
+            if (pass == SpritePass::Auto)
             {
-            case SpriteBlendMode::Additive: additiveBatch.push_back(instance); break;
-            case SpriteBlendMode::Premultiplied: premulBatch.push_back(instance); break;
-            case SpriteBlendMode::Alpha: default: alphaBatch.push_back(instance); break;
+                pass = (sprite->space == SpriteSpace::Screen) ? SpritePass::UI : SpritePass::WorldTranslucent;
             }
+
+            // Build sort keys
+            const uint32_t orderKey = orderToKey(sprite->order);
+            uint64_t key = 0;
+
+            if (pass == SpritePass::UI)
+            {
+                // UI: primary (layer, order), then stable seq
+                key = (uint64_t(sprite->layer) << 48) |
+                      (uint64_t(orderKey) << 32) |
+                      uint64_t(seq);
+            }
+            else
+            {
+                // World: depth sort using clip-space z/w (0..1 in Vulkan depth convention)
+                const glm::vec4 clip = camera.viewProj() * glm::vec4(sprite->position, 1.0f);
+                float ndcZ = 0.0f;
+                if (clip.w != 0.0f) ndcZ = clip.z / clip.w;
+                const uint32_t depthKey = floatToSortableUint(ndcZ);
+
+                if (pass == SpritePass::WorldCutout)
+                {
+                    // Front-to-back to reduce overdraw (smaller depth first)
+                    key = (uint64_t(depthKey) << 32) | uint64_t(seq);
+                }
+                else
+                {
+                    // Back-to-front for translucency (larger depth first)
+                    const uint32_t invDepth = 0xFFFFFFFFu - depthKey;
+                    // Include layer/order as tie-breaker (optional but useful)
+                    key = (uint64_t(invDepth) << 32) | uint64_t(seq);
+                }
+            }
+
+            DrawItem item{};
+            item.key = key;
+            item.inst = instance;
+
+            // Route to bucket/pipeline
+            if (pass == SpritePass::WorldCutout)
+            {
+                worldCutout.push_back(item);
+            }
+            else if (pass == SpritePass::UI)
+            {
+                switch (sprite->blend)
+                {
+                case SpriteBlendMode::Additive: uiAdd.push_back(item); break;
+                case SpriteBlendMode::Premultiplied: uiPremul.push_back(item); break;
+                case SpriteBlendMode::Alpha: default: uiAlpha.push_back(item); break;
+                }
+            }
+            else
+            {
+                switch (sprite->blend)
+                {
+                case SpriteBlendMode::Additive: worldAdd.push_back(item); break;
+                case SpriteBlendMode::Premultiplied: worldPremul.push_back(item); break;
+                case SpriteBlendMode::Alpha: default: worldAlpha.push_back(item); break;
+                }
+            }
+
+            ++seq;
         }
 
-        const size_t totalInstances = alphaBatch.size() + additiveBatch.size() + premulBatch.size();
+        auto sortByKey = [](std::vector<DrawItem>& v)
+        {
+            std::sort(v.begin(), v.end(), [](const DrawItem& a, const DrawItem& b) { return a.key < b.key; });
+        };
+
+        sortByKey(worldCutout);
+        sortByKey(worldAlpha);
+        sortByKey(worldAdd);
+        sortByKey(worldPremul);
+        sortByKey(uiAlpha);
+        sortByKey(uiAdd);
+        sortByKey(uiPremul);
+
+        const size_t totalInstances =
+            worldCutout.size() +
+            worldAlpha.size() + worldAdd.size() + worldPremul.size() +
+            uiAlpha.size() + uiAdd.size() + uiPremul.size();
         if (totalInstances == 0) return;
 
         // FIXED: Ring buffer logic
@@ -193,12 +353,26 @@ namespace pnkr::renderer::scene
 
         std::vector<SpriteInstanceGPU> packed;
         packed.reserve(totalInstances);
-        const uint32_t alphaOffset = 0u;
-        packed.insert(packed.end(), alphaBatch.begin(), alphaBatch.end());
-        const uint32_t additiveOffset = static_cast<uint32_t>(packed.size());
-        packed.insert(packed.end(), additiveBatch.begin(), additiveBatch.end());
-        const uint32_t premulOffset = static_cast<uint32_t>(packed.size());
-        packed.insert(packed.end(), premulBatch.begin(), premulBatch.end());
+
+        auto append = [&](const std::vector<DrawItem>& src)
+        {
+            for (const auto& it : src) packed.push_back(it.inst);
+        };
+
+        const uint32_t worldCutoutOffset = 0u;
+        append(worldCutout);
+        const uint32_t worldAlphaOffset = static_cast<uint32_t>(packed.size());
+        append(worldAlpha);
+        const uint32_t worldAddOffset = static_cast<uint32_t>(packed.size());
+        append(worldAdd);
+        const uint32_t worldPremulOffset = static_cast<uint32_t>(packed.size());
+        append(worldPremul);
+        const uint32_t uiAlphaOffset = static_cast<uint32_t>(packed.size());
+        append(uiAlpha);
+        const uint32_t uiAddOffset = static_cast<uint32_t>(packed.size());
+        append(uiAdd);
+        const uint32_t uiPremulOffset = static_cast<uint32_t>(packed.size());
+        append(uiPremul);
 
         frame.instanceBuffer->uploadData(packed.data(), packed.size() * sizeof(SpriteInstanceGPU), 0);
 
@@ -232,8 +406,12 @@ namespace pnkr::renderer::scene
             cmd->drawIndexed(6, instanceCount, 0, 0, firstInstance);
         };
 
-        drawBatch(m_alphaPipeline, static_cast<uint32_t>(alphaBatch.size()), alphaOffset);
-        drawBatch(m_additivePipeline, static_cast<uint32_t>(additiveBatch.size()), additiveOffset);
-        drawBatch(m_premultipliedPipeline, static_cast<uint32_t>(premulBatch.size()), premulOffset);
+        drawBatch(m_worldCutoutPipeline, static_cast<uint32_t>(worldCutout.size()), worldCutoutOffset);
+        drawBatch(m_worldAlphaPipeline, static_cast<uint32_t>(worldAlpha.size()), worldAlphaOffset);
+        drawBatch(m_worldAdditivePipeline, static_cast<uint32_t>(worldAdd.size()), worldAddOffset);
+        drawBatch(m_worldPremultipliedPipeline, static_cast<uint32_t>(worldPremul.size()), worldPremulOffset);
+        drawBatch(m_uiAlphaPipeline, static_cast<uint32_t>(uiAlpha.size()), uiAlphaOffset);
+        drawBatch(m_uiAdditivePipeline, static_cast<uint32_t>(uiAdd.size()), uiAddOffset);
+        drawBatch(m_uiPremultipliedPipeline, static_cast<uint32_t>(uiPremul.size()), uiPremulOffset);
     }
 } // namespace pnkr::renderer::scene

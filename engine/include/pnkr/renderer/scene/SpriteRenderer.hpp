@@ -28,9 +28,17 @@ namespace pnkr::renderer::scene
         RHIRenderer& m_renderer;
 
         MeshHandle m_quadMesh{INVALID_MESH_HANDLE};
-        PipelineHandle m_alphaPipeline{INVALID_PIPELINE_HANDLE};
-        PipelineHandle m_additivePipeline{INVALID_PIPELINE_HANDLE};
-        PipelineHandle m_premultipliedPipeline{INVALID_PIPELINE_HANDLE};
+
+        // World
+        PipelineHandle m_worldCutoutPipeline{INVALID_PIPELINE_HANDLE};
+        PipelineHandle m_worldAlphaPipeline{INVALID_PIPELINE_HANDLE};
+        PipelineHandle m_worldAdditivePipeline{INVALID_PIPELINE_HANDLE};
+        PipelineHandle m_worldPremultipliedPipeline{INVALID_PIPELINE_HANDLE};
+
+        // UI
+        PipelineHandle m_uiAlphaPipeline{INVALID_PIPELINE_HANDLE};
+        PipelineHandle m_uiAdditivePipeline{INVALID_PIPELINE_HANDLE};
+        PipelineHandle m_uiPremultipliedPipeline{INVALID_PIPELINE_HANDLE};
 
         struct FrameResources
         {

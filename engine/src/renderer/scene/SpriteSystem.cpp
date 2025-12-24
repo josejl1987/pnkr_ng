@@ -158,7 +158,14 @@ namespace pnkr::renderer::scene
                 continue;
             }
 
-            sprite.samplerIndex = m_renderer.getBindlessSamplerIndex(sprite.addressMode);
+            // Resolve sampler unless explicitly set by the caller
+            if (sprite.samplerIndex == 0xFFFFFFFFu)
+            {
+                const rhi::Filter f = (sprite.filter == SpriteFilter::Nearest)
+                                          ? rhi::Filter::Nearest
+                                          : rhi::Filter::Linear;
+                sprite.samplerIndex = m_renderer.getBindlessSamplerIndex(f, sprite.addressMode);
+            }
 
             if (sprite.clip && !sprite.clip->frames.empty())
             {
@@ -208,9 +215,6 @@ namespace pnkr::renderer::scene
                     sprite.uvMin = {0.0F, 0.0F};
                     sprite.uvMax = {1.0F, 1.0F};
                 }
-
-                core::Logger::info("Sprite flipbook: dt={} clipTime={} frame={} texIndex={}",
-                                   dt, sprite.clipTime, sprite.currentFrameIndex, sprite.textureBindlessIndex);
             }
             else
             {

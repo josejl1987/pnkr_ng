@@ -115,7 +115,13 @@ namespace pnkr::renderer
         // Texture/descriptor access
         [[nodiscard]] rhi::RHITexture* getTexture(TextureHandle handle) const;
         [[nodiscard]] uint32_t getTextureBindlessIndex(TextureHandle handle) const;
+
+        // Existing API: linear samplers by address mode
         [[nodiscard]] uint32_t getBindlessSamplerIndex(rhi::SamplerAddressMode addressMode) const;
+
+        // New API: select filtering + address mode (for sprites / pixel art / UI)
+        [[nodiscard]] uint32_t getBindlessSamplerIndex(rhi::Filter filter,
+                                                      rhi::SamplerAddressMode addressMode) const;
 
         // Buffer access
         [[nodiscard]] rhi::RHIBuffer* getBuffer(BufferHandle handle) const;
@@ -168,9 +174,18 @@ namespace pnkr::renderer
         std::unique_ptr<rhi::RHISampler> m_repeatSampler;
         std::unique_ptr<rhi::RHISampler> m_clampSampler;
         std::unique_ptr<rhi::RHISampler> m_mirrorSampler;
+
+        std::unique_ptr<rhi::RHISampler> m_repeatSamplerNearest;
+        std::unique_ptr<rhi::RHISampler> m_clampSamplerNearest;
+        std::unique_ptr<rhi::RHISampler> m_mirrorSamplerNearest;
+
         uint32_t m_repeatSamplerIndex = 0xFFFFFFFF;
         uint32_t m_clampSamplerIndex = 0xFFFFFFFF;
         uint32_t m_mirrorSamplerIndex = 0xFFFFFFFF;
+
+        uint32_t m_repeatSamplerNearestIndex = 0xFFFFFFFF;
+        uint32_t m_clampSamplerNearestIndex = 0xFFFFFFFF;
+        uint32_t m_mirrorSamplerNearestIndex = 0xFFFFFFFF;
 
         // Resources
         struct MeshData {

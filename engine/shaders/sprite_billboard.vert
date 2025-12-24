@@ -7,6 +7,7 @@ layout(location = 0) out vec2 outUV;
 layout(location = 1) out vec4 outColor;
 layout(location = 2) flat out uint outTextureID;
 layout(location = 3) flat out uint outSamplerID;
+layout(location = 4) flat out float outAlphaCutoff;
 
 struct SpriteInstanceGPU
 {
@@ -15,7 +16,7 @@ struct SpriteInstanceGPU
     vec4 color;
     uvec4 tex;
     vec4 uvRect;
-    vec4 pivot_pad;
+    vec4 pivot_cutoff; // xy=pivot, z=alphaCutoff, w=unused
 };
 
 layout(set = 0, binding = 0, std430) readonly buffer SpriteInstances
@@ -44,7 +45,7 @@ void main()
 {
     SpriteInstanceGPU inst = instances[gl_InstanceIndex];
 
-    vec2 pivot = inst.pivot_pad.xy;
+    vec2 pivot = inst.pivot_cutoff.xy;
     vec2 corner = inUV1 + (vec2(0.5) - pivot);
     vec2 rotatedCorner = rotate2d(corner, inst.size_rot.z);
 
@@ -73,4 +74,5 @@ void main()
     outColor = inst.color;
     outTextureID = inst.tex.x;
     outSamplerID = inst.tex.y;
+    outAlphaCutoff = inst.pivot_cutoff.z;
 }

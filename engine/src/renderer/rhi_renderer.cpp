@@ -99,6 +99,26 @@ namespace pnkr::renderer
             );
             m_clampSamplerIndex = m_device->registerBindlessSampler(m_clampSampler.get()).index;
             m_mirrorSamplerIndex = m_device->registerBindlessSampler(m_mirrorSampler.get()).index;
+
+            // Nearest variants
+            m_repeatSamplerNearest = m_device->createSampler(
+                rhi::Filter::Nearest,
+                rhi::Filter::Nearest,
+                rhi::SamplerAddressMode::Repeat
+            );
+            m_clampSamplerNearest = m_device->createSampler(
+                rhi::Filter::Nearest,
+                rhi::Filter::Nearest,
+                rhi::SamplerAddressMode::ClampToEdge
+            );
+            m_mirrorSamplerNearest = m_device->createSampler(
+                rhi::Filter::Nearest,
+                rhi::Filter::Nearest,
+                rhi::SamplerAddressMode::MirroredRepeat
+            );
+            m_repeatSamplerNearestIndex = m_device->registerBindlessSampler(m_repeatSamplerNearest.get()).index;
+            m_clampSamplerNearestIndex = m_device->registerBindlessSampler(m_clampSamplerNearest.get()).index;
+            m_mirrorSamplerNearestIndex = m_device->registerBindlessSampler(m_mirrorSamplerNearest.get()).index;
         }
 
         // Create render targets
@@ -973,16 +993,23 @@ namespace pnkr::renderer
 
     uint32_t RHIRenderer::getBindlessSamplerIndex(rhi::SamplerAddressMode addressMode) const
     {
+        return getBindlessSamplerIndex(rhi::Filter::Linear, addressMode);
+    }
+
+    uint32_t RHIRenderer::getBindlessSamplerIndex(rhi::Filter filter,
+                                                 rhi::SamplerAddressMode addressMode) const
+    {
+        const bool nearest = (filter == rhi::Filter::Nearest);
         switch (addressMode)
         {
         case rhi::SamplerAddressMode::ClampToEdge:
         case rhi::SamplerAddressMode::ClampToBorder:
-            return m_clampSamplerIndex;
+            return nearest ? m_clampSamplerNearestIndex : m_clampSamplerIndex;
         case rhi::SamplerAddressMode::MirroredRepeat:
-            return m_mirrorSamplerIndex;
+            return nearest ? m_mirrorSamplerNearestIndex : m_mirrorSamplerIndex;
         case rhi::SamplerAddressMode::Repeat:
         default:
-            return m_repeatSamplerIndex;
+            return nearest ? m_repeatSamplerNearestIndex : m_repeatSamplerIndex;
         }
     }
 

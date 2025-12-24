@@ -26,6 +26,24 @@ namespace pnkr::renderer::scene
         Premultiplied = 2
     };
 
+    // Rendering intent / pass selection.
+    // Auto:
+    //  - Screen-space -> UI
+    //  - World -> WorldTranslucent
+    enum class SpritePass : uint8_t
+    {
+        Auto = 0,
+        WorldCutout,       // Depth test ON, depth write ON, blending OFF (alpha test via alphaCutoff)
+        WorldTranslucent,  // Depth test ON, depth write OFF, blending ON (sorted back-to-front)
+        UI                // Depth test OFF, blending ON (sorted by layer/order)
+    };
+
+    enum class SpriteFilter : uint8_t
+    {
+        Linear = 0,
+        Nearest
+    };
+
     struct FlipbookClip
     {
         std::vector<TextureHandle> frames;
@@ -45,6 +63,17 @@ namespace pnkr::renderer::scene
     {
         SpriteSpace space = SpriteSpace::WorldBillboard;
         SpriteBlendMode blend = SpriteBlendMode::Alpha;
+        SpritePass pass = SpritePass::Auto;
+        SpriteFilter filter = SpriteFilter::Linear;
+
+        // UI sorting (and tie-breakers for world sorting). Smaller draws first for UI.
+        // For world sprites, these are used only as tie-breakers after depth sorting.
+        uint16_t layer = 0;
+        int16_t order = 0;
+
+        // If > 0: alpha test threshold (used mainly for WorldCutout).
+        // If <= 0: no alpha test (pure translucent).
+        float alphaCutoff = 0.0f;
 
         glm::vec3 position = {0.0F, 0.0F, 0.0F};
         float rotation = 0.0F;
@@ -55,7 +84,7 @@ namespace pnkr::renderer::scene
         glm::vec4 color = {1.0F, 1.0F, 1.0F, 1.0F};
 
         rhi::SamplerAddressMode addressMode = rhi::SamplerAddressMode::Repeat;
-        uint32_t samplerIndex = 0;
+        uint32_t samplerIndex = 0xFFFFFFFFu; // auto-resolved by SpriteSystem unless explicitly set
 
         TextureHandle texture = INVALID_TEXTURE_HANDLE;
         uint32_t textureBindlessIndex = 0xFFFFFFFFu;
