@@ -84,59 +84,7 @@ namespace pnkr::renderer::scene
             return levels;
         }
 
-        static float GetCoverage(const uint8_t* pixels, int width, int height, float cutoff)
-        {
-            if (!pixels || width <= 0 || height <= 0) return 0.0f;
-            int count = 0;
-            int total = width * height;
-            int thresholdByte = (int)(cutoff * 255.0f);
 
-            for (int i = 0; i < total; i++) {
-                // Assuming RGBA (4 channels), alpha is at index 3
-                if (pixels[i * 4 + 3] > thresholdByte) {
-                    count++;
-                }
-            }
-            return (float)count / (float)total;
-        }
-
-        static void PreserveCoverage(uint8_t* mipPixels, int width, int height, float targetCoverage, float cutoff)
-        {
-            if (!mipPixels || width <= 0 || height <= 0) return;
-            int total = width * height;
-            std::vector<uint8_t> alphas;
-            alphas.reserve(total);
-
-            // 1. Collect all alpha values
-            for (int i = 0; i < total; i++) {
-                alphas.push_back(mipPixels[i * 4 + 3]);
-            }
-
-            // 2. Sort to find the percentile
-            std::sort(alphas.begin(), alphas.end());
-            
-            // We want the top 'targetCoverage' percent of pixels to pass.
-            // So we need the threshold at index: (1.0 - targetCoverage) * total
-            int thresholdIndex = (int)((1.0f - targetCoverage) * (float)total);
-            thresholdIndex = std::max(0, std::min(thresholdIndex, total - 1));
-            
-            uint8_t newThreshold = alphas[thresholdIndex];
-            
-            // Avoid divide by zero / scaling artifacts if image is weird
-            if (newThreshold == 0) return; 
-
-            // 3. Calculate Scale Factor
-            // We want 'newThreshold' to become 'cutoff' (cutoff * 255)
-            float desiredThresholdByte = cutoff * 255.0f;
-            float scale = desiredThresholdByte / (float)newThreshold;
-
-            // 4. Apply Scale
-            for (int i = 0; i < total; i++) {
-                int a = mipPixels[i * 4 + 3];
-                a = (int)((float)a * scale);
-                mipPixels[i * 4 + 3] = (uint8_t)(a > 255 ? 255 : a);
-            }
-        }
 
         static bool writeKtx2RGBA8Mipmapped(
             const std::filesystem::path& outFile,
@@ -148,8 +96,8 @@ namespace pnkr::renderer::scene
             if (!rgba || origW <= 0 || origH <= 0) return false;
 
             // Compute original coverage at standard alpha cutoff (0.5)
-            const float kAlphaCutoff = 0.5f;
-            const float coverage = GetCoverage(rgba, origW, origH, kAlphaCutoff);
+            //const float kAlphaCutoff = 0.5f;
+            //const float coverage = GetCoverage(rgba, origW, origH, kAlphaCutoff);
 
             const int newW = std::min(origW, int(maxSize));
             const int newH = std::min(origH, int(maxSize));
@@ -819,17 +767,23 @@ namespace pnkr::renderer::scene
         // --- Meshes (Unified Geometry Loading) ---
         std::vector<Vertex> globalVertices;
         std::vector<uint32_t> globalIndices;
+        std::vector<MorphVertex> allMorphVertices;
         
         model->m_meshes.reserve(gltf.meshes.size());
         model->m_meshBounds.reserve(gltf.meshes.size());
+        model->m_morphTargetInfos.resize(gltf.meshes.size());
+        model->m_morphStates.resize(gltf.meshes.size());
 
-        for (const auto& gMesh : gltf.meshes) {
+        for (size_t meshIdx = 0; meshIdx < gltf.meshes.size(); ++meshIdx) {
+            const auto& gMesh = gltf.meshes[meshIdx];
             MeshDOD meshDOD;
             meshDOD.name = gMesh.name;
             bool hasBounds = false;
             glm::vec3 meshMin(std::numeric_limits<float>::max());
             glm::vec3 meshMax(std::numeric_limits<float>::lowest());
             
+            uint32_t meshVertexStart = (uint32_t)globalVertices.size();
+
             for (const auto& gPrim : gMesh.primitives) {
                 PrimitiveDOD primDOD;
                 primDOD.firstIndex = static_cast<uint32_t>(globalIndices.size());
@@ -852,6 +806,8 @@ namespace pnkr::renderer::scene
                     globalVertices[vStart + idx].m_texCoord0 = glm::vec2(0.0f);
                     globalVertices[vStart + idx].m_texCoord1 = glm::vec2(0.0f);
                     globalVertices[vStart + idx].m_tangent = glm::vec4(0.0f);
+                    globalVertices[vStart + idx].m_meshIndex = (uint32_t)meshIdx;
+                    globalVertices[vStart + idx].m_localIndex = (uint32_t)(vStart + idx - meshVertexStart);
 
                     meshMin = glm::min(meshMin, pos);
                     meshMax = glm::max(meshMax, pos);
@@ -884,6 +840,16 @@ namespace pnkr::renderer::scene
                         globalVertices[vStart + idx].m_tangent = tan;
                     });
                 }
+                if (const auto* it = gPrim.findAttribute("JOINTS_0"); it != gPrim.attributes.end()) {
+                    fastgltf::iterateAccessorWithIndex<glm::uvec4>(gltf, gltf.accessors[it->accessorIndex], [&](glm::uvec4 joints, size_t idx) {
+                        globalVertices[vStart + idx].m_joints = joints;
+                    });
+                }
+                if (const auto* it = gPrim.findAttribute("WEIGHTS_0"); it != gPrim.attributes.end()) {
+                    fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[it->accessorIndex], [&](glm::vec4 weights, size_t idx) {
+                        globalVertices[vStart + idx].m_weights = weights;
+                    });
+                }
 
                 // Indices
                 if (gPrim.indicesAccessor.has_value()) {
@@ -904,6 +870,57 @@ namespace pnkr::renderer::scene
             }
             model->m_meshes.push_back(meshDOD);
 
+            // Process Morph Targets for this mesh
+            auto& morphInfo = model->m_morphTargetInfos[meshIdx];
+            morphInfo.meshIndex = (uint32_t)meshIdx;
+            if (!gMesh.primitives.empty() && !gMesh.primitives[0].targets.empty()) {
+                size_t numTargets = gMesh.primitives[0].targets.size();
+                uint32_t meshVertexCount = (uint32_t)globalVertices.size() - meshVertexStart;
+
+                for (size_t targetIdx = 0; targetIdx < numTargets; ++targetIdx) {
+                    uint32_t targetOffset = (uint32_t)allMorphVertices.size();
+                    morphInfo.targetOffsets.push_back(targetOffset);
+                    allMorphVertices.resize(targetOffset + meshVertexCount);
+
+                    uint32_t currentPrimVOffset = 0;
+                    for (size_t primIdx = 0; primIdx < gMesh.primitives.size(); ++primIdx) {
+                        const auto& gPrim = gMesh.primitives[primIdx];
+                        const auto* itPos = gPrim.findAttribute("POSITION");
+                        if (itPos == gPrim.attributes.end()) continue;
+                        size_t vCount = gltf.accessors[itPos->accessorIndex].count;
+
+                        if (targetIdx < gPrim.targets.size()) {
+                            const auto& target = gPrim.targets[targetIdx];
+                            // NOTE: gPrim.targets[targetIdx] is an attribute list, not a Primitive, so it has no findAttribute().
+                            const auto* posIt = std::find_if(target.begin(), target.end(),
+                                [](const fastgltf::Attribute& a) {
+                                    return a.name == "POSITION";
+                                });
+                            if (posIt != target.end()) {
+                                fastgltf::iterateAccessorWithIndex<glm::vec3>(
+                                    gltf, gltf.accessors[posIt->accessorIndex],
+                                    [&](glm::vec3 v, size_t idx) {
+                                        allMorphVertices[targetOffset + currentPrimVOffset + idx].positionDelta = v;
+                                    });
+                            }
+
+                            const auto* normIt = std::find_if(target.begin(), target.end(),
+                                [](const fastgltf::Attribute& a) {
+                                    return a.name == "NORMAL";
+                                });
+                            if (normIt != target.end()) {
+                                fastgltf::iterateAccessorWithIndex<glm::vec3>(
+                                    gltf, gltf.accessors[normIt->accessorIndex],
+                                    [&](glm::vec3 v, size_t idx) {
+                                        allMorphVertices[targetOffset + currentPrimVOffset + idx].normalDelta = v;
+                                    });
+                            }
+                        }
+                        currentPrimVOffset += (uint32_t)vCount;
+                    }
+                }
+            }
+
             BoundingBox box{};
             if (hasBounds) {
                 box.m_min = meshMin;
@@ -913,6 +930,81 @@ namespace pnkr::renderer::scene
                 box.m_max = glm::vec3(0.0f);
             }
             model->m_meshBounds.push_back(box);
+        }
+
+        // --- Skins ---
+        model->m_skins.reserve(gltf.skins.size());
+        for (const auto& gSkin : gltf.skins) {
+            Skin skin;
+            skin.name = gSkin.name;
+            skin.skeletonRootNode = gSkin.skeleton.has_value() ? (int)gSkin.skeleton.value() : -1;
+
+            skin.joints.reserve(gSkin.joints.size());
+            for (auto jointIdx : gSkin.joints) {
+                skin.joints.push_back((uint32_t)jointIdx + 1);
+            }
+
+            if (gSkin.inverseBindMatrices.has_value()) {
+                const auto& acc = gltf.accessors[gSkin.inverseBindMatrices.value()];
+                skin.inverseBindMatrices.resize(acc.count);
+                fastgltf::iterateAccessorWithIndex<glm::mat4>(gltf, acc, [&](glm::mat4 m, size_t idx) {
+                    skin.inverseBindMatrices[idx] = m;
+                });
+            } else {
+                skin.inverseBindMatrices.assign(skin.joints.size(), glm::mat4(1.0f));
+            }
+            model->m_skins.push_back(std::move(skin));
+        }
+
+        // --- Animations ---
+        model->m_animations.reserve(gltf.animations.size());
+        for (const auto& gAnim : gltf.animations) {
+            Animation anim;
+            anim.name = gAnim.name;
+
+            for (const auto& gSampler : gAnim.samplers) {
+                AnimationSampler sampler;
+                if (gSampler.interpolation == fastgltf::AnimationInterpolation::Linear) sampler.interpolation = InterpolationType::Linear;
+                else if (gSampler.interpolation == fastgltf::AnimationInterpolation::Step) sampler.interpolation = InterpolationType::Step;
+                else sampler.interpolation = InterpolationType::CubicSpline;
+
+                const auto& inputAcc = gltf.accessors[gSampler.inputAccessor];
+                sampler.inputs.resize(inputAcc.count);
+                fastgltf::iterateAccessorWithIndex<float>(gltf, inputAcc, [&](float t, size_t idx) {
+                    sampler.inputs[idx] = t;
+                    anim.duration = std::max(anim.duration, t);
+                });
+
+                const auto& outputAcc = gltf.accessors[gSampler.outputAccessor];
+                sampler.outputs.resize(outputAcc.count);
+                if (outputAcc.type == fastgltf::AccessorType::Scalar) {
+                     fastgltf::iterateAccessorWithIndex<float>(gltf, outputAcc, [&](float v, size_t idx) {
+                        sampler.outputs[idx] = glm::vec4(v, 0, 0, 0);
+                    });
+                } else if (outputAcc.type == fastgltf::AccessorType::Vec3) {
+                     fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, outputAcc, [&](glm::vec3 v, size_t idx) {
+                        sampler.outputs[idx] = glm::vec4(v, 0.0f);
+                    });
+                } else if (outputAcc.type == fastgltf::AccessorType::Vec4) {
+                     fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, outputAcc, [&](glm::vec4 v, size_t idx) {
+                        sampler.outputs[idx] = v;
+                    });
+                }
+                anim.samplers.push_back(std::move(sampler));
+            }
+
+            for (const auto& gChannel : gAnim.channels) {
+                if (!gChannel.nodeIndex.has_value()) continue;
+                AnimationChannel channel;
+                channel.samplerIndex = (int)gChannel.samplerIndex;
+                channel.targetNode = (uint32_t)gChannel.nodeIndex.value() + 1;
+                if (gChannel.path == fastgltf::AnimationPath::Translation) channel.path = AnimationPath::Translation;
+                else if (gChannel.path == fastgltf::AnimationPath::Rotation) channel.path = AnimationPath::Rotation;
+                else if (gChannel.path == fastgltf::AnimationPath::Scale) channel.path = AnimationPath::Scale;
+                else if (gChannel.path == fastgltf::AnimationPath::Weights) channel.path = AnimationPath::Weights;
+                anim.channels.push_back(channel);
+            }
+            model->m_animations.push_back(std::move(anim));
         }
 
         // Create GPU Buffers
@@ -936,6 +1028,16 @@ namespace pnkr::renderer::scene
                 .debugName = "ModelDOD Unified IBO"
             });
             renderer.getBuffer(model->indexBuffer)->uploadData(globalIndices.data(), globalIndices.size() * sizeof(uint32_t));
+        }
+
+        if (!allMorphVertices.empty()) {
+            model->morphVertexBuffer = renderer.createBuffer({
+                .size = allMorphVertices.size() * sizeof(MorphVertex),
+                .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
+                .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+                .debugName = "ModelDOD Morph Delta Buffer"
+            });
+            renderer.getBuffer(model->morphVertexBuffer)->uploadData(allMorphVertices.data(), allMorphVertices.size() * sizeof(MorphVertex));
         }
 
         // Load Nodes via SceneGraph

@@ -25,7 +25,7 @@ namespace indirect {
     struct DrawInstanceData {
         uint32_t transformIndex; // Index into global transform array
         uint32_t materialIndex;  // Index into material array
-        uint32_t _pad0;
+        int32_t  jointOffset;    // Offset into joint buffer (or -1)
         uint32_t _pad1;
     };
 
@@ -61,16 +61,19 @@ namespace indirect {
         void init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model,
                   TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
         void update(float dt);
+        void dispatchSkinning(rhi::RHICommandBuffer* cmd);
         void draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera);
 
     private:
         void createPipeline();
+        void createComputePipeline();
         void buildBuffers();
         void uploadMaterialData();
         void uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
 
         RHIRenderer* m_renderer = nullptr;
         std::shared_ptr<scene::ModelDOD> m_model;
+        std::vector<uint32_t> m_skinOffsets;
 
         // Buffers owned by this renderer
         BufferHandle m_indirectBuffer = INVALID_BUFFER_HANDLE;
@@ -80,6 +83,13 @@ namespace indirect {
         BufferHandle m_transformBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle m_materialBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle m_environmentBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle m_jointBuffer = INVALID_BUFFER_HANDLE;
+
+        // Skinning Resources
+        BufferHandle m_jointMatricesBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle m_meshXformsBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle m_skinnedVertexBuffer = INVALID_BUFFER_HANDLE;
+        PipelineHandle m_skinningPipeline = INVALID_PIPELINE_HANDLE;
 
         PipelineHandle m_pipeline = INVALID_PIPELINE_HANDLE;
         uint32_t m_drawCount = 0;

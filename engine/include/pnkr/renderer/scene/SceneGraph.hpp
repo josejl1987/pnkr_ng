@@ -29,6 +29,7 @@ namespace pnkr::renderer::scene {
         // Dense optional components (hot path friendly)
         std::vector<int32_t> meshIndex;   // -1 if none (gltf node meshIndex)
         std::vector<int32_t> lightIndex;  // -1 if none (KHR_lights_punctual)
+        std::vector<int32_t> skinIndex;   // -1 if none (gltf node skinIndex)
         std::vector<int32_t> nameId;      // -1 if none (index into names)
 
         std::vector<std::string> names;
@@ -53,7 +54,7 @@ namespace pnkr::renderer::scene {
 
         void clear() {
             local.clear(); global.clear(); hierarchy.clear();
-            meshIndex.clear(); lightIndex.clear(); nameId.clear();
+            meshIndex.clear(); lightIndex.clear(); skinIndex.clear(); nameId.clear();
             names.clear(); roots.clear(); topoOrder.clear();
             root = 0;
 

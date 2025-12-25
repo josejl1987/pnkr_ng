@@ -1029,6 +1029,24 @@ namespace pnkr::renderer::scene
                                                                   });
                 }
 
+                if (const auto* it = gPrim.findAttribute("JOINTS_0"); it != gPrim.attributes.end())
+                {
+                    fastgltf::iterateAccessorWithIndex<glm::uvec4>(gltf, gltf.accessors[it->accessorIndex],
+                                                                  [&](glm::uvec4 joints, size_t idx)
+                                                                  {
+                                                                      vertices[idx].m_joints = joints;
+                                                                  });
+                }
+
+                if (const auto* it = gPrim.findAttribute("WEIGHTS_0"); it != gPrim.attributes.end())
+                {
+                    fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[it->accessorIndex],
+                                                                  [&](glm::vec4 weights, size_t idx)
+                                                                  {
+                                                                      vertices[idx].m_weights = weights;
+                                                                  });
+                }
+
                 // Indices: widen to uint32_t regardless of source component type.
                 if (gPrim.indicesAccessor.has_value())
                 {
@@ -1071,6 +1089,101 @@ namespace pnkr::renderer::scene
 
                 myNode.m_meshPrimitives.push_back(prim);
             }
+        }
+
+        // --- Skins ---
+        model->m_skins.reserve(gltf.skins.size());
+        for (const auto& gSkin : gltf.skins)
+        {
+            Skin skin;
+            skin.name = gSkin.name;
+            skin.skeletonRootNode = gSkin.skeleton.has_value() ? static_cast<int>(gSkin.skeleton.value()) : -1;
+
+            skin.joints.reserve(gSkin.joints.size());
+            for (auto jointIdx : gSkin.joints)
+            {
+                skin.joints.push_back(static_cast<uint32_t>(jointIdx));
+            }
+
+            if (gSkin.inverseBindMatrices.has_value())
+            {
+                const auto& acc = gltf.accessors[gSkin.inverseBindMatrices.value()];
+                skin.inverseBindMatrices.resize(acc.count);
+                fastgltf::iterateAccessorWithIndex<glm::mat4>(gltf, acc, [&](glm::mat4 m, size_t idx)
+                {
+                    skin.inverseBindMatrices[idx] = m;
+                });
+            }
+            else
+            {
+                skin.inverseBindMatrices.assign(skin.joints.size(), glm::mat4(1.0f));
+            }
+            model->m_skins.push_back(std::move(skin));
+        }
+
+        // --- Animations ---
+        model->m_animations.reserve(gltf.animations.size());
+        for (const auto& gAnim : gltf.animations)
+        {
+            Animation anim;
+            anim.name = gAnim.name;
+
+            for (const auto& gSampler : gAnim.samplers)
+            {
+                AnimationSampler sampler;
+                if (gSampler.interpolation == fastgltf::AnimationInterpolation::Linear)
+                    sampler.interpolation = InterpolationType::Linear;
+                else if (gSampler.interpolation == fastgltf::AnimationInterpolation::Step)
+                    sampler.interpolation = InterpolationType::Step;
+                else sampler.interpolation = InterpolationType::CubicSpline;
+
+                const auto& inputAcc = gltf.accessors[gSampler.inputAccessor];
+                sampler.inputs.resize(inputAcc.count);
+                fastgltf::iterateAccessorWithIndex<float>(gltf, inputAcc, [&](float t, size_t idx)
+                {
+                    sampler.inputs[idx] = t;
+                    anim.duration = std::max(anim.duration, t);
+                });
+
+                const auto& outputAcc = gltf.accessors[gSampler.outputAccessor];
+                sampler.outputs.resize(outputAcc.count);
+                if (outputAcc.type == fastgltf::AccessorType::Scalar)
+                {
+                    fastgltf::iterateAccessorWithIndex<float>(gltf, outputAcc, [&](float v, size_t idx)
+                    {
+                        sampler.outputs[idx] = glm::vec4(v, 0, 0, 0);
+                    });
+                }
+                else if (outputAcc.type == fastgltf::AccessorType::Vec3)
+                {
+                    fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, outputAcc, [&](glm::vec3 v, size_t idx)
+                    {
+                        sampler.outputs[idx] = glm::vec4(v, 0.0f);
+                    });
+                }
+                else if (outputAcc.type == fastgltf::AccessorType::Vec4)
+                {
+                    fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, outputAcc, [&](glm::vec4 v, size_t idx)
+                    {
+                        sampler.outputs[idx] = v;
+                    });
+                }
+                anim.samplers.push_back(std::move(sampler));
+            }
+
+            for (const auto& gChannel : gAnim.channels)
+            {
+                if (!gChannel.nodeIndex.has_value()) continue;
+                AnimationChannel channel;
+                channel.samplerIndex = static_cast<int>(gChannel.samplerIndex);
+                channel.targetNode = static_cast<uint32_t>(gChannel.nodeIndex.value());
+                if (gChannel.path == fastgltf::AnimationPath::Translation) channel.path = AnimationPath::Translation;
+                else if (gChannel.path == fastgltf::AnimationPath::Rotation) channel.path = AnimationPath::Rotation;
+                else if (gChannel.path == fastgltf::AnimationPath::Scale) channel.path = AnimationPath::Scale;
+                else if (gChannel.path == fastgltf::AnimationPath::Weights) channel.path = AnimationPath::Weights;
+                anim.channels.push_back(channel);
+            }
+            model->m_animations.push_back(std::move(anim));
         }
 
         model->m_rootNodes.clear();

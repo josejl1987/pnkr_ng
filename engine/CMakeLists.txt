@@ -14,6 +14,7 @@ add_library(pnkr_engine STATIC
         src/renderer/scene/Model.cpp
         src/renderer/scene/SceneGraph.cpp
         src/renderer/scene/ModelDOD.cpp
+        src/renderer/scene/AnimationSystem.cpp
         src/renderer/scene/GLTFUnified.cpp
         src/renderer/scene/GLTFUnifiedDOD.cpp
         src/renderer/scene/SpriteSystem.cpp
@@ -87,6 +88,8 @@ target_sources(pnkr_engine
         include/pnkr/renderer/scene/Model.hpp
         include/pnkr/renderer/scene/SceneGraph.hpp
         include/pnkr/renderer/scene/ModelDOD.hpp
+        include/pnkr/renderer/scene/Animation.hpp
+        include/pnkr/renderer/scene/AnimationSystem.hpp
       include/pnkr/renderer/scene/GLTFUnified.hpp
       include/pnkr/renderer/scene/GLTFUnifiedDOD.hpp
       include/pnkr/renderer/scene/Node.hpp

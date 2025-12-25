@@ -14,6 +14,10 @@ namespace pnkr::renderer
         glm::vec2 m_texCoord0;
         glm::vec2 m_texCoord1;
         glm::vec4 m_tangent;
+        glm::uvec4 m_joints;
+        glm::vec4 m_weights;
+        uint32_t m_meshIndex = 0;
+        uint32_t m_localIndex = 0;
 
         struct SemanticMap
         {
@@ -31,8 +35,18 @@ namespace pnkr::renderer
                 {rhi::VertexSemantic::TexCoord0, offsetof(Vertex, m_texCoord0), rhi::Format::R32G32_SFLOAT},
                 {rhi::VertexSemantic::TexCoord, offsetof(Vertex, m_texCoord0), rhi::Format::R32G32_SFLOAT}, // Fallback
                 {rhi::VertexSemantic::TexCoord1, offsetof(Vertex, m_texCoord1), rhi::Format::R32G32_SFLOAT},
-                {rhi::VertexSemantic::Tangent, offsetof(Vertex, m_tangent), rhi::Format::R32G32B32A32_SFLOAT}
+                {rhi::VertexSemantic::Tangent, offsetof(Vertex, m_tangent), rhi::Format::R32G32B32A32_SFLOAT},
+                {rhi::VertexSemantic::BoneIds, offsetof(Vertex, m_joints), rhi::Format::R32G32B32A32_UINT},
+                {rhi::VertexSemantic::Weights, offsetof(Vertex, m_weights), rhi::Format::R32G32B32A32_SFLOAT}
             };
         }
+    };
+
+    struct MorphVertex
+    {
+        glm::vec3 positionDelta;
+        uint32_t _pad0;
+        glm::vec3 normalDelta;
+        uint32_t _pad1;
     };
 } // namespace pnkr::renderer

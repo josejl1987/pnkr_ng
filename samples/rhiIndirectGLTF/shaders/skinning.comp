@@ -1,0 +1,136 @@
+#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Vertex {
+    vec3 position;
+    vec3 color;
+    vec3 normal;
+    vec2 texCoord0;
+    vec2 texCoord1;
+    vec4 tangent;
+    uvec4 joints;
+    vec4 weights;
+    uint meshIndex;
+    uint localIndex;
+};
+
+struct MorphState {
+    uint meshIndex;
+    uint activeTargets[8];
+    float weights[8];
+};
+
+struct MorphVertex {
+    vec3 positionDelta;
+    uint _pad0;
+    vec3 normalDelta;
+    uint _pad1;
+};
+
+// Per-mesh transform info to convert world-space skinned results back to mesh-local.
+// invModel:          world -> local for positions
+// normalWorldToLocal world -> local for normals (inverse of vertex shader normalMatrix(model))
+struct MeshXform {
+    mat4 invModel;
+    mat4 normalWorldToLocal;
+};
+
+layout(buffer_reference, scalar) readonly buffer InVertexBuffer { Vertex vertices[]; };
+layout(buffer_reference, scalar) writeonly buffer OutVertexBuffer { Vertex vertices[]; };
+layout(buffer_reference, scalar) readonly buffer JointMatrices { mat4 matrices[]; };
+layout(buffer_reference, scalar) readonly buffer MorphDeltaBuffer { MorphVertex vertices[]; };
+layout(buffer_reference, scalar) readonly buffer MorphStateBuffer { MorphState states[]; };
+layout(buffer_reference, scalar) readonly buffer MeshXformBuffer { MeshXform xforms[]; };
+
+layout(push_constant) uniform Constants {
+    uint64_t inBufferPtr;
+    uint64_t outBufferPtr;
+    uint64_t jointMatricesPtr;
+    uint64_t morphDeltasPtr;
+    uint64_t morphStatesPtr;
+    uint64_t meshXformsPtr;
+    uint vertexCount;
+    uint hasSkinning;
+    uint hasMorphing;
+} pc;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= pc.vertexCount) return;
+
+    InVertexBuffer inBuf = InVertexBuffer(pc.inBufferPtr);
+    OutVertexBuffer outBuf = OutVertexBuffer(pc.outBufferPtr);
+
+    Vertex v = inBuf.vertices[idx];
+
+    // Copy pass-through attributes
+    outBuf.vertices[idx].color = v.color;
+    outBuf.vertices[idx].texCoord0 = v.texCoord0;
+    outBuf.vertices[idx].texCoord1 = v.texCoord1;
+    outBuf.vertices[idx].tangent = v.tangent;
+    outBuf.vertices[idx].joints = v.joints;
+    outBuf.vertices[idx].weights = v.weights;
+    outBuf.vertices[idx].meshIndex = v.meshIndex;
+    outBuf.vertices[idx].localIndex = v.localIndex;
+
+    vec3 pos = v.position;
+    vec3 norm = v.normal;
+
+    // 1. Morphing
+    if (pc.hasMorphing != 0) {
+        MorphStateBuffer states = MorphStateBuffer(pc.morphStatesPtr);
+        MorphDeltaBuffer deltas = MorphDeltaBuffer(pc.morphDeltasPtr);
+        
+        MorphState ms = states.states[v.meshIndex];
+        for (int i = 0; i < 8; ++i) {
+            if (ms.weights[i] != 0.0) {
+                MorphVertex mv = deltas.vertices[ms.activeTargets[i] + v.localIndex];
+                pos += mv.positionDelta * ms.weights[i];
+                norm += mv.normalDelta * ms.weights[i];
+            }
+        }
+    }
+
+    // 2. Skinning
+    if (pc.hasSkinning != 0) {
+        JointMatrices joints = JointMatrices(pc.jointMatricesPtr);
+        mat4 skinMat = 
+            v.weights.x * joints.matrices[v.joints.x] +
+            v.weights.y * joints.matrices[v.joints.y] +
+            v.weights.z * joints.matrices[v.joints.z] +
+            v.weights.w * joints.matrices[v.joints.w];
+
+        // If unskinned (all weights 0), fallback to identity (or bind pose)
+        if (dot(v.weights, vec4(1.0)) == 0.0) {
+            outBuf.vertices[idx].position = pos;
+            outBuf.vertices[idx].normal = normalize(norm);
+        } else {
+            // Phase 2: compute produces WORLD-space skinned vertex, then converts back to mesh-local
+            // so the vertex shader can always apply the node model transform normally.
+            vec3 worldPos  = (skinMat * vec4(pos, 1.0)).xyz;
+            vec3 worldNorm = normalize(mat3(skinMat) * norm);
+
+            if (pc.meshXformsPtr != 0) {
+                MeshXformBuffer mxBuf = MeshXformBuffer(pc.meshXformsPtr);
+                MeshXform mx = mxBuf.xforms[v.meshIndex];
+
+                vec3 localPos  = (mx.invModel * vec4(worldPos, 1.0)).xyz;
+                vec3 localNorm = normalize(mat3(mx.normalWorldToLocal) * worldNorm);
+
+                outBuf.vertices[idx].position = localPos;
+                outBuf.vertices[idx].normal   = localNorm;
+            } else {
+                // Fallback: keep world-space output (should not be used in Phase 2)
+                outBuf.vertices[idx].position = worldPos;
+                outBuf.vertices[idx].normal   = worldNorm;
+            }
+        }
+    } else {
+        outBuf.vertices[idx].position = pos;
+        outBuf.vertices[idx].normal = normalize(norm);
+    }
+}

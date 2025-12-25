@@ -65,6 +65,7 @@ namespace pnkr::renderer::scene
 
         meshIndex.assign(N + 1, -1);
         lightIndex.assign(N + 1, -1);
+        skinIndex.assign(N + 1, -1);
         nameId.assign(N + 1, -1);
 
         // Root defaults
@@ -85,6 +86,9 @@ namespace pnkr::renderer::scene
 
             if (n.lightIndex.has_value())
                 lightIndex[id] = (int32_t)n.lightIndex.value();
+
+            if (n.skinIndex.has_value())
+                skinIndex[id] = (int32_t)n.skinIndex.value();
 
             if (!n.name.empty())
             {
@@ -307,6 +311,7 @@ namespace pnkr::renderer::scene
         hierarchy.push_back({.parent = (int32_t)parentIndex, .level = (uint16_t)level});
         meshIndex.push_back(-1);
         lightIndex.push_back(-1);
+        skinIndex.push_back(-1);
         nameId.push_back(-1);
         
         // Update parent's children links
@@ -398,6 +403,7 @@ namespace pnkr::renderer::scene
         util::eraseSelected(scene.hierarchy, nodesToDelete);
         util::eraseSelected(scene.meshIndex, nodesToDelete);
         util::eraseSelected(scene.lightIndex, nodesToDelete);
+        util::eraseSelected(scene.skinIndex, nodesToDelete);
         util::eraseSelected(scene.nameId, nodesToDelete);
 
         // 5. Rebuild Roots & Topology

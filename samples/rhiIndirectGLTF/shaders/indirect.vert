@@ -10,7 +10,7 @@ layout(buffer_reference, scalar) readonly buffer TransformBuffer { mat4 models[]
 struct DrawInstanceData {
     uint transformIndex;
     uint materialIndex;
-    uint _pad0;
+    int jointOffset; // kept for future use; unused in this shader
     uint _pad1;
 };
 layout(buffer_reference, scalar) readonly buffer InstanceBuffer { DrawInstanceData instances[]; };
@@ -22,6 +22,10 @@ struct Vertex {
     vec2 texCoord0;
     vec2 texCoord1;
     vec4 tangent;
+    uvec4 joints;
+    vec4 weights;
+    uint meshIndex;
+    uint localIndex;
 };
 layout(buffer_reference, scalar) readonly buffer VertexBuffer { Vertex vertices[]; };
 

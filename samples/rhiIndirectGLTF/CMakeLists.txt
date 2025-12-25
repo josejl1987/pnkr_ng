@@ -43,15 +43,20 @@ add_dependencies(pnkr_rhi_indirect_gltf ${LAST_GENERATED_TARGET})
 add_shader_target("shaders/indirect.frag")
 add_dependencies(pnkr_rhi_indirect_gltf ${LAST_GENERATED_TARGET})
 
+add_shader_target("shaders/skinning.comp")
+add_dependencies(pnkr_rhi_indirect_gltf ${LAST_GENERATED_TARGET})
+
 # Allow the code to find the generated headers (pbr.vert.h, etc.)
 target_include_directories(pnkr_rhi_indirect_gltf PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 # --- Assets and Binary setup ---
 add_custom_command(TARGET pnkr_rhi_indirect_gltf POST_BUILD
-        # 1. Create directories
-        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/shaders"
+# 1. Create directories
+COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/shaders"
+COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/assets"
 
-        # 2. Copy compiled shaders
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/shaders"
+# 2. Copy compiled shaders
+COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/shaders"
+COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/assets"
 
 )

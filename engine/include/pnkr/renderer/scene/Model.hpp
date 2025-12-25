@@ -2,6 +2,7 @@
 
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/transform.hpp"
+#include "pnkr/renderer/scene/Animation.hpp"
 
 #include <vector>
 #include <string>
@@ -205,11 +206,16 @@ namespace pnkr::renderer::scene
         const std::vector<Light>& lights() const { return m_lights; }
         std::vector<Light>& lightsMutable() { return m_lights; }
 
+        const std::vector<Skin>& skins() const { return m_skins; }
+        const std::vector<Animation>& animations() const { return m_animations; }
+
     private:
         std::vector<TextureHandle> m_textures;
         std::vector<MaterialData> m_materials;
         std::vector<Node> m_nodes;
         std::vector<int> m_rootNodes;
         std::vector<Light> m_lights;
+        std::vector<Skin> m_skins;
+        std::vector<Animation> m_animations;
     };
 }

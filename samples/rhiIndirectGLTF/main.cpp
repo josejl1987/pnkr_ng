@@ -18,22 +18,35 @@ public:
     TextureHandle m_irradiance;
     TextureHandle m_prefilter;
     void onInit() override {
-        std::filesystem::path assetPath = baseDir() / "assets/Bistro.glb";
+        std::filesystem::path assetPath = baseDir() / "assets/AnimatedMorphCube.glb";
         
         pnkr::core::Logger::info("Loading model from: {}", assetPath.string());
 
         m_model = renderer::scene::ModelDOD::load(*m_renderer, assetPath);
-        m_brdfLut = m_renderer->loadTextureKTX("assets/brdf_lut.ktx2");
-        m_irradiance = m_renderer->loadTextureKTX("assets/immenstadter_horn_2k_irradiance.ktx");
-        m_prefilter = m_renderer->loadTextureKTX("assets/immenstadter_horn_2k_prefilter.ktx");
         if (!m_model) {
             pnkr::core::Logger::error("Failed to load model");
             return;
         }
 
+        if (!m_model->animations().empty()) {
+            auto& state = m_model->animationState();
+            state.animIndex = 0;
+            state.isPlaying = true;
+            state.isLooping = true;
+            pnkr::core::Logger::info("Playing animation 0: {}", m_model->animations()[0].name);
+        }
+
+        m_brdfLut = m_renderer->loadTextureKTX("assets/brdf_lut.ktx2");
+
         // Init Indirect Renderer
         m_indirectRenderer = std::make_unique<indirect::IndirectRenderer>();
         m_indirectRenderer->init(m_renderer.get(), m_model, m_brdfLut, m_irradiance, m_prefilter);
+
+        m_renderer->setComputeRecordFunc([this](const renderer::RHIFrameContext& ctx) {
+            if (m_indirectRenderer) {
+                m_indirectRenderer->dispatchSkinning(ctx.commandBuffer);
+            }
+        });
 
         // Setup Camera
         m_cameraController.applyToCamera(m_camera);

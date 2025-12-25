@@ -72,7 +72,7 @@ namespace pnkr::renderer::rhi
         BC3_UNORM,
         BC3_SRGB,
         BC7_UNORM,
-        BC7_SRGB, R8_SNORM, R8G8_SNORM, R8G8B8_SNORM, R8G8B8A8_SNORM
+        BC7_SRGB, R8_SNORM, R8G8_SNORM, R8G8B8_SNORM, R8G8B8A8_SNORM, R32G32B32A32_UINT
     };
 
     // Buffer usage flags

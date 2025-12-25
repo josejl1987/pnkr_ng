@@ -39,6 +39,7 @@ namespace pnkr::renderer::rhi::vulkan
         case Format::R32G32_SFLOAT: return vk::Format::eR32G32Sfloat;
         case Format::R32G32B32_SFLOAT: return vk::Format::eR32G32B32Sfloat;
         case Format::R32G32B32A32_SFLOAT: return vk::Format::eR32G32B32A32Sfloat;
+        case Format::R32G32B32A32_UINT: return vk::Format::eR32G32B32A32Uint;
 
         // Depth/stencil
         case Format::D16_UNORM: return vk::Format::eD16Unorm;
@@ -80,6 +81,7 @@ namespace pnkr::renderer::rhi::vulkan
         case vk::Format::eR32G32Sfloat: return Format::R32G32_SFLOAT;
         case vk::Format::eR32G32B32Sfloat: return Format::R32G32B32_SFLOAT;
         case vk::Format::eR32G32B32A32Sfloat: return Format::R32G32B32A32_SFLOAT;
+        case vk::Format::eR32G32B32A32Uint: return Format::R32G32B32A32_UINT;
 
         case vk::Format::eD16Unorm: return Format::D16_UNORM;
         case vk::Format::eD32Sfloat: return Format::D32_SFLOAT;

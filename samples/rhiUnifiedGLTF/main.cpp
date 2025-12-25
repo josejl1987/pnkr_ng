@@ -74,6 +74,9 @@ public:
 
         uploadEnvironment(m_ctx, m_prefilter, m_irradiance, m_brdfLut);
 
+        core::Logger::info("Loaded model with {} skins and {} animations", 
+            m_ctx.model->skins().size(), m_ctx.model->animations().size());
+
         // 3. Create Pipelines
         auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex, getShaderPath("gltf.vert.spv"));
         auto fs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Fragment, getShaderPath("gltf.frag.spv"));

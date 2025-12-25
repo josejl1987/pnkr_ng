@@ -30,9 +30,9 @@ public:
         // Create triangle mesh
         // Note: pnkr::renderer::Vertex has {pos, color, normal, texCoord}
         std::vector<renderer::Vertex> vertices = {
-            {.m_position={-0.5F, -0.5F, 0.0F}, .m_color={1.0F, 0.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={0.0F, 0.0F}, .m_texCoord1={0.0F, 0.0F}},
-            {.m_position={0.5F, -0.5F, 0.0F}, .m_color={0.0F, 1.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={1.0F, 0.0F}, .m_texCoord1={0.0F, 0.0F}},
-            {.m_position={0.0F, 0.5F, 0.0F}, .m_color={0.0F, 0.0F, 1.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={0.5F, 1.0F}, .m_texCoord1={0.0F, 0.0F}}
+            {.m_position={-0.5F, -0.5F, 0.0F}, .m_color={1.0F, 0.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={0.0F, 0.0F}, .m_texCoord1={0.0F, 0.0F}, .m_tangent={0.0F, 0.0F, 0.0F, 0.0F}, .m_joints={0, 0, 0, 0}, .m_weights={1.0f, 0.0f, 0.0f, 0.0f}},
+            {.m_position={0.5F, -0.5F, 0.0F}, .m_color={0.0F, 1.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={1.0F, 0.0F}, .m_texCoord1={0.0F, 0.0F}, .m_tangent={0.0F, 0.0F, 0.0F, 0.0F}, .m_joints={0, 0, 0, 0}, .m_weights={1.0f, 0.0f, 0.0f, 0.0f}},
+            {.m_position={0.0F, 0.5F, 0.0F}, .m_color={0.0F, 0.0F, 1.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={0.5F, 1.0F}, .m_texCoord1={0.0F, 0.0F}, .m_tangent={0.0F, 0.0F, 0.0F, 0.0F}, .m_joints={0, 0, 0, 0}, .m_weights={1.0f, 0.0f, 0.0f, 0.0f}}
         };
 
         std::vector<uint32_t> indices = {0, 1, 2};
@@ -78,11 +78,11 @@ public:
 
         // Use correct member names: m_color, m_texCoord
         desc.vertexAttributes = {
-            {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_position)},
-            {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_color)},
-            {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_normal)},
-                {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT, .offset=offsetof(renderer::Vertex, m_texCoord0)}
-            };
+            {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_position), .semantic=renderer::rhi::VertexSemantic::Position},
+            {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_color), .semantic=renderer::rhi::VertexSemantic::Color},
+            {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_normal), .semantic=renderer::rhi::VertexSemantic::Normal},
+            {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT, .offset=offsetof(renderer::Vertex, m_texCoord0), .semantic=renderer::rhi::VertexSemantic::TexCoord0}
+        };
 
         // Topology
         desc.topology = renderer::rhi::PrimitiveTopology::TriangleList;
