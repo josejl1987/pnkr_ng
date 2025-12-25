@@ -16,10 +16,23 @@
 
 namespace pnkr::renderer::rhi::vulkan
 {
+    VulkanInstanceContext::~VulkanInstanceContext()
+    {
+        if (hasDebugMessenger && instance)
+        {
+            instance.destroyDebugUtilsMessengerEXT(debugMessenger);
+        }
+        if (instance)
+        {
+            instance.destroy();
+        }
+    }
+
     // VulkanRHIPhysicalDevice Implementation
-    VulkanRHIPhysicalDevice::VulkanRHIPhysicalDevice(vk::PhysicalDevice physicalDevice, vk::Instance instance)
+    VulkanRHIPhysicalDevice::VulkanRHIPhysicalDevice(vk::PhysicalDevice physicalDevice,
+                                                     std::shared_ptr<VulkanInstanceContext> instanceContext)
         : m_physicalDevice(physicalDevice)
-          , m_instance(instance)
+          , m_instanceContext(std::move(instanceContext))
     {
         queryCapabilities();
         queryQueueFamilies();
@@ -136,11 +149,6 @@ namespace pnkr::renderer::rhi::vulkan
             m_device.destroy();
         }
 
-        // Destroy the instance we created in the factory
-        if (m_physicalDevice && m_physicalDevice->instance())
-        {
-            m_physicalDevice->instance().destroy();
-        }
     }
 
     void VulkanRHIDevice::createLogicalDevice(const DeviceDescriptor& desc)

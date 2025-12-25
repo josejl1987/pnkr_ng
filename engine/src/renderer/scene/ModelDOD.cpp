@@ -9,6 +9,8 @@
 #include <fastgltf/tools.hpp>
 #include <fastgltf/glm_element_traits.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -62,7 +64,8 @@ namespace pnkr::renderer::scene
             uint32_t maxSize,
             bool srgb)
         {
-            const std::string key = std::string(sourceKey) + "|" + std::to_string(maxSize) + "|" + (srgb ? "srgb" : "lin");
+            // Appended |v2 to invalidate old caches generated with incorrect linear resizing for sRGB data.
+            const std::string key = std::string(sourceKey) + "|" + std::to_string(maxSize) + "|" + (srgb ? "srgb" : "lin") + "|v2";
             const uint64_t h = fnv1a64(key);
 
             char buf[64];
@@ -81,6 +84,60 @@ namespace pnkr::renderer::scene
             return levels;
         }
 
+        static float GetCoverage(const uint8_t* pixels, int width, int height, float cutoff)
+        {
+            if (!pixels || width <= 0 || height <= 0) return 0.0f;
+            int count = 0;
+            int total = width * height;
+            int thresholdByte = (int)(cutoff * 255.0f);
+
+            for (int i = 0; i < total; i++) {
+                // Assuming RGBA (4 channels), alpha is at index 3
+                if (pixels[i * 4 + 3] > thresholdByte) {
+                    count++;
+                }
+            }
+            return (float)count / (float)total;
+        }
+
+        static void PreserveCoverage(uint8_t* mipPixels, int width, int height, float targetCoverage, float cutoff)
+        {
+            if (!mipPixels || width <= 0 || height <= 0) return;
+            int total = width * height;
+            std::vector<uint8_t> alphas;
+            alphas.reserve(total);
+
+            // 1. Collect all alpha values
+            for (int i = 0; i < total; i++) {
+                alphas.push_back(mipPixels[i * 4 + 3]);
+            }
+
+            // 2. Sort to find the percentile
+            std::sort(alphas.begin(), alphas.end());
+            
+            // We want the top 'targetCoverage' percent of pixels to pass.
+            // So we need the threshold at index: (1.0 - targetCoverage) * total
+            int thresholdIndex = (int)((1.0f - targetCoverage) * (float)total);
+            thresholdIndex = std::max(0, std::min(thresholdIndex, total - 1));
+            
+            uint8_t newThreshold = alphas[thresholdIndex];
+            
+            // Avoid divide by zero / scaling artifacts if image is weird
+            if (newThreshold == 0) return; 
+
+            // 3. Calculate Scale Factor
+            // We want 'newThreshold' to become 'cutoff' (cutoff * 255)
+            float desiredThresholdByte = cutoff * 255.0f;
+            float scale = desiredThresholdByte / (float)newThreshold;
+
+            // 4. Apply Scale
+            for (int i = 0; i < total; i++) {
+                int a = mipPixels[i * 4 + 3];
+                a = (int)((float)a * scale);
+                mipPixels[i * 4 + 3] = (uint8_t)(a > 255 ? 255 : a);
+            }
+        }
+
         static bool writeKtx2RGBA8Mipmapped(
             const std::filesystem::path& outFile,
             const uint8_t* rgba,
@@ -89,6 +146,10 @@ namespace pnkr::renderer::scene
             bool srgb)
         {
             if (!rgba || origW <= 0 || origH <= 0) return false;
+
+            // Compute original coverage at standard alpha cutoff (0.5)
+            const float kAlphaCutoff = 0.5f;
+            const float coverage = GetCoverage(rgba, origW, origH, kAlphaCutoff);
 
             const int newW = std::min(origW, int(maxSize));
             const int newH = std::min(origH, int(maxSize));
@@ -117,10 +178,18 @@ namespace pnkr::renderer::scene
                 ktxTexture_GetImageOffset(ktxTexture(tex), level, 0, 0, &offset);
                 uint8_t* dst = ktxTexture_GetData(ktxTexture(tex)) + offset;
 
-                stbir_resize_uint8_linear(
-                    rgba, origW, origH, 0,
-                    dst, w, h, 0,
-                    STBIR_RGBA);
+                if (srgb) {
+                    stbir_resize_uint8_srgb(
+                        rgba, origW, origH, 0,
+                        dst, w, h, 0,
+                        STBIR_RGBA);
+                } else {
+                    stbir_resize_uint8_linear(
+                        rgba, origW, origH, 0,
+                        dst, w, h, 0,
+                        STBIR_RGBA);
+                }
+
 
                 w = std::max(1, w / 2);
                 h = std::max(1, h / 2);
@@ -227,6 +296,11 @@ namespace pnkr::renderer::scene
                 if (idx < 0 || static_cast<size_t>(idx) >= textures.size()) return INVALID_TEXTURE_HANDLE;
                 return textures[idx];
             };
+
+            // Initialize Spec-Compliant Defaults
+            md.m_volumeAttenuationDistance = std::numeric_limits<float>::max(); // Default: Infinity
+            md.m_volumeAttenuationColor = glm::vec3(1.0f);                      // Default: White
+            md.m_emissiveStrength = 1.0f;                                       // Default: 1.0
 
             md.m_baseColorFactor = glm::make_vec4(mc.baseColorFactor);
             md.m_emissiveFactor = glm::make_vec3(mc.emissiveFactor);
@@ -636,19 +710,69 @@ namespace pnkr::renderer::scene
         model->m_materials.reserve(gltf.materials.size());
         for (const auto& mat : gltf.materials) {
             MaterialData md{};
+            
+            // 1. Initialize Defaults according to glTF Spec
+            md.m_emissiveStrength = 1.0f;
+            md.m_volumeAttenuationColor = glm::vec3(1.0f);
+            md.m_volumeAttenuationDistance = std::numeric_limits<float>::max();
+
             md.m_isUnlit = mat.unlit;
-            const auto& pbr = mat.pbrData;
-            md.m_baseColorFactor = glm::make_vec4(pbr.baseColorFactor.data());
-            md.m_metallicFactor = pbr.metallicFactor;
-            md.m_roughnessFactor = pbr.roughnessFactor;
-            if (pbr.baseColorTexture.has_value()) {
-                size_t texIdx = pbr.baseColorTexture->textureIndex;
-                if (texIdx < model->m_textures.size()) md.m_baseColorTexture = model->m_textures[texIdx];
-                md.m_baseColorUV = getTexCoordIndex(*pbr.baseColorTexture);
-                md.m_baseColorSampler = getSamplerAddressMode(gltf, texIdx);
+
+            // 2. Handle Workflow: Specular-Glossiness OR Metallic-Roughness
+            if (mat.specularGlossiness) {
+                md.m_isSpecularGlossiness = true;
+                // Map PBR SpecGloss -> Internal Storage
+                md.m_baseColorFactor = glm::make_vec4(mat.specularGlossiness->diffuseFactor.data());
+                md.m_specularColorFactor = glm::make_vec3(mat.specularGlossiness->specularFactor.data());
+                md.m_glossinessFactor = mat.specularGlossiness->glossinessFactor; // Use specific field
+                md.m_metallicFactor = 0.0f; // Not used in this workflow
+                md.m_roughnessFactor = 1.0f - md.m_glossinessFactor; // Approximation for systems needing roughness
+
+                if (mat.specularGlossiness->diffuseTexture.has_value()) {
+                    size_t texIdx = mat.specularGlossiness->diffuseTexture->textureIndex;
+                    if (texIdx < model->m_textures.size()) md.m_baseColorTexture = model->m_textures[texIdx];
+                    md.m_baseColorUV = getTexCoordIndex(*mat.specularGlossiness->diffuseTexture);
+                    md.m_baseColorSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+                
+                if (mat.specularGlossiness->specularGlossinessTexture.has_value()) {
+                    // This texture packs Specular (RGB) + Glossiness (A)
+                    size_t texIdx = mat.specularGlossiness->specularGlossinessTexture->textureIndex;
+                    if (texIdx < model->m_textures.size()) md.m_specularTexture = model->m_textures[texIdx]; 
+                    md.m_specularUV = getTexCoordIndex(*mat.specularGlossiness->specularGlossinessTexture);
+                    md.m_specularSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+            } 
+            else {
+                // Standard Metallic-Roughness
+                const auto& pbr = mat.pbrData;
+                md.m_baseColorFactor = glm::make_vec4(pbr.baseColorFactor.data());
+                md.m_metallicFactor = pbr.metallicFactor;
+                md.m_roughnessFactor = pbr.roughnessFactor;
+                
+                if (pbr.baseColorTexture.has_value()) {
+                    size_t texIdx = pbr.baseColorTexture->textureIndex;
+                    if (texIdx < model->m_textures.size()) md.m_baseColorTexture = model->m_textures[texIdx];
+                    md.m_baseColorUV = getTexCoordIndex(*pbr.baseColorTexture);
+                    md.m_baseColorSampler = getSamplerAddressMode(gltf, texIdx);
+                }
+
+                if (pbr.metallicRoughnessTexture.has_value()) {
+                    size_t texIdx = pbr.metallicRoughnessTexture->textureIndex;
+                    if (texIdx < model->m_textures.size()) md.m_metallicRoughnessTexture = model->m_textures[texIdx];
+                    md.m_metallicRoughnessUV = getTexCoordIndex(*pbr.metallicRoughnessTexture);
+                    md.m_metallicRoughnessSampler = getSamplerAddressMode(gltf, texIdx);
+                }
             }
+
             md.m_alphaMode = toAlphaMode(mat.alphaMode);
             md.m_alphaCutoff = mat.alphaCutoff;
+
+            // 3. Fix: KHR_materials_emissive_strength
+            // fastgltf places this directly on material if extension is enabled
+            if (mat.emissiveStrength != 1.0f) { 
+                md.m_emissiveStrength = mat.emissiveStrength;
+            }
             
             if (mat.transmission) {
                 md.m_transmissionFactor = mat.transmission->transmissionFactor;
@@ -660,10 +784,16 @@ namespace pnkr::renderer::scene
                 }
             }
             if (mat.volume) {
-                // Fix: Access direct members (removed .value_or)
                 md.m_volumeThicknessFactor = mat.volume->thicknessFactor;
                 md.m_volumeAttenuationDistance = mat.volume->attenuationDistance;
+                
+                // FIX: Infinite distance logic
+                if (md.m_volumeAttenuationDistance == 0.0f) {
+                    md.m_volumeAttenuationDistance = std::numeric_limits<float>::max();
+                }
+
                 md.m_volumeAttenuationColor = glm::make_vec3(mat.volume->attenuationColor.data());
+                
                 if (mat.volume->thicknessTexture.has_value()) {
                      size_t texIdx = mat.volume->thicknessTexture->textureIndex;
                      if (texIdx < model->m_textures.size()) md.m_volumeThicknessTexture = model->m_textures[texIdx];
@@ -679,15 +809,26 @@ namespace pnkr::renderer::scene
         }
         if (model->m_materials.empty()) model->m_materials.push_back({});
 
+        model->m_materialsCPU.clear();
+        model->m_materialsCPU.reserve(model->m_materials.size());
+        for (const auto& mat : model->m_materials)
+        {
+            model->m_materialsCPU.push_back(toMaterialCPU(mat, model->m_textures));
+        }
+
         // --- Meshes (Unified Geometry Loading) ---
         std::vector<Vertex> globalVertices;
         std::vector<uint32_t> globalIndices;
         
         model->m_meshes.reserve(gltf.meshes.size());
+        model->m_meshBounds.reserve(gltf.meshes.size());
 
         for (const auto& gMesh : gltf.meshes) {
             MeshDOD meshDOD;
             meshDOD.name = gMesh.name;
+            bool hasBounds = false;
+            glm::vec3 meshMin(std::numeric_limits<float>::max());
+            glm::vec3 meshMax(std::numeric_limits<float>::lowest());
             
             for (const auto& gPrim : gMesh.primitives) {
                 PrimitiveDOD primDOD;
@@ -711,6 +852,10 @@ namespace pnkr::renderer::scene
                     globalVertices[vStart + idx].m_texCoord0 = glm::vec2(0.0f);
                     globalVertices[vStart + idx].m_texCoord1 = glm::vec2(0.0f);
                     globalVertices[vStart + idx].m_tangent = glm::vec4(0.0f);
+
+                    meshMin = glm::min(meshMin, pos);
+                    meshMax = glm::max(meshMax, pos);
+                    hasBounds = true;
                 });
 
                 if (const auto* it = gPrim.findAttribute("NORMAL"); it != gPrim.attributes.end()) {
@@ -758,6 +903,16 @@ namespace pnkr::renderer::scene
                 meshDOD.primitives.push_back(primDOD);
             }
             model->m_meshes.push_back(meshDOD);
+
+            BoundingBox box{};
+            if (hasBounds) {
+                box.m_min = meshMin;
+                box.m_max = meshMax;
+            } else {
+                box.m_min = glm::vec3(0.0f);
+                box.m_max = glm::vec3(0.0f);
+            }
+            model->m_meshBounds.push_back(box);
         }
 
         // Create GPU Buffers

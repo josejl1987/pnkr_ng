@@ -1,4 +1,8 @@
 #include "IndirectRenderer.hpp"
+
+#include "../../cmake-build-debug-clang-cl/samples/rhiIndirectGLTF//generated/indirect.frag.h"
+#include "../../cmake-build-debug-clang-cl/samples/rhiIndirectGLTF/generated/indirect.vert.h"
+
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/core/logger.hpp"
@@ -6,7 +10,8 @@
 
 namespace indirect {
 
-void IndirectRenderer::init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model) {
+void IndirectRenderer::init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model,
+                            TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter) {
     m_renderer = renderer;
     m_model = model;
 
@@ -15,6 +20,7 @@ void IndirectRenderer::init(RHIRenderer* renderer, std::shared_ptr<scene::ModelD
     
     // Initial upload of static data
     uploadMaterialData();
+    uploadEnvironmentData(brdf, irradiance, prefilter);
 }
 
 void IndirectRenderer::update(float dt) {
@@ -64,8 +70,9 @@ void IndirectRenderer::buildBuffers() {
             cmd.firstIndex = prim.firstIndex;
             cmd.vertexOffset = prim.vertexOffset;
             
-            // firstInstance links the draw cmd to the instance data array
-            cmd.firstInstance = (uint32_t)instances.size(); 
+            // Fix: Set firstInstance to 0 to avoid dependency on 'drawIndirectFirstInstance' feature.
+            // We will use gl_DrawID in the shader to index into the instance data.
+            cmd.firstInstance = 0; 
 
             DrawInstanceData inst{};
             inst.transformIndex = nodeId;
@@ -99,10 +106,45 @@ void IndirectRenderer::buildBuffers() {
     }
 }
 
+void IndirectRenderer::uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter) {
+    ShaderGen::indirect_frag::EnvironmentMapDataGPU envData{};
+    
+    // Get bindless indices from the renderer
+    // Assuming sampler index 0 is a valid default linear sampler for the engine
+    uint32_t defaultSampler = 0; 
+
+    if (prefilter != INVALID_TEXTURE_HANDLE) {
+        envData.envMapTexture = m_renderer->getTextureBindlessIndex(prefilter);
+        envData.envMapTextureSampler = defaultSampler;
+    }
+    
+    if (irradiance != INVALID_TEXTURE_HANDLE) {
+        envData.envMapTextureIrradiance = m_renderer->getTextureBindlessIndex(irradiance);
+        envData.envMapTextureIrradianceSampler = defaultSampler;
+    }
+    
+    if (brdf != INVALID_TEXTURE_HANDLE) {
+        envData.texBRDF_LUT = m_renderer->getTextureBindlessIndex(brdf);
+        envData.texBRDF_LUTSampler = defaultSampler;
+    }
+
+    // Charlie (Sheen) map - using prefilter as placeholder or 0 if not available
+    envData.envMapTextureCharlie = envData.envMapTexture; 
+    envData.envMapTextureCharlieSampler = defaultSampler;
+
+    m_environmentBuffer = m_renderer->createBuffer({
+        .size = sizeof(EnvironmentMapDataGPU),
+        .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
+        .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+        .data = &envData,
+        .debugName = "EnvironmentBuffer"
+    });
+}
+
 void IndirectRenderer::uploadMaterialData() {
     scene::GLTFUnifiedDODContext tempCtx;
     tempCtx.renderer = m_renderer;
-    tempCtx.model = m_model;
+    tempCtx.model = m_model.get();
     
     scene::uploadMaterials(tempCtx);
     
@@ -131,12 +173,13 @@ void IndirectRenderer::draw(rhi::RHICommandBuffer* cmd, const scene::Camera& cam
     // Bind Global Index Buffer (Unified)
     cmd->bindIndexBuffer(m_renderer->getBuffer(m_model->indexBuffer), 0, false);
 
-    PushConstants pc{};
+    ShaderGen::indirect_vert::indirect_vert_Constants pc{};
     pc.viewProj = camera.viewProj();
     pc.transformBufferAddr = m_renderer->getBuffer(m_transformBuffer)->getDeviceAddress();
     pc.instanceBufferAddr = m_renderer->getBuffer(m_instanceDataBuffer)->getDeviceAddress();
     pc.vertexBufferAddr = m_renderer->getBuffer(m_model->vertexBuffer)->getDeviceAddress();
     pc.materialBufferAddr = m_renderer->getBuffer(m_materialBuffer)->getDeviceAddress();
+    pc.environmentBufferAddr = m_renderer->getBuffer(m_environmentBuffer)->getDeviceAddress();
 
     m_renderer->pushConstants(cmd, m_pipeline, rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
 

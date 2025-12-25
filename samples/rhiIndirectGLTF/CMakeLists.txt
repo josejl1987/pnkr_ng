@@ -36,32 +36,22 @@ set(INDIRECT_SHADERS
 )
 
 set(INDIRECT_SPV_OUTPUTS "")
-foreach(SHADER ${INDIRECT_SHADERS})
-  get_filename_component(FILE ${SHADER} NAME)
-  set(OUT_SPV "${INDIRECT_SHADER_OUT_DIR}/${FILE}.spv")
+# --- Shaders: Compile and generate C++ structs ---
+add_shader_target("shaders/indirect.vert")
+add_dependencies(pnkr_rhi_indirect_gltf ${LAST_GENERATED_TARGET})
 
-  add_custom_command(
-          OUTPUT "${OUT_SPV}"
-          COMMAND "${GLSLC_EXECUTABLE}" -o "${OUT_SPV}" "${SHADER}" --target-env=vulkan1.2
-          DEPENDS "${SHADER}"
-          COMMENT "Compiling shader ${FILE} -> ${FILE}.spv"
-          VERBATIM
-  )
+add_shader_target("shaders/indirect.frag")
+add_dependencies(pnkr_rhi_indirect_gltf ${LAST_GENERATED_TARGET})
 
-  list(APPEND INDIRECT_SPV_OUTPUTS "${OUT_SPV}")
-endforeach()
+# Allow the code to find the generated headers (pbr.vert.h, etc.)
+target_include_directories(pnkr_rhi_indirect_gltf PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
-add_custom_target(rhi_indirect_shaders ALL DEPENDS ${INDIRECT_SPV_OUTPUTS})
-add_dependencies(pnkr_rhi_indirect_gltf rhi_indirect_shaders)
-
+# --- Assets and Binary setup ---
 add_custom_command(TARGET pnkr_rhi_indirect_gltf POST_BUILD
+        # 1. Create directories
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/shaders"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${INDIRECT_SHADER_OUT_DIR}"
-        "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/shaders"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/assets"
-        COMMAND ${CMAKE_COMMAND} -E copy
-        "${CMAKE_SOURCE_DIR}/samples/rhiUnifiedMesh/assets/Bistro.glb"
-        "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/assets/Bistro.glb"
-        COMMENT "Copying SPIR-V shaders and assets to runtime output directory"
+
+        # 2. Copy compiled shaders
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/shaders"
+
 )

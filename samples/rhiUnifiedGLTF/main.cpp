@@ -22,8 +22,8 @@
 #include <glm/gtx/euler_angles.hpp>
 
 // INCLUDE GENERATED HEADERS from ShaderStructGen
-#include "generated/gltf.frag.h"
-#include "generated/gltf.vert.h"
+#include "pnkr/generated/gltf.frag.h"
+#include "pnkr/generated/gltf.vert.h"
 
 using namespace pnkr;
 using namespace pnkr::renderer::scene;

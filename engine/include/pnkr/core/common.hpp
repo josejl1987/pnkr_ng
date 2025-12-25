@@ -6,6 +6,8 @@
  */
 
 #include <utility>
+#include <algorithm>
+#include <vector>
 #include <cpptrace/cpptrace.hpp>
 
 #include "profiler.hpp"
@@ -152,6 +154,31 @@ inline VkImage getVkImageFromRHI(void* nativeHandle) {
  */
 inline VkBuffer getVkBufferFromRHI(void* nativeHandle) {
   return static_cast<VkBuffer>(nativeHandle);
+}
+
+/**
+ * @brief Removes items from a vector based on a selection of indices.
+ * The selection vector must be sorted.
+ */
+template <typename T, typename Index = uint32_t>
+void eraseSelected(std::vector<T>& v, const std::vector<Index>& selection)
+{
+    // stable_partition moves elements to be erased to the end
+    // we use binary_search to check if an element's original index is in the selection
+    // Note: We use pointer arithmetic to deduce the original index.
+    // This assumes 'v' has not been reallocated during this process (it hasn't).
+    const T* basePtr = v.data();
+    
+    auto it = std::stable_partition(v.begin(), v.end(),
+        [&selection, basePtr](const T& item) {
+            // Return true if we want to KEEP the item (i.e., NOT in selection)
+            // Index calculation:
+            const auto index = static_cast<Index>(&item - basePtr);
+            return !std::binary_search(selection.begin(), selection.end(), index);
+        }
+    );
+    
+    v.erase(it, v.end());
 }
 
 } // namespace pnkr::util

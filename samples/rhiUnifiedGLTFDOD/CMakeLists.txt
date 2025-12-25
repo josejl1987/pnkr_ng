@@ -18,10 +18,10 @@ set_target_properties(pnkr_rhi_unified_gltf_dod PROPERTIES
 )
 
 # --- Shaders: Compile and generate C++ structs ---
-add_shader_target("shaders/gltf.vert")
+add_shader_target("shaders/gltf_dod.vert")
 add_dependencies(pnkr_rhi_unified_gltf_dod ${LAST_GENERATED_TARGET})
 
-add_shader_target("shaders/gltf.frag")
+add_shader_target("shaders/gltf_dod.frag")
 add_dependencies(pnkr_rhi_unified_gltf_dod ${LAST_GENERATED_TARGET})
 
 # Allow the code to find the generated headers (pbr.vert.h, etc.)

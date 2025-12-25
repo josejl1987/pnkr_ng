@@ -5,8 +5,8 @@
 #include <glm/gtx/norm.hpp>
 #include <algorithm>
 
-#include "../../../../cmake-build-debug-clang-cl/samples/rhiUnifiedGLTF/generated/gltf.frag.h"
-#include "../../../../cmake-build-debug-clang-cl/samples/rhiUnifiedGLTF/generated/gltf.vert.h"
+#include "pnkr/generated/gltf.frag.h"
+#include "pnkr/generated/gltf.vert.h"
 #include "pnkr/core/common.hpp"
 
 namespace pnkr::renderer::scene

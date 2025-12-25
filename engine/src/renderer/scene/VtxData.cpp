@@ -2,6 +2,9 @@
 #include "pnkr/core/common.hpp"
 #include <cstdio>
 #include <cpptrace/cpptrace.hpp>
+#include <unordered_map>
+#include <algorithm>
+#include <limits>
 
 namespace pnkr::renderer::scene
 {
@@ -93,5 +96,136 @@ namespace pnkr::renderer::scene
             if (fwrite(data.m_vertexData.data(), 1, header.m_vertexDataSize, f) != header.m_vertexDataSize)
                 throw cpptrace::runtime_error("Write failed (vertex data)");
         }
+    }
+
+    static void mergeIndexArray(UnifiedMeshData& md, 
+                                const std::vector<uint32_t>& meshesToMerge, 
+                                std::unordered_map<uint32_t, uint32_t>& oldToNew)
+    {
+        std::vector<uint32_t> newIndices(md.m_indexData.size());
+        uint32_t copyOffset = 0;
+        
+        // Shift indices in place first to align vertices relative to the new base
+        // Note: shiftMeshIndices returns where the merged block *would* start if we were appending
+        // but here we are partitioning.
+        // Actually, we need to be careful not to double-shift if we run this multiple times.
+        // For this specific recipe, we assume a fresh merge pass.
+        
+        // Calculate offsets
+        uint32_t mergeCount = 0;
+        for(uint32_t m : meshesToMerge) mergeCount += md.m_meshes[m].getLODIndicesCount(0);
+        uint32_t mergeOffset = (uint32_t)md.m_indexData.size() - mergeCount;
+
+        // Perform the vertex offset fixup (shiftMeshIndices logic inlined/adapted for safety)
+        uint32_t minVtxOffset = std::numeric_limits<uint32_t>::max();
+        for (uint32_t i : meshesToMerge) minVtxOffset = std::min(md.m_meshes[i].vertexOffset, minVtxOffset);
+        
+        // The merged mesh index will be the last one after compaction
+        const uint32_t mergedMeshIndex = (uint32_t)(md.m_meshes.size() - meshesToMerge.size());
+        uint32_t newIndexCounter = 0;
+
+        // Sort meshesToMerge for binary search
+        std::vector<uint32_t> sortedMerge = meshesToMerge;
+        std::sort(sortedMerge.begin(), sortedMerge.end());
+
+        // Rebuild Mesh List
+        std::vector<UnifiedMesh> newMeshes;
+        newMeshes.reserve(mergedMeshIndex + 1);
+
+        for (uint32_t midx = 0; midx < md.m_meshes.size(); ++midx) {
+            UnifiedMesh& mesh = md.m_meshes[midx];
+            bool shouldMerge = std::binary_search(sortedMerge.begin(), sortedMerge.end(), midx);
+
+            if (shouldMerge) {
+                oldToNew[midx] = mergedMeshIndex;
+                
+                // Fix vertex indices
+                const uint32_t delta = mesh.vertexOffset - minVtxOffset;
+                const uint32_t idxCount = mesh.getLODIndicesCount(0);
+                const auto start = md.m_indexData.begin() + mesh.indexOffset;
+                
+                // Copy to the end of the new buffer
+                auto dest = newIndices.begin() + mergeOffset;
+                for (size_t k = 0; k < idxCount; ++k) {
+                    *(dest + k) = *(start + k) + delta;
+                }
+                
+                mergeOffset += idxCount;
+            } else {
+                oldToNew[midx] = newIndexCounter++;
+                
+                const uint32_t idxCount = mesh.getLODIndicesCount(0);
+                const auto start = md.m_indexData.begin() + mesh.indexOffset;
+                
+                // Copy to start
+                std::copy(start, start + idxCount, newIndices.begin() + copyOffset);
+                
+                mesh.indexOffset = copyOffset;
+                mesh.m_lodOffset[0] = copyOffset;
+                mesh.m_lodOffset[1] = copyOffset + idxCount; // Assuming 1 LOD for simplification
+                copyOffset += idxCount;
+                
+                newMeshes.push_back(mesh);
+            }
+        }
+
+        // Add the single merged mesh
+        if (!meshesToMerge.empty()) {
+            UnifiedMesh mergedMesh = md.m_meshes[meshesToMerge[0]]; // Copy properties from first
+            mergedMesh.vertexOffset = minVtxOffset;
+            mergedMesh.indexOffset = (uint32_t)md.m_indexData.size() - mergeCount; // Start of merged block
+            mergedMesh.lodCount = 1;
+            mergedMesh.m_lodOffset[0] = mergedMesh.indexOffset;
+            mergedMesh.m_lodOffset[1] = (uint32_t)md.m_indexData.size();
+            
+            newMeshes.push_back(mergedMesh);
+        }
+
+        md.m_indexData = newIndices;
+        md.m_meshes = newMeshes;
+    }
+
+    void mergeNodesWithMaterial(SceneGraphDOD& scene, UnifiedMeshData& meshData, uint32_t materialID)
+    {
+        std::vector<uint32_t> nodesToDelete;
+        std::vector<uint32_t> meshesToMerge;
+
+        // 1. Find nodes using this material
+        for (size_t i = 0; i < scene.meshIndex.size(); ++i) {
+            int32_t midx = scene.meshIndex[i];
+            if (midx >= 0 && (size_t)midx < meshData.m_meshes.size()) {
+                if (meshData.m_meshes[midx].materialID == materialID) {
+                    nodesToDelete.push_back((uint32_t)i);
+                    meshesToMerge.push_back((uint32_t)midx);
+                }
+            }
+        }
+
+        if (meshesToMerge.size() < 2) return; // Nothing to merge
+
+        // 2. Merge Mesh Data (Indices and Vertex Offsets)
+        std::unordered_map<uint32_t, uint32_t> oldToNewMeshID;
+        mergeIndexArray(meshData, meshesToMerge, oldToNewMeshID);
+
+        // 3. Update Scene Mesh References
+        for (auto& mIdx : scene.meshIndex) {
+            if (mIdx >= 0) {
+                // If it was in the map (merged or shifted), update it
+                if (oldToNewMeshID.find((uint32_t)mIdx) != oldToNewMeshID.end()) {
+                    mIdx = (int32_t)oldToNewMeshID[(uint32_t)mIdx];
+                }
+            }
+        }
+
+        // 4. Create New Node for the Merged Mesh
+        // Add to root (0) for simplicity, or find a common parent
+        uint32_t newNode = scene.addNode(0, 1);
+        
+        // The new merged mesh is the last one in the vector
+        scene.meshIndex[newNode] = (int32_t)meshData.m_meshes.size() - 1;
+        // Note: SceneGraphDOD doesn't store materialID directly, it's in the mesh/primitive.
+        
+        // 5. Delete the old nodes
+        deleteSceneNodes(scene, nodesToDelete);
     }
 }

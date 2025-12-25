@@ -1,24 +1,17 @@
-#pragma once
+﻿#pragma once
 
 #include "pnkr/renderer/scene/GLTFUnified.hpp"
 #include "pnkr/renderer/scene/ModelDOD.hpp"
 #include "pnkr/rhi/rhi_command_buffer.hpp"
 
+#include <cstddef>
 
 namespace pnkr::renderer::scene {
 
-    struct DrawCommandDOD {
-        uint32_t indexCount;
-        uint32_t instanceCount;
-        uint32_t firstIndex;
-        int32_t  vertexOffset;
-        uint32_t firstInstance;
-    };
-
     struct GLTFUnifiedDODContext {
         RHIRenderer* renderer = nullptr;
-        std::shared_ptr<ModelDOD> model;
-        
+        ModelDOD* model = nullptr;
+
         // GPU buffers
         BufferHandle transformBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle materialBuffer = INVALID_BUFFER_HANDLE;
@@ -28,11 +21,16 @@ namespace pnkr::renderer::scene {
 
         // CPU-side lists
         std::vector<GLTFTransformGPU> transforms;
-        std::vector<DrawCommandDOD> drawCalls;
+        std::vector<renderer::rhi::DrawIndexedIndirectCommand> indirectOpaque;
+        std::vector<renderer::rhi::DrawIndexedIndirectCommand> indirectTransmission;
+        std::vector<renderer::rhi::DrawIndexedIndirectCommand> indirectTransparent;
 
-        std::vector<uint32_t> opaque;
-        std::vector<uint32_t> transmission;
-        std::vector<uint32_t> transparent;
+        // Per-pass indirect command buffers (GPU)
+        BufferHandle indirectOpaqueBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle indirectTransmissionBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle indirectTransparentBuffer = INVALID_BUFFER_HANDLE;
+
+        bool mergeByMaterial = true;
 
         bool volumetricMaterial = false;
         uint32_t activeLightCount = 0;
@@ -45,8 +43,8 @@ namespace pnkr::renderer::scene {
 
     class GLTFUnifiedDOD {
     public:
-        static void buildTransformsList(GLTFUnifiedDODContext& ctx);
-        
+        static void buildDrawLists(GLTFUnifiedDODContext& ctx, const glm::vec3& cameraPos);
+
         // Fix: Use fully qualified namespace for CommandBuffer
         static void render(GLTFUnifiedDODContext& ctx, renderer::rhi::RHICommandBuffer& cmd);
     };
@@ -54,6 +52,5 @@ namespace pnkr::renderer::scene {
     void uploadMaterials(GLTFUnifiedDODContext& ctx);
     void uploadEnvironment(GLTFUnifiedDODContext& ctx, TextureHandle env, TextureHandle irr, TextureHandle brdf);
     void uploadLights(GLTFUnifiedDODContext& ctx);
-    void sortTransparentNodes(GLTFUnifiedDODContext& ctx, const glm::vec3& cameraPos);
 
 } // namespace pnkr::renderer::scene

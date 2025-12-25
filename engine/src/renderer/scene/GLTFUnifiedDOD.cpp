@@ -1,4 +1,4 @@
-#include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
+﻿#include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/rhi/rhi_command_buffer.hpp"
 #include "pnkr/rhi/rhi_buffer.hpp"
@@ -7,9 +7,11 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/norm.hpp>
 #include <algorithm>
+#include <unordered_map>
 
-#include "../../../../cmake-build-debug-clang-cl/samples/rhiUnifiedGLTF/generated/gltf.frag.h"
-#include "../../../../cmake-build-debug-clang-cl/samples/rhiUnifiedGLTF/generated/gltf.vert.h"
+#include "../../../../cmake-build-debug-clang-cl/samples/rhiIndirectGLTF/generated/indirect.frag.h"
+#include "pnkr/generated/gltf.frag.h"
+#include "pnkr/generated/gltf.vert.h"
 
 namespace pnkr::renderer::scene
 {
@@ -17,7 +19,7 @@ namespace pnkr::renderer::scene
     {
         if (!ctx.model || !ctx.renderer) return;
 
-        std::vector<ShaderGen::gltf_frag::MetallicRoughnessDataGPU> gpuData;
+        std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> gpuData;
         gpuData.reserve(ctx.model->materials().size());
 
         auto resolveNormalDefault = [&](TextureHandle handle) -> uint32_t
@@ -43,7 +45,7 @@ namespace pnkr::renderer::scene
 
         for (const auto& mat : ctx.model->materials())
         {
-            ShaderGen::gltf_frag::MetallicRoughnessDataGPU d{};
+            ShaderGen::indirect_frag::MetallicRoughnessDataGPU d{};
             d.baseColorFactor = mat.m_baseColorFactor;
             d.metallicRoughnessNormalOcclusion = glm::vec4(
                 mat.m_metallicFactor,
@@ -128,7 +130,7 @@ namespace pnkr::renderer::scene
             gpuData.push_back(d);
         }
 
-        const uint64_t bytes = gpuData.size() * sizeof(ShaderGen::gltf_frag::MetallicRoughnessDataGPU);
+        const uint64_t bytes = gpuData.size() * sizeof(ShaderGen::indirect_frag::MetallicRoughnessDataGPU);
         if (ctx.materialBuffer == INVALID_BUFFER_HANDLE || ctx.renderer->getBuffer(ctx.materialBuffer)->size() < bytes)
         {
             ctx.materialBuffer = ctx.renderer->createBuffer({
@@ -240,26 +242,12 @@ namespace pnkr::renderer::scene
         ctx.renderer->getBuffer(ctx.lightBuffer)->uploadData(gpuLights.data(), dataSize);
     }
 
-    void sortTransparentNodes(GLTFUnifiedDODContext& ctx, const glm::vec3& cameraPos)
-    {
-        std::sort(ctx.transparent.begin(), ctx.transparent.end(),
-                  [&](uint32_t a, uint32_t b)
-                  {
-                      const glm::vec3 pa = glm::vec3(ctx.transforms[a].model[3]);
-                      const glm::vec3 pb = glm::vec3(ctx.transforms[b].model[3]);
-                      const float da = glm::distance2(cameraPos, pa);
-                      const float db = glm::distance2(cameraPos, pb);
-                      return da > db;
-                  });
-    }
-
-    void GLTFUnifiedDOD::buildTransformsList(GLTFUnifiedDODContext& ctx)
+    void GLTFUnifiedDOD::buildDrawLists(GLTFUnifiedDODContext& ctx, const glm::vec3& cameraPos)
     {
         ctx.transforms.clear();
-        ctx.drawCalls.clear();
-        ctx.opaque.clear();
-        ctx.transmission.clear();
-        ctx.transparent.clear();
+        ctx.indirectOpaque.clear();
+        ctx.indirectTransmission.clear();
+        ctx.indirectTransparent.clear();
         ctx.volumetricMaterial = false;
 
         if (!ctx.model || !ctx.renderer) return;
@@ -267,11 +255,70 @@ namespace pnkr::renderer::scene
         const auto& scene = ctx.model->scene();
         const auto& globalTransforms = scene.global;
         const auto& meshIndex = scene.meshIndex;
-
         const auto& meshes = ctx.model->meshes();
         const auto& materials = ctx.model->materials();
 
-        // Iterate in parent-before-child order for cache-friendly access.
+        struct Instance
+        {
+            GLTFTransformGPU xf;
+            renderer::rhi::DrawIndexedIndirectCommand baseCmd;
+            float dist2 = 0.0f;
+        };
+
+        struct Key
+        {
+            uint32_t indexCount = 0;
+            uint32_t firstIndex = 0;
+            int32_t vertexOffset = 0;
+            uint32_t materialIndex = 0;
+
+            bool operator==(const Key& o) const noexcept
+            {
+                return indexCount == o.indexCount &&
+                    firstIndex == o.firstIndex &&
+                    vertexOffset == o.vertexOffset &&
+                    materialIndex == o.materialIndex;
+            }
+        };
+
+        struct KeyHash
+        {
+            size_t operator()(const Key& k) const noexcept
+            {
+                size_t h = 1469598103934665603ull;
+                auto mix = [&](uint64_t v)
+                {
+                    h ^= (size_t)v;
+                    h *= 1099511628211ull;
+                };
+                mix(k.indexCount);
+                mix(k.firstIndex);
+                mix(static_cast<uint32_t>(k.vertexOffset));
+                mix(k.materialIndex);
+                return h;
+            }
+        };
+
+        std::unordered_map<Key, std::vector<Instance>, KeyHash> groupsOpaque;
+        std::unordered_map<Key, std::vector<Instance>, KeyHash> groupsTransmission;
+        std::vector<Instance> transparentInstances;
+        transparentInstances.reserve(scene.topoOrder.size());
+
+        auto classify = [&](uint32_t matIndex) -> SortingType
+        {
+            SortingType st = SortingType::Opaque;
+            if (matIndex < materials.size())
+            {
+                const auto& mat = materials[matIndex];
+                if (mat.m_alphaMode == 2u) st = SortingType::Transparent;
+                else if (mat.m_transmissionFactor > 0.0f) st = SortingType::Transmission;
+
+                if (mat.m_volumeThicknessFactor > 0.0f || mat.m_ior != 1.0f)
+                    ctx.volumetricMaterial = true;
+            }
+            return st;
+        };
+
         for (uint32_t nodeId : scene.topoOrder)
         {
             if (nodeId == scene.root) continue;
@@ -279,80 +326,174 @@ namespace pnkr::renderer::scene
             const int32_t mi = (nodeId < meshIndex.size()) ? meshIndex[nodeId] : -1;
             if (mi < 0) continue;
 
-            const uint32_t meshId = (uint32_t)mi;
+            const uint32_t meshId = static_cast<uint32_t>(mi);
             if (meshId >= meshes.size()) continue;
 
             const auto& mesh = meshes[meshId];
-
             const glm::mat4& M = globalTransforms[nodeId];
             const glm::mat4 N = glm::inverseTranspose(M);
 
-            // Iterate primitives => one transform instance per primitive (node, prim)
             for (size_t primId = 0; primId < mesh.primitives.size(); ++primId)
             {
                 const auto& prim = mesh.primitives[primId];
 
-                // Safe material index (default 0)
-                uint32_t matIndex = 0;
+                uint32_t matIndex = 0u;
                 if (prim.materialIndex < materials.size())
                     matIndex = prim.materialIndex;
 
-                // Sorting classification
-                SortingType st = SortingType::Opaque;
-                if (matIndex < materials.size())
-                {
-                    const auto& mat = materials[matIndex];
-                    if (mat.m_alphaMode == 2u) st = SortingType::Transparent;
-                    else if (mat.m_transmissionFactor > 0.0f) st = SortingType::Transmission;
+                SortingType st = classify(matIndex);
 
-                    if (mat.m_volumeThicknessFactor > 0.0f || mat.m_ior != 1.0f)
-                        ctx.volumetricMaterial = true;
-                }
-
-                // Emit transform instance
-                ctx.transforms.push_back({
+                Instance inst{};
+                inst.xf = {
                     .model = M,
                     .normalMatrix = N,
-                    .nodeIndex = (uint32_t)nodeId,
-                    .primIndex = (uint32_t)primId,
+                    .nodeIndex = nodeId,
+                    .primIndex = static_cast<uint32_t>(primId),
                     .materialIndex = matIndex,
-                    .sortingType = (uint32_t)st,
-                });
+                    .sortingType = static_cast<uint32_t>(st),
+                };
 
-                const uint32_t xformId = (uint32_t)(ctx.transforms.size() - 1);
-
-                // Emit draw command aligned with unified buffers
-                ctx.drawCalls.push_back({
+                inst.baseCmd = {
                     .indexCount = prim.indexCount,
-                    .instanceCount = 1,
+                    .instanceCount = 0u,
                     .firstIndex = prim.firstIndex,
                     .vertexOffset = prim.vertexOffset,
-                    .firstInstance = xformId
-                });
+                    .firstInstance = 0u
+                };
 
-                // Bucket
-                if (st == SortingType::Transparent) ctx.transparent.push_back(xformId);
-                else if (st == SortingType::Transmission) ctx.transmission.push_back(xformId);
-                else ctx.opaque.push_back(xformId);
+                if (!ctx.mergeByMaterial && st != SortingType::Transparent)
+                {
+                    const uint32_t firstInstance = static_cast<uint32_t>(ctx.transforms.size());
+                    ctx.transforms.push_back(inst.xf);
+
+                    auto& out = (st == SortingType::Transmission) ? ctx.indirectTransmission : ctx.indirectOpaque;
+                    out.push_back({
+                        .indexCount = inst.baseCmd.indexCount,
+                        .instanceCount = 1u,
+                        .firstIndex = inst.baseCmd.firstIndex,
+                        .vertexOffset = inst.baseCmd.vertexOffset,
+                        .firstInstance = firstInstance
+                    });
+                    continue;
+                }
+
+                if (st == SortingType::Transparent)
+                {
+                    const glm::vec3 p = glm::vec3(M[3]);
+                    inst.dist2 = glm::distance2(cameraPos, p);
+                    transparentInstances.push_back(inst);
+                }
+                else
+                {
+                    const Key key{ prim.indexCount, prim.firstIndex, prim.vertexOffset, matIndex };
+                    if (st == SortingType::Transmission)
+                        groupsTransmission[key].push_back(inst);
+                    else
+                        groupsOpaque[key].push_back(inst);
+                }
             }
+        }
+
+        auto emitGroups = [&](auto& groups, std::vector<renderer::rhi::DrawIndexedIndirectCommand>& outCmds)
+        {
+            std::vector<Key> keys;
+            keys.reserve(groups.size());
+            for (auto& it : groups) keys.push_back(it.first);
+
+            std::sort(keys.begin(), keys.end(), [](const Key& a, const Key& b)
+            {
+                if (a.materialIndex != b.materialIndex) return a.materialIndex < b.materialIndex;
+                if (a.firstIndex != b.firstIndex) return a.firstIndex < b.firstIndex;
+                if (a.indexCount != b.indexCount) return a.indexCount < b.indexCount;
+                return a.vertexOffset < b.vertexOffset;
+            });
+
+            for (const Key& k : keys)
+            {
+                auto& instances = groups[k];
+                if (instances.empty()) continue;
+
+                const uint32_t firstInstance = static_cast<uint32_t>(ctx.transforms.size());
+                ctx.transforms.reserve(ctx.transforms.size() + instances.size());
+
+                for (const auto& inst : instances)
+                    ctx.transforms.push_back(inst.xf);
+
+                outCmds.push_back({
+                    .indexCount = k.indexCount,
+                    .instanceCount = static_cast<uint32_t>(instances.size()),
+                    .firstIndex = k.firstIndex,
+                    .vertexOffset = k.vertexOffset,
+                    .firstInstance = firstInstance
+                });
+            }
+        };
+
+        if (ctx.mergeByMaterial)
+        {
+            emitGroups(groupsOpaque, ctx.indirectOpaque);
+            emitGroups(groupsTransmission, ctx.indirectTransmission);
+        }
+
+        std::sort(transparentInstances.begin(), transparentInstances.end(),
+                  [](const Instance& a, const Instance& b)
+                  {
+                      return a.dist2 > b.dist2;
+                  });
+
+        for (const auto& inst : transparentInstances)
+        {
+            const uint32_t firstInstance = static_cast<uint32_t>(ctx.transforms.size());
+            ctx.transforms.push_back(inst.xf);
+
+            ctx.indirectTransparent.push_back({
+                .indexCount = inst.baseCmd.indexCount,
+                .instanceCount = 1u,
+                .firstIndex = inst.baseCmd.firstIndex,
+                .vertexOffset = inst.baseCmd.vertexOffset,
+                .firstInstance = firstInstance
+            });
         }
 
         if (ctx.transforms.empty()) return;
 
-        // Upload transform buffer
-        const uint64_t bytes = ctx.transforms.size() * sizeof(GLTFTransformGPU);
+        const uint64_t xfBytes = ctx.transforms.size() * sizeof(GLTFTransformGPU);
         if (ctx.transformBuffer == INVALID_BUFFER_HANDLE ||
-            ctx.renderer->getBuffer(ctx.transformBuffer)->size() < bytes)
+            ctx.renderer->getBuffer(ctx.transformBuffer)->size() < xfBytes)
         {
             ctx.transformBuffer = ctx.renderer->createBuffer({
-                .size = bytes,
+                .size = xfBytes,
                 .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
                 .memoryUsage = rhi::MemoryUsage::CPUToGPU,
                 .debugName = "GLTF Transforms DOD"
             });
         }
+        ctx.renderer->getBuffer(ctx.transformBuffer)->uploadData(ctx.transforms.data(), xfBytes);
 
-        ctx.renderer->getBuffer(ctx.transformBuffer)->uploadData(ctx.transforms.data(), bytes);
+        auto ensureAndUploadIndirect = [&](BufferHandle& bufHandle,
+                                           const char* debugName,
+                                           const std::vector<renderer::rhi::DrawIndexedIndirectCommand>& cmds)
+        {
+            const uint64_t bytes = cmds.size() * sizeof(renderer::rhi::DrawIndexedIndirectCommand);
+            if (bytes == 0) return;
+
+            if (bufHandle == INVALID_BUFFER_HANDLE ||
+                ctx.renderer->getBuffer(bufHandle)->size() < bytes)
+            {
+                bufHandle = ctx.renderer->createBuffer({
+                    .size = bytes,
+                    .usage = rhi::BufferUsage::IndirectBuffer,
+                    .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+                    .debugName = debugName
+                });
+            }
+
+            ctx.renderer->getBuffer(bufHandle)->uploadData(cmds.data(), bytes);
+        };
+
+        ensureAndUploadIndirect(ctx.indirectOpaqueBuffer, "GLTF Indirect Opaque", ctx.indirectOpaque);
+        ensureAndUploadIndirect(ctx.indirectTransmissionBuffer, "GLTF Indirect Transmission", ctx.indirectTransmission);
+        ensureAndUploadIndirect(ctx.indirectTransparentBuffer, "GLTF Indirect Transparent", ctx.indirectTransparent);
     }
 
     void GLTFUnifiedDOD::render(GLTFUnifiedDODContext& ctx, rhi::RHICommandBuffer& cmd)
@@ -366,28 +507,28 @@ namespace pnkr::renderer::scene
             cmd.bindIndexBuffer(ctx.renderer->getBuffer(ctx.model->indexBuffer), 0, false);
         }
 
-        auto drawList = [&](const std::vector<uint32_t>& list)
+        auto drawIndirect = [&](BufferHandle indirectBuf,
+                                const std::vector<renderer::rhi::DrawIndexedIndirectCommand>& cmds)
         {
-            for (uint32_t xformId : list)
-            {
-                const auto& dc = ctx.drawCalls[xformId];
-                cmd.drawIndexed(dc.indexCount, dc.instanceCount, dc.firstIndex, dc.vertexOffset, dc.firstInstance);
-            }
+            if (indirectBuf == INVALID_BUFFER_HANDLE || cmds.empty()) return;
+            cmd.drawIndexedIndirect(ctx.renderer->getBuffer(indirectBuf), 0,
+                                    static_cast<uint32_t>(cmds.size()),
+                                    static_cast<uint32_t>(sizeof(renderer::rhi::DrawIndexedIndirectCommand)));
         };
 
-        if (!ctx.opaque.empty() && ctx.pipelineSolid != INVALID_PIPELINE_HANDLE) {
+        if (!ctx.indirectOpaque.empty() && ctx.pipelineSolid != INVALID_PIPELINE_HANDLE) {
             cmd.bindPipeline(ctx.renderer->getPipeline(ctx.pipelineSolid));
-            drawList(ctx.opaque);
+            drawIndirect(ctx.indirectOpaqueBuffer, ctx.indirectOpaque);
         }
 
-        if (!ctx.transmission.empty() && ctx.pipelineTransmission != INVALID_PIPELINE_HANDLE) {
+        if (!ctx.indirectTransmission.empty() && ctx.pipelineTransmission != INVALID_PIPELINE_HANDLE) {
             cmd.bindPipeline(ctx.renderer->getPipeline(ctx.pipelineTransmission));
-            drawList(ctx.transmission);
+            drawIndirect(ctx.indirectTransmissionBuffer, ctx.indirectTransmission);
         }
 
-        if (!ctx.transparent.empty() && ctx.pipelineTransparent != INVALID_PIPELINE_HANDLE) {
+        if (!ctx.indirectTransparent.empty() && ctx.pipelineTransparent != INVALID_PIPELINE_HANDLE) {
             cmd.bindPipeline(ctx.renderer->getPipeline(ctx.pipelineTransparent));
-            drawList(ctx.transparent);
+            drawIndirect(ctx.indirectTransparentBuffer, ctx.indirectTransparent);
         }
     }
 

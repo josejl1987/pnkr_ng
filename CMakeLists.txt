@@ -78,6 +78,15 @@ endif()
 
 find_package(cpptrace CONFIG REQUIRED)
 
+# ImGuizmo
+CPMAddPackage(
+    NAME ImGuizmo
+    GITHUB_REPOSITORY ocornut/imgui
+    GIT_TAG master
+)
+
+
+
 # Try to find SDL3 on the system, otherwise fetch it from GitHub
 find_package(SDL3 CONFIG QUIET)
 if(NOT SDL3_FOUND)

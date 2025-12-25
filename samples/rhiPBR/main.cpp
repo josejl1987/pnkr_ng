@@ -16,7 +16,7 @@
 #include "pnkr/renderer/scene/MaterialDataGPU.hpp"
 
 // INCLUDE GENERATED HEADERS from ShaderStructGen
-#include "../../cmake-build-debug-clang-cl/samples/rhiUnifiedGLTF/generated/gltf.frag.h"
+#include "pnkr/generated/gltf.frag.h"
 #include "generated/pbr.frag.h"
 
 using namespace pnkr;

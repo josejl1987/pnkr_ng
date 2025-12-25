@@ -1,4 +1,4 @@
-#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
+﻿#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/core/common.hpp"
 
 #include <stdexcept>
@@ -325,6 +325,10 @@ namespace pnkr::renderer::rhi::vulkan
         if (hasFlag(stage, ShaderStage::Transfer))
         {
             flags |= vk::PipelineStageFlagBits2::eTransfer;
+        }
+        if (hasFlag(stage, ShaderStage::DrawIndirect))
+        {
+            flags |= vk::PipelineStageFlagBits2::eDrawIndirect;
         }
         if (hasFlag(stage, ShaderStage::Host))
         {
@@ -735,3 +739,4 @@ namespace pnkr::renderer::rhi::vulkan
         }
     }
 } // namespace pnkr::renderer::rhi::vulkan
+

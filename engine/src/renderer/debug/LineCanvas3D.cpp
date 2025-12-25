@@ -391,6 +391,9 @@ namespace pnkr::renderer::debug
         desc.colorFormats = {m_renderer->getDrawColorFormat()};
         desc.depthFormat = m_renderer->getDrawDepthFormat();
 
+        // Use dynamic viewport/scissor to match command buffer state.
+        desc.dynamicStates = {rhi::DynamicState::Viewport, rhi::DynamicState::Scissor};
+
         desc.pushConstants = pushConstants;
         desc.debugName = "LineCanvas3D Pipeline";
 

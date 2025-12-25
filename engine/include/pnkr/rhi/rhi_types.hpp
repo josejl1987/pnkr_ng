@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <cstdint>
 #include <string>
@@ -126,8 +126,19 @@ namespace pnkr::renderer::rhi
         RenderTarget = 1 << 7,
         Transfer = 1 << 8,
         Host = 1 << 9,
+        DrawIndirect = 1 << 10,
         All = Vertex | Fragment | Geometry | Compute | TessControl | TessEval |
-            DepthStencilAttachment | RenderTarget | Transfer
+            DepthStencilAttachment | RenderTarget | Transfer | DrawIndirect
+    };
+
+    // Matches VkDrawIndexedIndirectCommand layout.
+    struct DrawIndexedIndirectCommand
+    {
+        uint32_t indexCount = 0;
+        uint32_t instanceCount = 0;
+        uint32_t firstIndex = 0;
+        int32_t vertexOffset = 0;
+        uint32_t firstInstance = 0;
     };
 
     // Primitive topology

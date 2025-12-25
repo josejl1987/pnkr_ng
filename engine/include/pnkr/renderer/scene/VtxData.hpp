@@ -3,6 +3,8 @@
 #include <string>
 #include <glm/glm.hpp>
 
+#include "SceneGraph.hpp" // Required for SceneGraphDOD
+
 namespace pnkr::renderer::scene {
 
     constexpr const uint32_t kMaxLODs = 8;
@@ -44,5 +46,10 @@ namespace pnkr::renderer::scene {
     // I/O Functions
     bool loadUnifiedMeshData(const char* meshFile, UnifiedMeshData& out);
     void saveUnifiedMeshData(const char* filename, const UnifiedMeshData& data);
+
+    // Merges meshes that share a material and removes their individual nodes,
+    // creating a single new node for the combined mesh.
+    // Modifies both the SceneGraph and the MeshData.
+    void mergeNodesWithMaterial(SceneGraphDOD& scene, UnifiedMeshData& meshData, uint32_t materialID);
 
 } // namespace pnkr::renderer::scene

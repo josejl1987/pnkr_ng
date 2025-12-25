@@ -312,8 +312,11 @@ namespace pnkr::renderer
         scissor.height = m_swapchain->extent().height;
         m_activeCommandBuffer->setScissor(scissor);
 
-        // Call user record callback
-        m_recordCallback(context);
+        {
+            ScopedDebugGroup mainPass(m_activeCommandBuffer, "Main Render Pass");
+            // Call user record callback
+            m_recordCallback(context);
+        }
 
         m_activeCommandBuffer->endRendering();
     }
@@ -732,7 +735,7 @@ namespace pnkr::renderer
         auto handle = static_cast<TextureHandle>(m_textures.size());
         m_textures.push_back(std::move(texData));
 
-        core::Logger::info("Loaded KTX texture: {}", filepath.string());
+        core::Logger::debug("Loaded KTX texture: {}, index {}, bindlessIndex {}", filepath.string(), m_textures.size()-1, texData.bindlessIndex);
 
         return handle;
     }

@@ -11,10 +11,20 @@ namespace pnkr::platform { class Window; }
 
 namespace pnkr::renderer::rhi::vulkan
 {
+    struct VulkanInstanceContext
+    {
+        vk::Instance instance{};
+        vk::DebugUtilsMessengerEXT debugMessenger{};
+        bool hasDebugMessenger = false;
+
+        ~VulkanInstanceContext();
+    };
+
     class VulkanRHIPhysicalDevice : public RHIPhysicalDevice
     {
     public:
-        explicit VulkanRHIPhysicalDevice(vk::PhysicalDevice physicalDevice, vk::Instance instance);
+        explicit VulkanRHIPhysicalDevice(vk::PhysicalDevice physicalDevice,
+                                         std::shared_ptr<VulkanInstanceContext> instanceContext);
         ~VulkanRHIPhysicalDevice() override = default;
 
         // RHIPhysicalDevice interface
@@ -24,11 +34,11 @@ namespace pnkr::renderer::rhi::vulkan
 
         // Vulkan-specific accessors
         vk::PhysicalDevice physicalDevice() const { return m_physicalDevice; }
-        vk::Instance instance() const { return m_instance; }
+        vk::Instance instance() const { return m_instanceContext ? m_instanceContext->instance : vk::Instance{}; }
 
     private:
         vk::PhysicalDevice m_physicalDevice;
-        vk::Instance m_instance;
+        std::shared_ptr<VulkanInstanceContext> m_instanceContext;
         DeviceCapabilities m_capabilities;
         std::vector<QueueFamilyInfo> m_queueFamilies;
 

@@ -29,6 +29,18 @@ namespace indirect {
         uint32_t _pad1;
     };
 
+    // Matches shaders/pbr_common.glsl EnvironmentMapDataGPU
+    struct EnvironmentMapDataGPU {
+        uint32_t envMapTexture;
+        uint32_t envMapTextureSampler;
+        uint32_t envMapTextureIrradiance;
+        uint32_t envMapTextureIrradianceSampler;
+        uint32_t texBRDF_LUT;
+        uint32_t texBRDF_LUTSampler;
+        uint32_t envMapTextureCharlie;
+        uint32_t envMapTextureCharlieSampler;
+    };
+
     // Push Constants for the pipeline
     struct PushConstants {
         glm::mat4 viewProj;
@@ -36,11 +48,18 @@ namespace indirect {
         uint64_t instanceBufferAddr;  // BDA
         uint64_t vertexBufferAddr;    // BDA
         uint64_t materialBufferAddr;  // BDA
+        uint64_t environmentBufferAddr; // BDA
+        
+        // Padding to match the 'PerFrameData' size defined in pbr_common.glsl (256 bytes total)
+        // Original size: 64 + 8*5 = 104 bytes.
+        // Required: 256 bytes. Padding: 152 bytes.
+        uint8_t _padding[152]; 
     };
 
     class IndirectRenderer {
     public:
-        void init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model);
+        void init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model,
+                  TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
         void update(float dt);
         void draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera);
 
@@ -48,6 +67,7 @@ namespace indirect {
         void createPipeline();
         void buildBuffers();
         void uploadMaterialData();
+        void uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
 
         RHIRenderer* m_renderer = nullptr;
         std::shared_ptr<scene::ModelDOD> m_model;
@@ -59,6 +79,7 @@ namespace indirect {
         // Scene data mirror (could be shared, but local for this sample)
         BufferHandle m_transformBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle m_materialBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle m_environmentBuffer = INVALID_BUFFER_HANDLE;
 
         PipelineHandle m_pipeline = INVALID_PIPELINE_HANDLE;
         uint32_t m_drawCount = 0;

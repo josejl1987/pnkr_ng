@@ -79,6 +79,12 @@ namespace pnkr::renderer::scene {
         // Hierarchy management
         bool hierarchyDirty = false;
         void onHierarchyChanged();
+
+        // New: Add a node (returns new node index)
+        uint32_t addNode(uint32_t parent, uint32_t level);
     };
+
+    // New: Delete nodes and their children, remapping hierarchy indices
+    void deleteSceneNodes(SceneGraphDOD& scene, const std::vector<uint32_t>& nodesToDelete);
 
 } // namespace pnkr::renderer::scene

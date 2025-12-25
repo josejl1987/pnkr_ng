@@ -1,4 +1,5 @@
-#version 460
+﻿#version 460
+#extension GL_ARB_shader_draw_parameters : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
@@ -34,3 +35,4 @@ void main() {
     outInstanceIndex = gl_InstanceIndex;
     gl_Position = (perFrame.drawable.proj * perFrame.drawable.view) * worldPos;
 }
+

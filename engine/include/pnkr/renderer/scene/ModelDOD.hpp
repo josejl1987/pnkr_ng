@@ -2,6 +2,7 @@
 
 #include "pnkr/renderer/scene/Model.hpp" // Reuse MaterialData/Light definitions
 #include "pnkr/renderer/scene/SceneGraph.hpp"
+#include "pnkr/renderer/scene/VtxData.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 #include <filesystem>
 #include <vector>
@@ -36,6 +37,7 @@ namespace pnkr::renderer::scene
         const std::vector<Light>& lights() const { return m_lights; }
         const std::vector<TextureHandle>& textures() const { return m_textures; }
         const std::vector<MeshDOD>& meshes() const { return m_meshes; }
+        const std::vector<BoundingBox>& meshBounds() const { return m_meshBounds; }
         std::vector<MaterialData>& materialsMutable() { return m_materials; }
         std::vector<Light>& lightsMutable() { return m_lights; }
         std::vector<TextureHandle>& texturesMutable() { return m_textures; }
@@ -63,5 +65,6 @@ namespace pnkr::renderer::scene
         std::vector<uint8_t> m_textureIsSrgb;
 
         SceneGraphDOD m_scene;
+        std::vector<BoundingBox> m_meshBounds;
     };
 } // namespace pnkr::renderer::scene

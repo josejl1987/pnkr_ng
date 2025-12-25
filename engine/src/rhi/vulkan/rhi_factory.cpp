@@ -8,12 +8,100 @@
 #include "pnkr/rhi/vulkan/vulkan_swapchain.hpp"
 #include "pnkr/core/logger.hpp"
 #include <vector>
+#include <cstring>
 #include <vulkan/vulkan.hpp>
 #include <SDL3/SDL_vulkan.h> // Added SDL Vulkan support
 #include <cpptrace/cpptrace.hpp>
 
 namespace pnkr::renderer::rhi
 {
+namespace
+{
+    VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+        vk::DebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        vk::DebugUtilsMessageTypeFlagsEXT messageType,
+        const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void* /*pUserData*/)
+    {
+        // 1. Identify Message Type
+        std::string_view typeLabel = "General";
+        if (messageType & vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation) {
+            typeLabel = "Validation";
+        } else if (messageType & vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance) {
+            typeLabel = "Performance";
+        }
+
+        // 2. Filter & Log
+        auto isError = (messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
+        auto isWarning = (messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning);
+
+        if (isError)
+        {
+            core::Logger::error("[Vulkan][{}] {}", typeLabel, pCallbackData->pMessage);
+
+            // --- Enhanced Logging ---
+            
+            // Log Involved Objects (e.g., handles to invalid buffers/images)
+            if (pCallbackData->objectCount > 0) {
+                for (uint32_t i = 0; i < pCallbackData->objectCount; i++) {
+                    const auto& obj = pCallbackData->pObjects[i];
+                    core::Logger::error(" - Object[{}] Type: {}, Handle: {:#x}, Name: '{}'",
+                        i, 
+                        vk::to_string(obj.objectType), // vulkan.hpp to_string helper
+                        obj.objectHandle, 
+                        obj.pObjectName ? obj.pObjectName : "Unnamed");
+                }
+            }
+
+            // Log Command Buffer Labels (e.g., "Main Render Pass")
+            if (pCallbackData->cmdBufLabelCount > 0) {
+                 core::Logger::error(" - Inside Command Buffer Label: {}", 
+                     pCallbackData->pCmdBufLabels[pCallbackData->cmdBufLabelCount - 1].pLabelName);
+            }
+
+            // Print Stack Trace (skip 2 frames: this callback + trace generator)
+            cpptrace::generate_trace(2).print();
+
+
+        }
+        else if (isWarning)
+        {
+            core::Logger::warn("[Vulkan][{}] {}", typeLabel, pCallbackData->pMessage);
+        }
+        else
+        {
+            // Info/Verbose
+            core::Logger::info("[Vulkan][{}] {}", typeLabel, pCallbackData->pMessage);
+        }
+
+        return VK_FALSE;
+    }
+
+    bool hasLayer(const std::vector<vk::LayerProperties>& layers, const char* name)
+    {
+        for (const auto& layer : layers)
+        {
+            if (std::strcmp(layer.layerName.data(), name) == 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool hasExtension(const std::vector<vk::ExtensionProperties>& exts, const char* name)
+    {
+        for (const auto& ext : exts)
+        {
+            if (std::strcmp(ext.extensionName.data(), name) == 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
 std::vector<std::unique_ptr<RHIPhysicalDevice>>
 RHIFactory::enumeratePhysicalDevices(RHIBackend backend)
 {
@@ -56,10 +144,11 @@ switch (backend) {
                     }
                 }
 
-                // 2. Add Debug Utils (if debug)
-                #ifdef _DEBUG
-                extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-                #endif
+                const auto availableExtensions = vk::enumerateInstanceExtensionProperties();
+                const auto availableLayers = vk::enumerateInstanceLayerProperties();
+
+                // --- Layers ---
+                std::vector<const char*> layers;
 
                 // 3. Add Portability (MacOS)
                 #ifdef __APPLE__
@@ -67,30 +156,72 @@ switch (backend) {
                 createInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
                 #endif
 
+                bool enableValidation = false;
+                #ifdef _DEBUG
+                enableValidation = true;
+                #endif
+
+                if (enableValidation && hasLayer(availableLayers, "VK_LAYER_KHRONOS_validation"))
+                {
+                    layers.push_back("VK_LAYER_KHRONOS_validation");
+                }
+                else if (enableValidation)
+                {
+                    core::Logger::warn("Validation layer VK_LAYER_KHRONOS_validation not found");
+                    enableValidation = false;
+                }
+
+                bool enableDebugUtils = false;
+                if (enableValidation && hasExtension(availableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+                {
+                    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+                    enableDebugUtils = true;
+                }
+                else if (enableValidation)
+                {
+                    core::Logger::warn("VK_EXT_debug_utils not available; debug messenger disabled");
+                }
+
                 createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
                 createInfo.ppEnabledExtensionNames = extensions.data();
-
-                // --- Layers ---
-                std::vector<const char*> layers;
-                #ifdef _DEBUG
-                layers.push_back("VK_LAYER_KHRONOS_validation");
-                #endif
 
                 createInfo.enabledLayerCount = static_cast<uint32_t>(layers.size());
                 createInfo.ppEnabledLayerNames = layers.data();
 
+                vk::DebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
+                if (enableDebugUtils)
+                {
+                    debugCreateInfo.messageSeverity =
+                        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError |
+                        vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning;
+                    debugCreateInfo.messageType =
+                        vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
+                        vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
+                        vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
+                    debugCreateInfo.pfnUserCallback = debugCallback;
+                    createInfo.pNext = &debugCreateInfo;
+                }
+
                 // Create Instance
-                vk::Instance instance = vk::createInstance(createInfo);
+                auto instanceContext = std::make_shared<vulkan::VulkanInstanceContext>();
+                instanceContext->instance = vk::createInstance(createInfo);
 
                 // Initialize Dispatcher with Instance
-                VULKAN_HPP_DEFAULT_DISPATCHER.init(instance);
+                VULKAN_HPP_DEFAULT_DISPATCHER.init(instanceContext->instance);
+
+                if (enableDebugUtils)
+                {
+                    instanceContext->debugMessenger =
+                        instanceContext->instance.createDebugUtilsMessengerEXT(debugCreateInfo);
+                    instanceContext->hasDebugMessenger = true;
+                }
 
                 // Enumerate physical devices
-                auto physicalDevices = instance.enumeratePhysicalDevices();
+                auto physicalDevices = instanceContext->instance.enumeratePhysicalDevices();
 
                 for (auto pd : physicalDevices) {
                     devices.push_back(
-                        std::make_unique<vulkan::VulkanRHIPhysicalDevice>(pd, instance));
+                        std::make_unique<vulkan::VulkanRHIPhysicalDevice>(pd, instanceContext));
                 }
 
                 core::Logger::info("Found {} Vulkan physical device(s)", devices.size());

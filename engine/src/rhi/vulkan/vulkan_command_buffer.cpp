@@ -1,4 +1,4 @@
-#include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
+﻿#include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
 
 #include "pnkr/core/logger.hpp"
 #include "pnkr/rhi/vulkan/vulkan_device.hpp"
@@ -309,6 +309,8 @@ namespace pnkr::renderer::rhi::vulkan
     {
         if (stage & vk::PipelineStageFlagBits2::eHost)
             return vk::AccessFlagBits2::eHostWrite;
+        if (stage & vk::PipelineStageFlagBits2::eDrawIndirect)
+            return vk::AccessFlagBits2::eIndirectCommandRead;
         if (stage & vk::PipelineStageFlagBits2::eTransfer)
             return vk::AccessFlagBits2::eTransferWrite;
         if (stage & vk::PipelineStageFlagBits2::eColorAttachmentOutput)
@@ -339,6 +341,8 @@ namespace pnkr::renderer::rhi::vulkan
             return vk::AccessFlagBits2::eHostRead;
         if (stage & vk::PipelineStageFlagBits2::eTransfer)
             return vk::AccessFlagBits2::eTransferRead;
+        if (stage & vk::PipelineStageFlagBits2::eDrawIndirect)
+            return vk::AccessFlagBits2::eIndirectCommandRead;
 
         const vk::PipelineStageFlags2 shaderStages =
             vk::PipelineStageFlagBits2::eVertexShader |
@@ -699,3 +703,4 @@ namespace pnkr::renderer::rhi::vulkan
         }
     }
 } // namespace pnkr::renderer::rhi::vulkan
+

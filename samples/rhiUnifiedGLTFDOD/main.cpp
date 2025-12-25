@@ -1,4 +1,4 @@
-#include "pnkr/engine.hpp"
+﻿#include "pnkr/engine.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/ModelDOD.hpp"
 #include "pnkr/renderer/scene/Camera.hpp"
@@ -22,8 +22,8 @@
 #include <glm/gtx/euler_angles.hpp>
 
 // INCLUDE GENERATED HEADERS from ShaderStructGen
-#include "generated/gltf.frag.h"
-#include "generated/gltf.vert.h"
+#include "pnkr/generated/gltf.frag.h"
+#include "pnkr/generated/gltf.vert.h"
 #include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
 
 using namespace pnkr;
@@ -39,6 +39,7 @@ public:
     }) {}
 
     GLTFUnifiedDODContext m_ctx;
+    std::unique_ptr<ModelDOD> m_model;
     Camera m_camera;
     CameraController m_cameraController{{-19.261f, 8.465f, -7.317f}, 20.801124201214570, -16.146098030003937f};
     std::unique_ptr<InfiniteGrid> m_grid;
@@ -108,9 +109,9 @@ public:
         m_prefilter = m_renderer->loadTextureKTX("assets/piazza_bologni_1k_prefilter.ktx");
 
         // 2. Load GLTF Model via DOD Context
-        auto model = ModelDOD::load(*m_renderer, "assets/Bistro.glb");
-        if (!model) throw cpptrace::runtime_error("Failed to load Bistro.glb");
-        m_ctx.model = std::shared_ptr<ModelDOD>(std::move(model));
+        m_model = ModelDOD::load(*m_renderer, "assets/Bistro.glb");
+        if (!m_model) throw cpptrace::runtime_error("Failed to load Bistro.glb");
+        m_ctx.model = m_model.get();
         m_ctx.renderer = m_renderer.get();
 
         uploadMaterials(m_ctx);
@@ -275,8 +276,7 @@ public:
             scene.local[nodeId] = composeTRS(trs);
             scene.markAsChanged(nodeId); // mark node + descendants for next recalc
             scene.recalculateGlobalTransformsDirty();
-            GLTFUnifiedDOD::buildTransformsList(m_ctx);
-            sortTransparentNodes(m_ctx, m_camera.position());
+            GLTFUnifiedDOD::buildDrawLists(m_ctx, m_camera.position());
         }
     }
 
@@ -375,11 +375,12 @@ public:
          scene.recalculateGlobalTransformsDirty();
 
          uploadLights(m_ctx);
-         GLTFUnifiedDOD::buildTransformsList(m_ctx);
-         sortTransparentNodes(m_ctx, m_camera.position());
+         GLTFUnifiedDOD::buildDrawLists(m_ctx, m_camera.position());
+         
 
          // Ensure CPU-updated buffers are visible before shader reads.
-         {            std::vector<renderer::rhi::RHIMemoryBarrier> bufBarriers;
+         {
+            std::vector<renderer::rhi::RHIMemoryBarrier> bufBarriers;
 
             if (m_ctx.transformBuffer != INVALID_BUFFER_HANDLE) {
                 renderer::rhi::RHIMemoryBarrier b{};
@@ -402,10 +403,32 @@ public:
                 bufBarriers.push_back(b);
             }
 
+            if (m_ctx.indirectOpaqueBuffer != INVALID_BUFFER_HANDLE) {
+                renderer::rhi::RHIMemoryBarrier b{};
+                b.buffer = m_renderer->getBuffer(m_ctx.indirectOpaqueBuffer);
+                b.srcAccessStage = renderer::rhi::ShaderStage::Host;
+                b.dstAccessStage = renderer::rhi::ShaderStage::DrawIndirect;
+                bufBarriers.push_back(b);
+            }
+            if (m_ctx.indirectTransmissionBuffer != INVALID_BUFFER_HANDLE) {
+                renderer::rhi::RHIMemoryBarrier b{};
+                b.buffer = m_renderer->getBuffer(m_ctx.indirectTransmissionBuffer);
+                b.srcAccessStage = renderer::rhi::ShaderStage::Host;
+                b.dstAccessStage = renderer::rhi::ShaderStage::DrawIndirect;
+                bufBarriers.push_back(b);
+            }
+            if (m_ctx.indirectTransparentBuffer != INVALID_BUFFER_HANDLE) {
+                renderer::rhi::RHIMemoryBarrier b{};
+                b.buffer = m_renderer->getBuffer(m_ctx.indirectTransparentBuffer);
+                b.srcAccessStage = renderer::rhi::ShaderStage::Host;
+                b.dstAccessStage = renderer::rhi::ShaderStage::DrawIndirect;
+                bufBarriers.push_back(b);
+            }
+
             if (!bufBarriers.empty()) {
                 cmd->pipelineBarrier(
                     renderer::rhi::ShaderStage::Host,
-                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment,
+                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment | renderer::rhi::ShaderStage::DrawIndirect,
                     bufBarriers);
             }
         }
@@ -427,16 +450,18 @@ public:
         pc.drawable.lightCount = (m_ctx.lightBuffer != INVALID_BUFFER_HANDLE) ? m_ctx.activeLightCount : 0;
         pc.drawable.envId = 0u;
 
-        // Draw Helper
-        auto drawTransform = [&](uint32_t xformId) {
-            const auto& x = m_ctx.transforms[xformId];
-            const auto& scene = m_ctx.model->scene();
-            const std::string label = getNodeLabel(scene, x.nodeIndex);
-            cmd->beginDebugLabel(label.c_str(), 0.7f, 0.7f, 0.7f, 1.0f);
-
-            const auto& dc = m_ctx.drawCalls[xformId];
-            cmd->drawIndexed(dc.indexCount, dc.instanceCount, dc.firstIndex, dc.vertexOffset, dc.firstInstance);
-
+        // Indirect draw helper (multi-draw)
+        auto drawIndirect = [&](BufferHandle indirectBuf,
+                                const std::vector<renderer::rhi::DrawIndexedIndirectCommand>& cmds,
+                                const char* label,
+                                float r, float g, float b)
+        {
+            if (indirectBuf == INVALID_BUFFER_HANDLE || cmds.empty()) return;
+            cmd->beginDebugLabel(label, r, g, b, 1.0f);
+            cmd->drawIndexedIndirect(m_renderer->getBuffer(indirectBuf),
+                                     0,
+                                     static_cast<uint32_t>(cmds.size()),
+                                     static_cast<uint32_t>(sizeof(renderer::rhi::DrawIndexedIndirectCommand)));
             cmd->endDebugLabel();
         };
 
@@ -518,8 +543,8 @@ public:
         cmd->beginDebugLabel("Opaque Pass", 1.0f, 0.5f, 0.5f, 1.0f);
         m_renderer->bindPipeline(cmd, m_ctx.pipelineSolid);
         m_renderer->pushConstants(cmd, m_ctx.pipelineSolid,
-            renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
-        for (uint32_t xformId : m_ctx.opaque) drawTransform(xformId);
+            renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment | renderer::rhi::ShaderStage::DrawIndirect, pc);
+        drawIndirect(m_ctx.indirectOpaqueBuffer, m_ctx.indirectOpaque, "Opaque", 0.7f, 0.7f, 0.7f);
 
 
         cmd->endDebugLabel();
@@ -527,7 +552,7 @@ public:
 
         // --- PHASE 2: Copy & Mipmap (The Sandwich) ---
         // Matches EID 43-84 in your log
-        if (!m_ctx.transmission.empty()) {
+        if (!m_ctx.indirectTransmission.empty()) {
             cmd->beginDebugLabel("Copy Transmission", 1.0f, 1.0f, 0.0f, 1.0f);
 
             auto* transCopy = m_renderer->getTexture(m_transmissionCopy);
@@ -600,23 +625,19 @@ public:
             cmd->setViewport(vp);
             cmd->setScissor(sc);
 
-            if (!m_ctx.transmission.empty()) {
-                cmd->beginDebugLabel("Transmission Pass", 0.0f, 0.5f, 1.0f, 1.0f);
+            if (!m_ctx.indirectTransmission.empty()) {
                 m_renderer->bindPipeline(cmd, m_ctx.pipelineSolid);
                 m_renderer->pushConstants(cmd, m_ctx.pipelineSolid,
-                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
-                for (uint32_t xformId : m_ctx.transmission) drawTransform(xformId);
-                cmd->endDebugLabel();
+                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment | renderer::rhi::ShaderStage::DrawIndirect, pc);
+                drawIndirect(m_ctx.indirectTransmissionBuffer, m_ctx.indirectTransmission, "Transmission Pass", 0.0f, 0.5f, 1.0f);
             }
 
-            if (!m_ctx.transparent.empty()) {
-                cmd->beginDebugLabel("Transparent Pass", 0.5f, 1.0f, 0.5f, 1.0f);
+            if (!m_ctx.indirectTransparent.empty()) {
                 m_renderer->bindPipeline(cmd, m_ctx.pipelineTransparent);
                 cmd->bindDescriptorSet(m_renderer->pipeline(m_ctx.pipelineTransparent), 1, bindlessSet);
                 m_renderer->pushConstants(cmd, m_ctx.pipelineTransparent,
-                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
-                for (uint32_t xformId : m_ctx.transparent) drawTransform(xformId);
-                cmd->endDebugLabel();
+                    renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment | renderer::rhi::ShaderStage::DrawIndirect, pc);
+                drawIndirect(m_ctx.indirectTransparentBuffer, m_ctx.indirectTransparent, "Transparent Pass", 0.5f, 1.0f, 0.5f);
             }
 
             cmd->endRendering();
@@ -711,3 +732,8 @@ int main() {
     UnifiedGLTFSample app;
     return app.run();
 }
+
+
+
+
+

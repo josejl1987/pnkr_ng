@@ -1,5 +1,8 @@
 #include "pnkr/renderer/scene/SceneGraph.hpp"
+#include "pnkr/core/common.hpp"
 
+#include <numeric>
+#include <algorithm>
 #include <fastgltf/types.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
@@ -294,5 +297,110 @@ namespace pnkr::renderer::scene
         recalculateGlobalTransformsFull();
         initDirtyTracking();
         hierarchyDirty = false;
+    }
+
+    uint32_t SceneGraphDOD::addNode(uint32_t parentIndex, uint32_t level)
+    {
+        uint32_t id = (uint32_t)hierarchy.size();
+        local.push_back(glm::mat4(1.0f));
+        global.push_back(glm::mat4(1.0f));
+        hierarchy.push_back({.parent = (int32_t)parentIndex, .level = (uint16_t)level});
+        meshIndex.push_back(-1);
+        lightIndex.push_back(-1);
+        nameId.push_back(-1);
+        
+        // Update parent's children links
+        if (parentIndex < hierarchy.size()) {
+            appendChild(parentIndex, id);
+        }
+        
+        return id;
+    }
+
+    // --- Deletion Logic ---
+
+    static void addUniqueIdx(std::vector<uint32_t>& v, uint32_t index) {
+        if (std::find(v.begin(), v.end(), index) == v.end()) {
+            v.push_back(index);
+        }
+    }
+
+    static void collectNodesToDelete(const SceneGraphDOD& scene, uint32_t node, std::vector<uint32_t>& nodes) {
+        if (node >= scene.hierarchy.size()) return;
+        
+        for (int32_t child = scene.hierarchy[node].firstChild; child != -1; child = scene.hierarchy[child].nextSibling) {
+            addUniqueIdx(nodes, (uint32_t)child);
+            collectNodesToDelete(scene, (uint32_t)child, nodes);
+        }
+    }
+
+    static int32_t findLastNonDeletedItem(const SceneGraphDOD& scene, const std::vector<int32_t>& newIndices, int32_t node) {
+        if (node == -1) return -1;
+        // If current node is deleted (newIndex == -1), search its sibling
+        return (newIndices[node] == -1) ?
+            findLastNonDeletedItem(scene, newIndices, scene.hierarchy[node].nextSibling) :
+            newIndices[node];
+    }
+
+    void deleteSceneNodes(SceneGraphDOD& scene, const std::vector<uint32_t>& nodesToDeleteInput)
+    {
+        // 1. Gather all children of deleted nodes
+        auto nodesToDelete = nodesToDeleteInput;
+        // Ensure strictly sorted for binary_search used in unique check and eraseSelected
+        std::sort(nodesToDelete.begin(), nodesToDelete.end());
+        
+        // Recursively add children (copying input to avoid invalidating iterator if we used referenced input)
+        // We use an index-based loop because nodesToDelete grows
+        for (size_t i = 0; i < nodesToDelete.size(); ++i) {
+            collectNodesToDelete(scene, nodesToDelete[i], nodesToDelete);
+        }
+        
+        // Final sort for eraseSelected
+        std::sort(nodesToDelete.begin(), nodesToDelete.end());
+        nodesToDelete.erase(std::unique(nodesToDelete.begin(), nodesToDelete.end()), nodesToDelete.end());
+
+        if (nodesToDelete.empty()) return;
+
+        // 2. Build Mapping Table (Old Index -> New Index)
+        // Create full list of indices 0..N
+        std::vector<uint32_t> allIndices(scene.hierarchy.size());
+        std::iota(allIndices.begin(), allIndices.end(), 0);
+
+        // Remove deleted indices from this list to determine who survives
+        util::eraseSelected(allIndices, nodesToDelete);
+
+        // Map: Old -> New (-1 if deleted)
+        std::vector<int32_t> newIndices(scene.hierarchy.size(), -1);
+        for (size_t i = 0; i < allIndices.size(); ++i) {
+            newIndices[allIndices[i]] = (int32_t)i;
+        }
+
+        // 3. Remap Hierarchy Links (Parent, Child, Sibling)
+        // We modify the data IN PLACE before erasing. 
+        // When eraseSelected runs, it will move these valid (modified) structs to the front.
+        for (size_t i = 0; i < scene.hierarchy.size(); ++i) {
+            // If this node is being deleted, we don't care what we write to it, 
+            // but we must process the survivors.
+            if (newIndices[i] != -1) {
+                auto& h = scene.hierarchy[i];
+                h.parent = (h.parent != -1) ? newIndices[h.parent] : -1;
+                h.firstChild = findLastNonDeletedItem(scene, newIndices, h.firstChild);
+                h.nextSibling = findLastNonDeletedItem(scene, newIndices, h.nextSibling);
+                // lastChild isn't strictly maintained in the provided HierarchyDOD struct (it has first/next), 
+                // but if it exists in your version:
+                h.lastChild = findLastNonDeletedItem(scene, newIndices, h.lastChild);
+            }
+        }
+
+        // 4. Erase Data from Parallel Arrays
+        util::eraseSelected(scene.local, nodesToDelete);
+        util::eraseSelected(scene.global, nodesToDelete);
+        util::eraseSelected(scene.hierarchy, nodesToDelete);
+        util::eraseSelected(scene.meshIndex, nodesToDelete);
+        util::eraseSelected(scene.lightIndex, nodesToDelete);
+        util::eraseSelected(scene.nameId, nodesToDelete);
+
+        // 5. Rebuild Roots & Topology
+        scene.onHierarchyChanged();
     }
 } // namespace pnkr::renderer::scene
