@@ -7,7 +7,7 @@
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 
 // GLM must be included BEFORE fastgltf/glm_element_traits.hpp
 #include <glm/glm.hpp>
@@ -99,10 +99,10 @@ void processLods(std::vector<uint32_t>& indices, const std::vector<renderer::Ver
     }
 }
 
-class UnifiedMeshSample : public samples::RhiSampleApp {
+class UnifiedMeshSample : public app::Application {
 public:
     UnifiedMeshSample() 
-        : samples::RhiSampleApp({.title="RHI Unified Mesh (Indirect Rendering)", .width=1280, .height=720}) {}
+        : app::Application({.title="RHI Unified Mesh (Indirect Rendering)", .width=1280, .height=720}) {}
 
     ~UnifiedMeshSample() override {
         if (m_renderer) {
@@ -426,3 +426,4 @@ int main(int argc, char** argv) {
     UnifiedMeshSample app;
     return app.run();
 }
+

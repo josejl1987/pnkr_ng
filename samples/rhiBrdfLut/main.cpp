@@ -2,7 +2,7 @@
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include <ktx.h>
 #include "generated/brdf_lut.comp.h"
 
@@ -16,9 +16,9 @@ struct BrdfPushConstants {
     uint64_t bufferAddress;
 };
 
-class BrdfLutApp : public samples::RhiSampleApp {
+class BrdfLutApp : public app::Application {
 public:
-    BrdfLutApp() : samples::RhiSampleApp({.title="BRDF LUT Generator", .createRenderer=true}) {}
+    BrdfLutApp() : app::Application({.title="BRDF LUT Generator", .createRenderer=true}) {}
 
     void onInit() override {
         const uint32_t width = 256;
@@ -103,3 +103,4 @@ int main(int argc, char** argv) {
     BrdfLutApp app;
     return app.run();
 }
+

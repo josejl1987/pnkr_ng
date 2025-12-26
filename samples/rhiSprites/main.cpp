@@ -3,7 +3,7 @@
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/SpriteSystem.hpp"
 
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/random.hpp>
@@ -11,11 +11,11 @@
 
 using namespace pnkr;
 
-class SpriteSample : public samples::RhiSampleApp
+class SpriteSample : public app::Application
 {
 public:
     SpriteSample()
-        : samples::RhiSampleApp({
+        : app::Application({
             .title = "PNKR - Sprites / Billboards",
             .width = 1280,
             .height = 720,
@@ -158,3 +158,4 @@ int main(int argc, char** argv)
     SpriteSample app;
     return app.run();
 }
+

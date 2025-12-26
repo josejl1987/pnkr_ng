@@ -6,7 +6,7 @@
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/rhi/rhi_descriptor.hpp"
 
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <vector>
@@ -39,10 +39,10 @@ float easing(float x) {
 constexpr uint32_t kNumU = 512;
 constexpr uint32_t kNumV = 512;
 
-class ComputedMeshApp : public samples::RhiSampleApp {
+class ComputedMeshApp : public app::Application {
 public:
     ComputedMeshApp() 
-        : samples::RhiSampleApp({.title="RHI Computed Mesh", .width=1280, .height=720, .createRenderer=false}) {}
+        : app::Application({.title="RHI Computed Mesh", .width=1280, .height=720, .createRenderer=false}) {}
 
     renderer::scene::Camera m_camera;
     
@@ -286,3 +286,4 @@ int main(int argc, char** argv) {
     ComputedMeshApp app;
     return app.run();
 }
+

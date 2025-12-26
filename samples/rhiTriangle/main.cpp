@@ -7,16 +7,16 @@
 #include <vector>
 
 // Include the SampleApp base
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 
 using namespace pnkr;
 
-class RHITriangleApp : public samples::RhiSampleApp
+class RHITriangleApp : public app::Application
 {
 public:
     // Initialize SampleApp with createRenderer=false to use RHIRenderer instead
     RHITriangleApp()
-        : samples::RhiSampleApp({.title="RHI Triangle", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
+        : app::Application({.title="RHI Triangle", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
     {
     }
 
@@ -163,3 +163,4 @@ int main(int argc, char** argv)
     RHITriangleApp app;
     return app.run();
 }
+

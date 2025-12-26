@@ -13,7 +13,7 @@
 
 #include "generated/gltf_bindless.frag.h"
 
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <variant>
@@ -21,11 +21,11 @@
 
 using namespace pnkr;
 
-class RHITessellationApp : public samples::RhiSampleApp
+class RHITessellationApp : public app::Application
 {
 public:
     RHITessellationApp()
-        : samples::RhiSampleApp({
+        : app::Application({
             .title = "RHI Tessellation GLTF",
             .width = 1280,
             .height = 720,

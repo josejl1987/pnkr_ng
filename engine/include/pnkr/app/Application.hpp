@@ -17,27 +17,30 @@
 #include "pnkr/ui/imgui_layer.hpp"
 #include <imgui.h>
 
-namespace pnkr::samples
+namespace pnkr::app
 {
-    struct RhiSampleConfig
+    struct ApplicationConfig
     {
-        std::string title{"PNKR Sample"};
+        std::string title{"PNKR Application"};
         int width{800};
         int height{600};
         SDL_WindowFlags windowFlags{SDL_WINDOW_RESIZABLE};
-        bool createRenderer{true}; // New flag
+        bool createRenderer{true};
     };
 
-    class RhiSampleApp
+    class Application
     {
     public:
-        explicit RhiSampleApp(RhiSampleConfig cfg);
-        virtual ~RhiSampleApp() = default;
-
+        explicit Application(ApplicationConfig cfg);
+        virtual ~Application() = default;
 
         int run();
 
     protected:
+        virtual void onPreInit()
+        {
+        }
+
         virtual void onInit()
         {
         }
@@ -51,7 +54,6 @@ namespace pnkr::samples
         {
             (void)event;
         }
-
 
         // Default implementation uses m_renderer. Override for RHI/Custom rendering.
         virtual void onRenderFrame(float deltaTime);
@@ -85,7 +87,7 @@ namespace pnkr::samples
 
         static std::filesystem::path resolveBasePath();
 
-        RhiSampleConfig m_config;
+        ApplicationConfig m_config;
 
     protected:
         platform::Window m_window;
@@ -116,7 +118,7 @@ namespace pnkr::samples
         platform::Input m_input;
     };
 
-    inline std::filesystem::path RhiSampleApp::resolveBasePath()
+    inline std::filesystem::path Application::resolveBasePath()
     {
         const char* base = SDL_GetBasePath();
         if (base)
@@ -128,24 +130,19 @@ namespace pnkr::samples
         return std::filesystem::current_path();
     }
 
-    inline RhiSampleApp::RhiSampleApp(RhiSampleConfig cfg)
+    inline Application::Application(ApplicationConfig cfg)
         : m_config(std::move(cfg)),
           m_window(m_config.title, m_config.width, m_config.height, m_config.windowFlags),
           m_baseDir(resolveBasePath()),
           m_shaderDir(m_baseDir / "shaders")
     {
-        if (m_config.createRenderer)
-        {
-            m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
-            initUI();
-        }
     }
 
-    inline void RhiSampleApp::initUI()
+    inline void Application::initUI()
     {
         if (m_renderer && !m_imgui.isInitialized())
         {
-            pnkr::Log::info("Initializing ImGui for sample...");
+            pnkr::Log::info("Initializing ImGui for application...");
             m_imgui.init(m_renderer.get(), &m_window);
 
             // Wrap the record func to inject ImGui rendering
@@ -161,7 +158,7 @@ namespace pnkr::samples
         }
     }
 
-    inline void RhiSampleApp::onRenderFrame(float deltaTime)
+    inline void Application::onRenderFrame(float deltaTime)
     {
         if (m_renderer)
         {
@@ -173,7 +170,7 @@ namespace pnkr::samples
         }
     }
 
-    inline int RhiSampleApp::run()
+    inline int Application::run()
     {
         cpptrace::register_terminate_handler();
         try
@@ -181,6 +178,14 @@ namespace pnkr::samples
             pnkr::Log::init("[%H:%M:%S] [%-8l] %v");
             pnkr::Log::info("PNKR Engine v{}.{}.{}", PNKR_VERSION_MAJOR,
                             PNKR_VERSION_MINOR, PNKR_VERSION_PATCH);
+
+            onPreInit();
+
+            if (m_config.createRenderer)
+            {
+                m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
+                initUI();
+            }
 
             onInit();
 
@@ -249,7 +254,7 @@ namespace pnkr::samples
         }
     }
 
-    inline std::filesystem::path RhiSampleApp::getShaderPath(
+    inline std::filesystem::path Application::getShaderPath(
         const std::filesystem::path& filename) const
     {
         const std::filesystem::path fullPath =
@@ -260,4 +265,4 @@ namespace pnkr::samples
         }
         return fullPath;
     }
-} // namespace pnkr::samples
+} // namespace pnkr::app

@@ -5,7 +5,7 @@
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
 
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/random.hpp>
 #include <glm/ext.hpp>
@@ -51,11 +51,11 @@ static bool pickFirstPrimitive(
     return false;
 }
 
-class PnkrInstancedDucks : public samples::RhiSampleApp
+class PnkrInstancedDucks : public app::Application
 {
 public:
     PnkrInstancedDucks()
-        : samples::RhiSampleApp({
+        : app::Application({
             .title = "Pnkr Instanced Ducks", .width = 1824, .height = 928, .windowFlags = SDL_WINDOW_RESIZABLE,
             .createRenderer = false
         })
@@ -326,3 +326,4 @@ int main(int argc, char** argv)
     PnkrInstancedDucks app;
     return app.run();
 }
+

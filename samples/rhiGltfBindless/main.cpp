@@ -10,7 +10,7 @@
 
 #include "generated/gltf_bindless.vert.h"
 
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <cstdint>
@@ -19,10 +19,10 @@
 
 using namespace pnkr;
 
-class RHIGltfBindlessApp : public samples::RhiSampleApp {
+class RHIGltfBindlessApp : public app::Application {
 public:
     RHIGltfBindlessApp()
-        : samples::RhiSampleApp({.title="RHI Bindless GLTF", .width=1280, .height=720, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false}) {}
+        : app::Application({.title="RHI Bindless GLTF", .width=1280, .height=720, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false}) {}
 
     renderer::scene::Camera m_camera;
     std::unique_ptr<renderer::scene::Model> m_model;

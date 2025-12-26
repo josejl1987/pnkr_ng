@@ -6,13 +6,13 @@
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/CameraController.hpp"
 #include "pnkr/renderer/debug/LineCanvas3D.hpp"
-#include "../common/RhiSampleApp.hpp"
-#include "IndirectRenderer.hpp"
+#include "pnkr/app/Application.hpp"
+#include "pnkr/renderer/IndirectRenderer.hpp"
 
 #include <memory>
 #include <ImGuizmo.h>
 
-class SceneEditorApp : public pnkr::samples::RhiSampleApp {
+class SceneEditorApp : public pnkr::app::Application {
 public:
     SceneEditorApp();
     ~SceneEditorApp() override;
@@ -26,7 +26,7 @@ protected:
 
 private:
     std::shared_ptr<pnkr::renderer::scene::ModelDOD> m_model;
-    std::unique_ptr<indirect::IndirectRenderer> m_indirectRenderer;
+    std::unique_ptr<pnkr::renderer::IndirectRenderer> m_indirectRenderer;
     std::unique_ptr<pnkr::renderer::debug::LineCanvas3D> m_debugLines;
 
     pnkr::renderer::scene::Camera m_camera;

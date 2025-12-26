@@ -3,7 +3,7 @@
 #include <vector>
 #include "pnkr/renderer/geometry/Vertex.h"
 
-namespace pnkr::samples {
+namespace pnkr::renderer::geometry {
 
 struct MeshData {
     std::vector<renderer::Vertex> vertices;
@@ -86,4 +86,4 @@ inline MeshData GeometryUtils::getPlane(float halfExtent, float y) {
     return data;
 }
 
-} // namespace pnkr::samples
+} // namespace pnkr::renderer::geometry

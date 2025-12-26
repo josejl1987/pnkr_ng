@@ -4,7 +4,7 @@
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
 
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/random.hpp>
 #include <glm/ext.hpp>
@@ -14,11 +14,11 @@
 
 using namespace pnkr;
 
-class PnkrMillionCubes : public samples::RhiSampleApp
+class PnkrMillionCubes : public app::Application
 {
 public:
     PnkrMillionCubes()
-        : samples::RhiSampleApp({
+        : app::Application({
             .title = "Pnkr Million cubes", .width = 1280, .height = 720, .windowFlags = SDL_WINDOW_RESIZABLE,
             .createRenderer = false
         })
@@ -155,3 +155,4 @@ int main(int argc, char** argv)
     PnkrMillionCubes app;
     return app.run();
 }
+

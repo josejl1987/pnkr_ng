@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace pnkr::samples {
+namespace pnkr::core {
 
 class RecentFiles {
 public:
@@ -33,4 +33,4 @@ private:
     std::vector<std::filesystem::path> m_items;
 };
 
-} // namespace pnkr::samples
+} // namespace pnkr::core

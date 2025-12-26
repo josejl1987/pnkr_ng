@@ -1,4 +1,4 @@
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
 
@@ -15,10 +15,10 @@ struct GraphicsPushConstants {
     float time;
 };
 
-class ComputeTextureApp : public samples::RhiSampleApp {
+class ComputeTextureApp : public app::Application {
 public:
     ComputeTextureApp() 
-        : samples::RhiSampleApp({.title="RHI Compute Texture", .width=1280, .height=720, .createRenderer=false}) {}
+        : app::Application({.title="RHI Compute Texture", .width=1280, .height=720, .createRenderer=false}) {}
 
     std::unique_ptr<renderer::rhi::RHITexture> m_texture;
     std::unique_ptr<renderer::rhi::RHISampler> m_sampler;
@@ -145,3 +145,4 @@ int main(int argc, char** argv) {
     ComputeTextureApp app;
     return app.run();
 }
+

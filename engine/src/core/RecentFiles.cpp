@@ -1,4 +1,4 @@
-#include "RecentFiles.hpp"
+#include "pnkr/core/RecentFiles.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -11,7 +11,7 @@
 
 #include <imgui.h>
 
-namespace pnkr::samples {
+namespace pnkr::core {
 
 static std::string readTextFile(const std::filesystem::path& p)
 {
@@ -225,4 +225,4 @@ std::optional<std::filesystem::path> RecentFiles::drawImGuiMenu(const char* menu
     return chosen;
 }
 
-} // namespace pnkr::samples
+} // namespace pnkr::core

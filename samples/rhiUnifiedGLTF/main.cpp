@@ -9,7 +9,7 @@
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include "pnkr/core/logger.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <filesystem>
@@ -28,9 +28,9 @@
 using namespace pnkr;
 using namespace pnkr::renderer::scene;
 
-class UnifiedGLTFSample : public samples::RhiSampleApp {
+class UnifiedGLTFSample : public app::Application {
 public:
-    UnifiedGLTFSample() : RhiSampleApp({
+    UnifiedGLTFSample() : Application({
         .title = "PNKR - Unified glTF Renderer",
         .width = 1824,
         .height = 928,
@@ -650,3 +650,5 @@ int main() {
     UnifiedGLTFSample app;
     return app.run();
 }
+
+

@@ -3,11 +3,11 @@
 using namespace pnkr;
 using namespace pnkr::samples;
 
-class TriangleSample : public RhiSampleApp {
+class TriangleSample : public Application {
     PipelineHandle m_pipe{};
 
 public:
-    TriangleSample() : RhiSampleApp({"PNKR - Triangle", 800, 600, SDL_WINDOW_RESIZABLE}) {}
+    TriangleSample() : Application({"PNKR - Triangle", 800, 600, SDL_WINDOW_RESIZABLE}) {}
 
     void onInit() override {
         renderer::VulkanPipeline::Config cfg{};
@@ -29,3 +29,4 @@ int main(int argc, char** argv) {
     TriangleSample app;
     return app.run();
 }
+

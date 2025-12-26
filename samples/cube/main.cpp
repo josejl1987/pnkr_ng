@@ -1,4 +1,4 @@
-#include "../common/GeometryUtils.h"
+#include "pnkr/renderer/geometry/GeometryUtils.hpp"
 #include "../common/SampleApp.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -12,14 +12,14 @@
 using namespace pnkr;
 using namespace pnkr::samples;
 
-class CubeSample : public RhiSampleApp {
+class CubeSample : public Application {
     MeshHandle m_cubeMesh;
     PipelineHandle m_cubePipe;
     renderer::scene::Camera m_camera;
     vk::Extent2D m_lastExtent{0, 0};
 
 public:
-    CubeSample() : RhiSampleApp({"PNKR - Cube", 800, 600}) {}
+    CubeSample() : Application({"PNKR - Cube", 800, 600}) {}
 
     void onInit() override {
         auto cubeData = GeometryUtils::getCube();
@@ -64,3 +64,5 @@ int main(int argc, char** argv) {
     CubeSample app;
     return app.run();
 }
+
+

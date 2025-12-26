@@ -1,7 +1,7 @@
-#include "NfdFileDialog.hpp"
+#include "pnkr/platform/FileDialog.hpp"
 #include <nfd.h>
 
-namespace pnkr::samples
+namespace pnkr::platform::FileDialog
 {
     std::optional<std::filesystem::path> OpenGLTFDialog()
     {

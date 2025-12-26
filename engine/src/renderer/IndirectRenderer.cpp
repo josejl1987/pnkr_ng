@@ -1,4 +1,4 @@
-#include "IndirectRenderer.hpp"
+#include "pnkr/renderer/IndirectRenderer.hpp"
 
 #include "generated/indirect.frag.h"
 #include "generated/indirect.vert.h"
@@ -10,7 +10,7 @@
 #include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
 #include "pnkr/renderer/scene/AnimationSystem.hpp"
 
-namespace indirect {
+namespace pnkr::renderer {
 
 struct MeshXformGPU {
     glm::mat4 invModel;
@@ -62,7 +62,7 @@ void IndirectRenderer::init(RHIRenderer* renderer, std::shared_ptr<scene::ModelD
 }
 
 void IndirectRenderer::createComputePipeline() {
-    auto comp = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/skinning.comp.spv");
+    auto comp = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/renderer/indirect/skinning.comp.spv");
     
     rhi::RHIPipelineBuilder builder;
     builder.setComputeShader(comp.get());
@@ -156,6 +156,10 @@ void IndirectRenderer::update(float dt) {
         }
     }
 
+    updateGlobalTransforms();
+}
+
+void IndirectRenderer::updateGlobalTransforms() {
     // Update SceneGraph transforms
     const auto& scene = m_model->scene();
     
@@ -328,8 +332,8 @@ void IndirectRenderer::uploadMaterialData() {
 }
 
 void IndirectRenderer::createPipeline() {
-    auto vert = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/indirect.vert.spv");
-    auto frag = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/indirect.frag.spv");
+    auto vert = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/renderer/indirect/indirect.vert.spv");
+    auto frag = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/renderer/indirect/indirect.frag.spv");
 
     rhi::RHIPipelineBuilder builder;
     builder.setShaders(vert.get(), frag.get())
@@ -338,7 +342,11 @@ void IndirectRenderer::createPipeline() {
            .setColorFormat(m_renderer->getDrawColorFormat())
            .setDepthFormat(m_renderer->getDrawDepthFormat());
 
+    builder.setPolygonMode(rhi::PolygonMode::Fill).setName("IndirectSolid");
     m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+
+    builder.setPolygonMode(rhi::PolygonMode::Line).setName("IndirectWireframe");
+    m_pipelineWireframe = m_renderer->createGraphicsPipeline(builder.buildGraphics());
 }
 
 std::span<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> IndirectRenderer::materialsCPU() {
@@ -360,6 +368,16 @@ void IndirectRenderer::uploadMaterialsToGPU() {
         });
     }
     m_renderer->getBuffer(m_materialBuffer)->uploadData(m_materialsCPU.data(), bytes);
+}
+
+void IndirectRenderer::updateMaterial(uint32_t materialIndex) {
+    if (materialIndex >= m_materialsCPU.size()) return;
+    if (m_materialBuffer == INVALID_BUFFER_HANDLE) return;
+
+    // Repack if needed from model? Usually materialsCPU is already updated.
+    // Assuming m_materialsCPU[materialIndex] is what we want to upload.
+    uint64_t offset = materialIndex * sizeof(ShaderGen::indirect_frag::MetallicRoughnessDataGPU);
+    m_renderer->getBuffer(m_materialBuffer)->uploadData(&m_materialsCPU[materialIndex], sizeof(m_materialsCPU[materialIndex]), offset);
 }
 
 void IndirectRenderer::repackMaterialsFromModel() {
@@ -423,9 +441,10 @@ void IndirectRenderer::dispatchSkinning(rhi::RHICommandBuffer* cmd) {
 }
 
 void IndirectRenderer::draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera) {
-    if (m_drawCount == 0 || m_pipeline == INVALID_PIPELINE_HANDLE) return;
+    PipelineHandle activePipeline = m_drawWireframe ? m_pipelineWireframe : m_pipeline;
+    if (m_drawCount == 0 || activePipeline == INVALID_PIPELINE_HANDLE) return;
 
-    cmd->bindPipeline(m_renderer->getPipeline(m_pipeline));
+    cmd->bindPipeline(m_renderer->getPipeline(activePipeline));
 
     // Bind Global Index Buffer (Unified)
     cmd->bindIndexBuffer(m_renderer->getBuffer(m_model->indexBuffer), 0, false);
@@ -457,7 +476,7 @@ void IndirectRenderer::draw(rhi::RHICommandBuffer* cmd, const scene::Camera& cam
     d.transmissionFramebuffer = 0xFFFFFFFFu;
     d.transmissionFramebufferSampler = 0u;
 
-    m_renderer->pushConstants(cmd, m_pipeline, rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
+    m_renderer->pushConstants(cmd, activePipeline, rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
 
     // Single Indirect Draw Call
     cmd->drawIndexedIndirect(
@@ -468,4 +487,8 @@ void IndirectRenderer::draw(rhi::RHICommandBuffer* cmd, const scene::Camera& cam
     );
 }
 
-} // namespace indirect
+void IndirectRenderer::setWireframe(bool enabled) {
+    m_drawWireframe = enabled;
+}
+
+} // namespace pnkr::renderer

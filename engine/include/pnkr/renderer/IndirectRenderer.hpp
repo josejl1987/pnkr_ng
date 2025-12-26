@@ -10,10 +10,7 @@
 
 #include <span>
 
-using namespace pnkr;
-using namespace pnkr::renderer;
-
-namespace indirect {
+namespace pnkr::renderer {
 
     // Matches VkDrawIndexedIndirectCommand (20 bytes)
     struct IndirectCommand {
@@ -47,10 +44,16 @@ namespace indirect {
     class IndirectRenderer {
     public:
         void init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model,
-                  TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
+                  TextureHandle brdf = INVALID_TEXTURE_HANDLE, 
+                  TextureHandle irradiance = INVALID_TEXTURE_HANDLE, 
+                  TextureHandle prefilter = INVALID_TEXTURE_HANDLE);
         void update(float dt);
+        void updateGlobalTransforms();
         void dispatchSkinning(rhi::RHICommandBuffer* cmd);
         void draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera);
+        void setWireframe(bool enabled);
+        void updateMaterial(uint32_t materialIndex);
+
         std::span<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> materialsCPU();
         void uploadMaterialsToGPU();
         void repackMaterialsFromModel();
@@ -84,6 +87,8 @@ namespace indirect {
         PipelineHandle m_skinningPipeline = INVALID_PIPELINE_HANDLE;
 
         PipelineHandle m_pipeline = INVALID_PIPELINE_HANDLE;
+        PipelineHandle m_pipelineWireframe = INVALID_PIPELINE_HANDLE;
         uint32_t m_drawCount = 0;
+        bool m_drawWireframe = false;
     };
 }

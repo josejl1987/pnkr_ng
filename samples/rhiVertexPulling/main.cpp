@@ -10,18 +10,18 @@
 
 #include "generated/vertex_pulling.vert.h"
 
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <variant>
 
 using namespace pnkr;
 
-class RHIVertexPullingApp : public samples::RhiSampleApp
+class RHIVertexPullingApp : public app::Application
 {
 public:
     RHIVertexPullingApp()
-        : samples::RhiSampleApp({
+        : app::Application({
             .title = "RHI Vertex pulling GLTF", .width = 1280, .height = 720, .windowFlags = SDL_WINDOW_RESIZABLE,
             .createRenderer = false
         })

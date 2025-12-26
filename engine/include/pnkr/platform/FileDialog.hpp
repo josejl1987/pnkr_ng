@@ -2,7 +2,7 @@
 #include <optional>
 #include <filesystem>
 
-namespace pnkr::samples
+namespace pnkr::platform::FileDialog
 {
     std::optional<std::filesystem::path> OpenGLTFDialog();
 }

@@ -5,9 +5,9 @@
 // Forward-declared RenderDoc API pointer in global namespace.
 struct RENDERDOC_API_1_6_0;
 
-namespace pnkr::samples {
+namespace pnkr::debug {
 
-class RenderDocIntegration {
+class RenderDoc {
 public:
     // Attempts to locate and load RenderDoc at runtime.
     // Safe to call multiple times; returns true if API is available.
@@ -38,6 +38,9 @@ public:
 private:
     bool loadRenderDocLibrary();
 
+    // Tries to launch UI with the most recent capture once it exists.
+    bool tryOpenLatestCapture(uint32_t connectTargetControlPort);
+
 private:
     bool m_available = false;
     bool m_capturing = false;
@@ -51,6 +54,10 @@ private:
     // whether to launch UI after finishing current capture request
     bool m_launchUIOnFinish = false;
 
+    // If true, we will attempt to open the latest capture on subsequent frames
+    // (fixes timing where GetNumCaptures()==0 immediately after EndFrameCapture).
+    bool m_openLatestPending = false;
+
     // opaque handles
     void* m_libHandle = nullptr;
 
@@ -58,4 +65,4 @@ private:
     ::RENDERDOC_API_1_6_0* m_api = nullptr;
 };
 
-} // namespace pnkr::samples
+} // namespace pnkr::debug

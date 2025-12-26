@@ -4,7 +4,7 @@
 #include <vector>
 #include <filesystem>
 
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/RHIScene.hpp"
 #include "pnkr/renderer/scene/transform.hpp"
@@ -13,11 +13,11 @@
 
 using namespace pnkr;
 
-class RHIGridApp : public samples::RhiSampleApp
+class RHIGridApp : public app::Application
 {
 public:
     RHIGridApp()
-        : samples::RhiSampleApp({.title="RHI Skybox", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
+        : app::Application({.title="RHI Skybox", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
     {
     }
 

@@ -7,7 +7,7 @@
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 
 // Generated header from shader tool
@@ -15,9 +15,9 @@
 
 using namespace pnkr;
 
-class UnlitSample : public samples::RhiSampleApp {
+class UnlitSample : public app::Application {
 public:
-    UnlitSample() : samples::RhiSampleApp({
+    UnlitSample() : app::Application({
         .title = "PNKR - Unlit Rendering",
         .width = 1280,
         .height = 720,
@@ -120,3 +120,4 @@ int main(int argc, char** argv) {
     UnlitSample app;
     return app.run();
 }
+

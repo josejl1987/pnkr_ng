@@ -12,17 +12,17 @@
 
 namespace pnkr::samples {
 
-struct RhiSampleConfig {
+struct ApplicationConfig {
     std::string title{"PNKR Sample"};
     int width{800};
     int height{600};
     SDL_WindowFlags windowFlags{SDL_WINDOW_RESIZABLE};
 };
 
-class RhiSampleApp {
+class Application {
 public:
-    explicit RhiSampleApp(RhiSampleConfig cfg);
-    virtual ~RhiSampleApp() = default;
+    explicit Application(ApplicationConfig cfg);
+    virtual ~Application() = default;
 
     int run();
 
@@ -38,7 +38,7 @@ protected:
 
     static std::filesystem::path resolveBasePath();
 
-    RhiSampleConfig m_config;
+    ApplicationConfig m_config;
 
 protected:
     platform::Window m_window;
@@ -53,7 +53,7 @@ protected:
     platform::Input m_input;
 };
 
-inline std::filesystem::path RhiSampleApp::resolveBasePath() {
+inline std::filesystem::path Application::resolveBasePath() {
     const char* base = SDL_GetBasePath();
     if (base) {
         std::filesystem::path path(base);
@@ -63,7 +63,7 @@ inline std::filesystem::path RhiSampleApp::resolveBasePath() {
     return std::filesystem::current_path();
 }
 
-inline RhiSampleApp::RhiSampleApp(RhiSampleConfig cfg)
+inline Application::Application(ApplicationConfig cfg)
     : m_config(std::move(cfg)),
       m_window(m_config.title, m_config.width, m_config.height, m_config.windowFlags),
       m_renderer(m_window),
@@ -73,7 +73,7 @@ inline RhiSampleApp::RhiSampleApp(RhiSampleConfig cfg)
         [this](const renderer::RenderFrameContext& ctx) { onRender(ctx); });
 }
 
-inline int RhiSampleApp::run() {
+inline int Application::run() {
     try {
         pnkr::Log::init("[%H:%M:%S] [%-8l] %v");
         pnkr::Log::info("PNKR Engine v{}.{}.{}", PNKR_VERSION_MAJOR,
@@ -110,7 +110,7 @@ inline int RhiSampleApp::run() {
     }
 }
 
-inline std::filesystem::path RhiSampleApp::getShaderPath(
+inline std::filesystem::path Application::getShaderPath(
     const std::filesystem::path& filename) const {
     const std::filesystem::path fullPath =
         filename.is_absolute() ? filename : m_shaderDir / filename;
@@ -121,3 +121,4 @@ inline std::filesystem::path RhiSampleApp::getShaderPath(
 }
 
 } // namespace pnkr::samples
+

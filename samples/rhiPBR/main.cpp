@@ -8,7 +8,7 @@
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include "pnkr/core/logger.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <filesystem>
@@ -23,9 +23,9 @@ using namespace pnkr;
 using namespace pnkr::renderer::scene;
 
 
-class PBRSample : public samples::RhiSampleApp {
+class PBRSample : public app::Application {
 public:
-    PBRSample() : samples::RhiSampleApp({
+    PBRSample() : app::Application({
         .title = "PNKR - Metallic Roughness PBR",
         .width = 1824,
         .height = 928,
@@ -339,3 +339,4 @@ int main() {
     PBRSample app;
     return app.run();
 }
+

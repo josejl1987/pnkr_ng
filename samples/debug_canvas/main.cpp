@@ -1,4 +1,4 @@
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/app/Application.hpp"
 #include "pnkr/renderer/debug/DebugLayer.hpp"
 #include "pnkr/renderer/scene/RHIScene.hpp"
 #include <glm/glm.hpp>
@@ -11,10 +11,10 @@ using namespace pnkr::samples;
 
 
 
-class DebugCanvasSample : public RhiSampleApp
+class DebugCanvasSample : public Application
 {
 public:
-    DebugCanvasSample() : RhiSampleApp({
+    DebugCanvasSample() : Application({
         .title = "PNKR DebugLayer Sample",
         .width = 1280,
         .height = 720
@@ -156,3 +156,4 @@ int main()
     DebugCanvasSample sample;
     return sample.run();
 }
+

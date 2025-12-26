@@ -59,6 +59,17 @@ add_library(pnkr_engine STATIC
         src/renderer/scene/Skybox.cpp
         src/renderer/scene/InfiniteGrid.cpp
 
+        src/debug/RenderDoc.cpp
+        include/pnkr/debug/RenderDoc.hpp
+        src/core/RecentFiles.cpp
+        include/pnkr/core/RecentFiles.hpp
+        src/platform/FileDialog.cpp
+        include/pnkr/platform/FileDialog.hpp
+        include/pnkr/renderer/geometry/GeometryUtils.hpp
+        include/pnkr/app/Application.hpp
+        src/renderer/IndirectRenderer.cpp
+        include/pnkr/renderer/IndirectRenderer.hpp
+
         include/pnkr/renderer/debug/LineCanvas3D.hpp
         src/renderer/debug/LineCanvas3D.cpp
         include/pnkr/renderer/debug/DebugLayer.hpp
@@ -331,6 +342,15 @@ add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 add_shader_target("shaders/sprite_billboard.frag")
 add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 
+add_shader_target("shaders/renderer/indirect/indirect.vert")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/renderer/indirect/indirect.frag")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/renderer/indirect/skinning.comp")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
 # Include generated headers
 target_include_directories(pnkr_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
@@ -345,6 +365,10 @@ set_source_files_properties( src/renderer/scene/InfiniteGrid.cpp PROPERTIES
 
 set_source_files_properties( src/renderer/scene/SpriteRenderer.cpp PROPERTIES
         OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/sprite_billboard.vert.h"
+)
+
+set_source_files_properties( src/renderer/IndirectRenderer.cpp PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/indirect.vert.h;${CMAKE_CURRENT_BINARY_DIR}/generated/indirect.frag.h;${CMAKE_CURRENT_BINARY_DIR}/generated/skinning.comp.h"
 )
 
 add_custom_command(TARGET pnkr_engine POST_BUILD

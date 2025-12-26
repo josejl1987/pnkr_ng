@@ -1,9 +1,9 @@
 #include "pnkr/engine.hpp"
-#include "IndirectRenderer.hpp"
-#include "../common/RhiSampleApp.hpp"
-#include "../common/NfdFileDialog.hpp"
-#include "RecentFiles.hpp"
-#include "RenderDocIntegration.hpp"
+#include "pnkr/renderer/IndirectRenderer.hpp"
+#include "pnkr/app/Application.hpp"
+#include "pnkr/platform/FileDialog.hpp"
+#include "pnkr/core/RecentFiles.hpp"
+#include "pnkr/debug/RenderDoc.hpp"
 #include "renderdoc_app.h"
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/CameraController.hpp"
@@ -50,12 +50,12 @@ void ToggleBit(const char* name, uint32_t bit, uint32_t& mask, bool& dirty)
 
 } // namespace
 
-class IndirectSample : public pnkr::samples::RhiSampleApp {
+class IndirectSample : public pnkr::app::Application {
 public:
-    IndirectSample() : RhiSampleApp({.title = "Indirect Rendering - Bistro", .width = 1824, .height = 928, .createRenderer = true}) {}
+    IndirectSample() : Application({.title = "Indirect Rendering - Bistro", .width = 1824, .height = 928, .createRenderer = true}) {}
 
     std::shared_ptr<renderer::scene::ModelDOD> m_model;
-    std::unique_ptr<indirect::IndirectRenderer> m_indirectRenderer;
+    std::unique_ptr<renderer::IndirectRenderer> m_indirectRenderer;
     renderer::scene::Camera m_camera;
     scene::CameraController m_cameraController{{-19.2609997, 8.46500015, -7.31699991}, 20.801124201214570, -16.146098030003937f};
     TextureHandle m_brdfLut;
@@ -67,17 +67,21 @@ public:
     std::vector<uint32_t> m_gltfCameraNodes;
 
     std::optional<std::filesystem::path> m_pendingLoad;
-    pnkr::samples::RecentFiles m_recent{"rhiIndirectGLTF", 12};
+    pnkr::core::RecentFiles m_recent{"rhiIndirectGLTF", 12};
     bool m_showMaterialEditor = true;
     int m_selectedMaterial = 0;
     bool m_materialDirty = false;
     glm::vec3 m_cameraPosUI{0.0f};
     glm::vec3 m_cameraTargetUI{0.0f, 0.0f, -1.0f};
-    pnkr::samples::RenderDocIntegration m_renderdoc;
+    pnkr::debug::RenderDoc m_renderdoc;
+
+    void onPreInit() override
+    {
+        m_renderdoc.init();
+    }
 
     void onInit() override {
         m_recent.load();
-        m_renderdoc.init();
         m_brdfLut = m_renderer->loadTextureKTX("assets/brdf_lut.ktx2");
         loadModel(baseDir() / "assets/AnimatedMorphCube.glb");
 
@@ -112,7 +116,7 @@ public:
         }
 
         // Init Indirect Renderer
-        m_indirectRenderer = std::make_unique<indirect::IndirectRenderer>();
+        m_indirectRenderer = std::make_unique<renderer::IndirectRenderer>();
         m_indirectRenderer->init(m_renderer.get(), m_model, m_brdfLut, m_irradiance, m_prefilter);
 
         m_renderer->setComputeRecordFunc([this](const renderer::RHIFrameContext& ctx) {
@@ -213,7 +217,7 @@ public:
                         {
                             if (ImGui::MenuItem("Open glTF/glb..."))
                             {
-                                if (auto p = pnkr::samples::OpenGLTFDialog())
+                                if (auto p = pnkr::platform::FileDialog::OpenGLTFDialog())
                                     m_pendingLoad = *p;
                             }
         
@@ -480,8 +484,8 @@ public:
     void onFrameBegin() override
     {
         if (m_renderer) {
-            void* vkInst = m_renderer->device()->getNativeInstance();
-            void* rdDevice = RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(&vkInst);
+            VkInstance inst = (VkInstance)m_renderer->device()->getNativeInstance();
+            void* rdDevice = RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(inst);
             m_renderdoc.onFrameBegin(rdDevice, nullptr);
         }
     }
@@ -489,8 +493,8 @@ public:
     void onFrameEnd() override
     {
         if (m_renderer) {
-            void* vkInst = m_renderer->device()->getNativeInstance();
-            void* rdDevice = RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(&vkInst);
+            VkInstance inst = (VkInstance)m_renderer->device()->getNativeInstance();
+            void* rdDevice = RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(inst);
             m_renderdoc.onFrameEnd(rdDevice, nullptr);
         }
     }

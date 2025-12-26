@@ -6,8 +6,8 @@
 #include <vector>
 
 // Assuming these exist in your common folder as per your snippet
-#include "../common/GeometryUtils.h"
-#include "../common/RhiSampleApp.hpp"
+#include "pnkr/renderer/geometry/GeometryUtils.hpp"
+#include "pnkr/app/Application.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/transform.hpp"
@@ -15,11 +15,11 @@
 
 using namespace pnkr;
 
-class RHICubeApp : public samples::RhiSampleApp
+class RHICubeApp : public app::Application
 {
 public:
     RHICubeApp()
-        : samples::RhiSampleApp({.title="RHI Cube", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
+        : app::Application({.title="RHI Cube", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
     {
     }
 
@@ -36,7 +36,7 @@ public:
         m_camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
 
         // 3. Create Geometry
-        auto cubeData = samples::GeometryUtils::getCube();
+        auto cubeData = renderer::geometry::GeometryUtils::getCube();
         m_cubeMesh = m_renderer->createMesh(cubeData.vertices, cubeData.indices, false);
 
         // 4. Create Pipeline
@@ -165,3 +165,4 @@ int main(int argc, char** argv)
     RHICubeApp app;
     return app.run();
 }
+
