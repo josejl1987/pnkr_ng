@@ -26,7 +26,29 @@ set_target_properties(pnkr_rhi_indirect_gltf PROPERTIES
 )
 
 # --- Assets and Binary setup ---
-find_file(RENDERDOC_DLL "renderdoc.dll" HINTS "C:/Program Files/RenderDoc")
+if(WIN32)
+    # Attempt to find RenderDoc installation
+    find_file(RENDERDOC_DLL "renderdoc.dll" 
+        HINTS 
+            "$ENV{ProgramFiles}/RenderDoc"
+            "C:/Program Files/RenderDoc"
+        NO_CMAKE_FIND_ROOT_PATH
+    )
+
+    if (EXISTS "${RENDERDOC_DLL}")
+        message(STATUS "Found RenderDoc at: ${RENDERDOC_DLL}")
+        
+        # Copy to the directory where the exe is built
+        add_custom_command(TARGET pnkr_rhi_indirect_gltf POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+            "${RENDERDOC_DLL}" 
+            "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/renderdoc.dll"
+            COMMENT "Copying renderdoc.dll to output bin directory"
+        )
+    else()
+        message(WARNING "RenderDoc DLL not found! You must copy 'renderdoc.dll' to the bin folder manually for F10 to work.")
+    endif()
+endif()
 
 add_custom_command(TARGET pnkr_rhi_indirect_gltf POST_BUILD
 # 1. Create directories
@@ -38,10 +60,3 @@ COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_indirect_
 # We just need our local assets.
 COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/assets"
 )
-
-if (RENDERDOC_DLL)
-    add_custom_command(TARGET pnkr_rhi_indirect_gltf POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo "Deploying RenderDoc DLL from: ${RENDERDOC_DLL}"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_DLL}" "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/renderdoc.dll"
-    )
-endif()

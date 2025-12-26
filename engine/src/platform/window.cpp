@@ -1,6 +1,7 @@
 #include "pnkr/platform/window.hpp"
 #include "pnkr/core/logger.hpp"
 #include <cpptrace/cpptrace.hpp>
+#include <SDL3/SDL_properties.h>
 
 namespace pnkr::platform
 {
@@ -71,6 +72,17 @@ namespace pnkr::platform
                 break;
             }
         }
+    }
+
+    void* Window::nativeHandle() const noexcept
+    {
+#if defined(_WIN32)
+        // SDL3 exposes platform handles via window properties.
+        SDL_PropertiesID props = SDL_GetWindowProperties(m_window.get());
+        return SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+#else
+        return nullptr;
+#endif
     }
 
     void Window::setTitle(const std::string& title) const

@@ -37,6 +37,8 @@ public:
 
   [[nodiscard]] bool isRunning() const noexcept { return m_running; }
 
+  [[nodiscard]] void* nativeHandle() const noexcept;
+
   void setTitle(const std::string &title) const;
   [[nodiscard]] int width() const noexcept;
   [[nodiscard]] int height() const noexcept;

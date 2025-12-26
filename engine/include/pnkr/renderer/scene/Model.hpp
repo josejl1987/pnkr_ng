@@ -108,6 +108,9 @@ namespace pnkr::renderer::scene
         float m_volumeAttenuationDistance{std::numeric_limits<float>::infinity()};
         glm::vec3 m_volumeAttenuationColor{1.0f};
 
+        // NEW: Double Sided support
+        bool m_doubleSided{false};
+
         TextureHandle m_baseColorTexture = INVALID_TEXTURE_HANDLE;
         TextureHandle m_normalTexture = INVALID_TEXTURE_HANDLE;
         TextureHandle m_metallicRoughnessTexture = INVALID_TEXTURE_HANDLE;

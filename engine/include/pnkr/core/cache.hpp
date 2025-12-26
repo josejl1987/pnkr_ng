@@ -4,6 +4,7 @@
 #include <string>
 #include <fstream>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 #include "pnkr/core/logger.hpp"
 
@@ -95,11 +96,33 @@ namespace pnkr::core {
         explicit CacheReader(const std::string& path) {
             m_file.open(path, std::ios::binary);
             if (m_file.is_open()) {
-                m_file.read(reinterpret_cast<char*>(&m_header), sizeof(CacheHeader));
+                m_file.seekg(0, std::ios::end);
+                const std::streamoff fileSize = m_file.tellg();
+                if (fileSize < static_cast<std::streamoff>(sizeof(CacheHeader))) {
+                    ::pnkr::core::Logger::error("Cache file too small: {}", path);
+                    m_file.close();
+                    return;
+                }
+                m_fileSize = static_cast<uint64_t>(fileSize);
+                m_file.seekg(0, std::ios::beg);
+
+                if (!m_file.read(reinterpret_cast<char*>(&m_header), sizeof(CacheHeader))) {
+                    ::pnkr::core::Logger::error("Failed to read cache header: {}", path);
+                    m_file.close();
+                    return;
+                }
                 if (m_header.magic != 0x504E4B52) {
                     ::pnkr::core::Logger::error("Invalid cache magic in {}", path);
                     m_file.close();
+                    return;
                 }
+                if (m_header.chunkCount > kMaxChunkCount) {
+                    ::pnkr::core::Logger::error("Cache chunkCount too large in {} ({} > {})",
+                                                path, m_header.chunkCount, kMaxChunkCount);
+                    m_file.close();
+                    return;
+                }
+                m_valid = true;
             }
         }
 
@@ -113,11 +136,28 @@ namespace pnkr::core {
 
         std::vector<ChunkInfo> listChunks() {
             std::vector<ChunkInfo> chunks;
+            if (!m_valid) {
+                return chunks;
+            }
             m_file.seekg(sizeof(CacheHeader));
             for (uint32_t i = 0; i < m_header.chunkCount; ++i) {
                 ChunkInfo info{};
-                info.offset = m_file.tellg();
-                m_file.read(reinterpret_cast<char*>(&info.header), sizeof(ChunkHeader));
+                const std::streamoff offset = m_file.tellg();
+                if (offset < 0) {
+                    return {};
+                }
+                info.offset = static_cast<uint64_t>(offset);
+                if (!canRead(info.offset, sizeof(ChunkHeader))) {
+                    return {};
+                }
+                if (!m_file.read(reinterpret_cast<char*>(&info.header), sizeof(ChunkHeader))) {
+                    return {};
+                }
+                if (info.header.sizeBytes > kMaxChunkBytes ||
+                    !canRead(info.offset + sizeof(ChunkHeader), info.header.sizeBytes)) {
+                    ::pnkr::core::Logger::error("Invalid cache chunk size {}", info.header.sizeBytes);
+                    return {};
+                }
                 chunks.push_back(info);
                 m_file.seekg(info.header.sizeBytes, std::ios::cur);
             }
@@ -128,33 +168,70 @@ namespace pnkr::core {
         bool readChunk(const ChunkInfo& info, std::vector<T>& data) {
             static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable for readChunk");
             if (info.header.sizeBytes % sizeof(T) != 0) return false;
-            
-            size_t count = info.header.sizeBytes / sizeof(T);
+            if (!m_valid || info.header.sizeBytes > kMaxChunkBytes) return false;
+            if (!canRead(info.offset + sizeof(ChunkHeader), info.header.sizeBytes)) return false;
+            if (info.header.sizeBytes > std::numeric_limits<size_t>::max()) return false;
+
+            const size_t count = static_cast<size_t>(info.header.sizeBytes / sizeof(T));
             data.resize(count);
             m_file.seekg(info.offset + sizeof(ChunkHeader));
             if (count > 0) {
-                m_file.read(reinterpret_cast<char*>(data.data()), info.header.sizeBytes);
+                if (!m_file.read(reinterpret_cast<char*>(data.data()), info.header.sizeBytes)) {
+                    return false;
+                }
             }
             return true;
         }
 
         bool readStringListChunk(const ChunkInfo& info, std::vector<std::string>& strings) {
+            if (!m_valid || info.header.sizeBytes > kMaxChunkBytes) return false;
+            if (!canRead(info.offset + sizeof(ChunkHeader), info.header.sizeBytes)) return false;
             m_file.seekg(info.offset + sizeof(ChunkHeader));
             uint64_t n = 0;
-            m_file.read(reinterpret_cast<char*>(&n), sizeof(n));
+            if (!m_file.read(reinterpret_cast<char*>(&n), sizeof(n))) {
+                return false;
+            }
+            if (n > kMaxStringCount) {
+                return false;
+            }
             strings.resize(static_cast<size_t>(n));
+            uint64_t bytesRead = sizeof(n);
             for (uint64_t i = 0; i < n; ++i) {
                 uint64_t len = 0;
-                m_file.read(reinterpret_cast<char*>(&len), sizeof(len));
+                if (!m_file.read(reinterpret_cast<char*>(&len), sizeof(len))) {
+                    return false;
+                }
+                bytesRead += sizeof(len);
+                if (len > kMaxStringBytes || bytesRead + len > info.header.sizeBytes) {
+                    return false;
+                }
                 strings[static_cast<size_t>(i)].resize(static_cast<size_t>(len));
-                m_file.read(strings[static_cast<size_t>(i)].data(), static_cast<std::streamsize>(len));
+                if (!m_file.read(strings[static_cast<size_t>(i)].data(),
+                                 static_cast<std::streamsize>(len))) {
+                    return false;
+                }
+                bytesRead += len;
             }
             return true;
         }
 
     private:
+        static constexpr uint32_t kMaxChunkCount = 16384;
+        static constexpr uint64_t kMaxChunkBytes = 256ull * 1024ull * 1024ull;
+        static constexpr uint64_t kMaxStringCount = 65535;
+        static constexpr uint64_t kMaxStringBytes = 16ull * 1024ull * 1024ull;
+
+        bool canRead(uint64_t offset, uint64_t size) const {
+            if (!m_file.is_open()) return false;
+            if (offset > m_fileSize) return false;
+            if (size > m_fileSize) return false;
+            return offset + size <= m_fileSize;
+        }
+
         std::ifstream m_file;
         CacheHeader m_header;
+        uint64_t m_fileSize = 0;
+        bool m_valid = false;
     };
 
     // Helper to create FourCC

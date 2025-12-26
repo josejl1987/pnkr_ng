@@ -11,6 +11,7 @@
 #include "pnkr/rhi/rhi_descriptor.hpp"
 #include "pnkr/core/Handle.h"
 #include "pnkr/platform/window.hpp"
+#include "pnkr/debug/RenderDoc.hpp"
 
 #include <functional>
 #include <memory>
@@ -27,6 +28,8 @@ namespace pnkr::renderer
     struct RHIFrameContext
     {
         rhi::RHICommandBuffer* commandBuffer;
+        rhi::RHITexture* backBuffer;
+        rhi::RHITexture* depthBuffer;
         uint32_t frameIndex;
         float deltaTime;
     };
@@ -137,6 +140,7 @@ namespace pnkr::renderer
 
         // Device access
         rhi::RHIDevice* device() const { return m_device.get(); }
+        rhi::RHISwapchain* getSwapchain() const { return m_swapchain.get(); }
         rhi::RHITexture* getBackbuffer() const { return m_backbuffer; }
         rhi::RHITexture* getBackbufferTexture() const { return m_backbuffer; }
         rhi::RHITexture* getDepthTexture() const { return m_depthTarget.get(); }
@@ -159,6 +163,9 @@ namespace pnkr::renderer
         [[nodiscard]] TextureHandle getWhiteTexture() const { return m_whiteTexture; }
         [[nodiscard]] TextureHandle getBlackTexture() const { return m_blackTexture; }
         [[nodiscard]] TextureHandle getFlatNormalTexture() const { return m_flatNormalTexture; }
+
+        pnkr::debug::RenderDoc& renderdoc() { return m_renderdoc; }
+        const pnkr::debug::RenderDoc& renderdoc() const { return m_renderdoc; }
 
     private:
         // Window reference
@@ -234,6 +241,9 @@ namespace pnkr::renderer
         // Global lighting
         std::unique_ptr<rhi::RHIDescriptorSetLayout> m_globalLightingLayout;
         std::unique_ptr<rhi::RHIDescriptorSet> m_globalLightingSet;
+
+        // Debug tools
+        pnkr::debug::RenderDoc m_renderdoc;
 
         // Helper methods
         void createRenderTargets();

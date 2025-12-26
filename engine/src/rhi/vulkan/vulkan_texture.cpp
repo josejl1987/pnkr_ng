@@ -12,11 +12,28 @@ using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
+    namespace
+    {
+        template <typename To, typename From>
+        To* castOrAssert(From* ptr, const char* message)
+        {
+#ifdef DEBUG
+            auto* out = dynamic_cast<To*>(ptr);
+            PNKR_ASSERT(out != nullptr, message);
+            return out;
+#else
+            (void)message;
+            return static_cast<To*>(ptr);
+#endif
+        }
+    }
+
     VulkanRHITexture::VulkanRHITexture(VulkanRHIDevice* device, const TextureDescriptor& desc)
         : m_device(device)
           , m_extent(desc.extent)
           , m_format(desc.format)
           , m_usage(desc.usage)
+          , m_type(desc.type)
           , m_mipLevels(desc.mipLevels)
           , m_arrayLayers(desc.arrayLayers)
     {
@@ -26,6 +43,17 @@ namespace pnkr::renderer::rhi::vulkan
 
     VulkanRHITexture::~VulkanRHITexture()
     {
+        if (m_bindlessHandle.isValid())
+        {
+            if (static_cast<bool>(m_usage & TextureUsage::Storage)) {
+                m_device->releaseBindlessStorageImage(m_bindlessHandle);
+            } else if (m_type == TextureType::TextureCube) {
+                m_device->releaseBindlessCubemap(m_bindlessHandle);
+            } else {
+                m_device->releaseBindlessTexture(m_bindlessHandle);
+            }
+        }
+
         for (auto& [key, view] : m_subresourceViews)
         {
             m_device->device().destroyImageView(view);
@@ -178,43 +206,13 @@ namespace pnkr::renderer::rhi::vulkan
         uint64_t dataSize,
         const TextureSubresource& subresource)
     {
-        // Create staging buffer
-        auto stagingBuffer = m_device->createBuffer({
-            .size = dataSize,
-            .usage = BufferUsage::TransferSrc,
-            .memoryUsage = MemoryUsage::CPUToGPU,
-            .data = data,
-            .debugName = "TextureUploadStaging"
-        });
+        auto* upload = m_device->uploadContext();
+        if (!upload) {
+            return;
+        }
 
-        // Create command buffer for transfer
-        auto cmdBuffer = m_device->createCommandBuffer();
-        cmdBuffer->begin();
-
-        // Transition image to transfer dst
-        transitionLayout(vk::ImageLayout::eTransferDstOptimal,
-                         dynamic_cast<VulkanRHICommandBuffer*>(cmdBuffer.get())->commandBuffer());
-
-        // Copy buffer to image
-        BufferTextureCopyRegion region{};
-        region.bufferOffset = 0;
-        region.textureSubresource = subresource;
-        region.textureExtent = m_extent;
-        region.textureExtent.width = std::max(1u, region.textureExtent.width >> subresource.mipLevel);
-        region.textureExtent.height = std::max(1u, region.textureExtent.height >> subresource.mipLevel);
-        region.textureExtent.depth = std::max(1u, region.textureExtent.depth >> subresource.mipLevel);
-
-        cmdBuffer->copyBufferToTexture(stagingBuffer.get(), this, region);
-
-        // Transition to shader read optimal
-        transitionLayout(vk::ImageLayout::eShaderReadOnlyOptimal,
-                         dynamic_cast<VulkanRHICommandBuffer*>(cmdBuffer.get())->commandBuffer());
-
-        cmdBuffer->end();
-
-        // Submit and wait
-        m_device->submitCommands(cmdBuffer.get());
-        m_device->waitIdle();
+        upload->uploadTexture(this, data, dataSize, subresource);
+        upload->flush();
     }
 
     void VulkanRHITexture::transitionLayout(vk::ImageLayout newLayout, vk::CommandBuffer cmd)
@@ -279,7 +277,9 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHITexture::generateMipmaps(RHICommandBuffer* externalCmd)
     {
-        vk::CommandBuffer cmd = dynamic_cast<VulkanRHICommandBuffer*>(externalCmd)->commandBuffer();
+        auto* vkCmd = castOrAssert<VulkanRHICommandBuffer>(
+            externalCmd, "generateMipmaps: command buffer is not Vulkan");
+        vk::CommandBuffer cmd = vkCmd->commandBuffer();
 
         vk::ImageMemoryBarrier2 barrier{};
         barrier.image = m_image;

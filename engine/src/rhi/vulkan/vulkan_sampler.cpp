@@ -45,6 +45,10 @@ namespace pnkr::renderer::rhi::vulkan
 
     VulkanRHISampler::~VulkanRHISampler()
     {
+        if (m_bindlessHandle.isValid()) {
+            m_device->releaseBindlessSampler(m_bindlessHandle);
+        }
+
         if (m_sampler) {
             m_device->device().destroySampler(m_sampler);
         }

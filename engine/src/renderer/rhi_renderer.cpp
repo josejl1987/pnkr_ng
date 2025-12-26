@@ -32,11 +32,21 @@ namespace pnkr::renderer
     RHIRenderer::RHIRenderer(platform::Window& window, const RendererConfig& config)
         : m_window(window)
     {
+        // 1. Load RenderDoc DLL and setup hooks BEFORE Vulkan initializes.
+        if (m_renderdoc.init())
+        {
+            core::Logger::info("RenderDoc: Loaded successfully at startup.");
+        }
+        else
+        {
+            core::Logger::warn("RenderDoc: Failed to load at startup. Captures will likely fail if loaded later.");
+        }
+
         core::Logger::info("Creating RHI Renderer");
 
         // Create device
         rhi::DeviceDescriptor deviceDesc{};
-        deviceDesc.enableValidation = true;
+        deviceDesc.enableValidation = config.m_enableValidation;
         deviceDesc.enableBindless = config.m_enableBindless;
         deviceDesc.requiredExtensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -46,6 +56,12 @@ namespace pnkr::renderer
         if (config.m_enableBindless)
         {
             deviceDesc.requiredExtensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+        }
+
+        if (m_renderdoc.isAvailable())
+        {
+            deviceDesc.enableValidation = false;
+            core::Logger::warn("RenderDoc detected: Vulkan validation layers disabled to avoid loader conflicts.");
         }
 
         m_device = rhi::RHIFactory::createDeviceAuto(rhi::RHIBackend::Vulkan, deviceDesc);
@@ -69,6 +85,12 @@ namespace pnkr::renderer
         {
             throw cpptrace::runtime_error("Failed to create RHI swapchain");
         }
+
+        if (m_renderdoc.isAvailable())
+        {
+            core::Logger::info("RenderDoc: Initialized at startup.");
+        }
+
 
         // Create per-frame command buffers.
         const uint32_t framesInFlight = std::max(1U, m_swapchain->framesInFlight());
@@ -129,7 +151,7 @@ namespace pnkr::renderer
         lightingLayoutDesc.bindings = {
             {0, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment}, // Irradiance
             {1, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment}, // Prefilter
-            {2, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment}  // BRDF LUT
+            {2, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment} // BRDF LUT
         };
         m_globalLightingLayout = m_device->createDescriptorSetLayout(lightingLayoutDesc);
         m_globalLightingSet = m_device->allocateDescriptorSet(m_globalLightingLayout.get());
@@ -212,7 +234,7 @@ namespace pnkr::renderer
 
         if (!m_recordCallback && !m_computeRecordCallback)
         {
-            core::Logger::warn("No record callback set (m_recordCallback={}, m_computeRecordCallback={})", 
+            core::Logger::warn("No record callback set (m_recordCallback={}, m_computeRecordCallback={})",
                                (bool)m_recordCallback, (bool)m_computeRecordCallback);
             return;
         }
@@ -225,6 +247,8 @@ namespace pnkr::renderer
 
         RHIFrameContext context{};
         context.commandBuffer = m_activeCommandBuffer;
+        context.backBuffer = m_backbuffer;
+        context.depthBuffer = m_depthTarget.get();
         context.frameIndex = m_frameIndex;
         context.deltaTime = m_deltaTime;
 
@@ -353,17 +377,16 @@ namespace pnkr::renderer
                 {
                     const uint64_t signalValue = vkDevice->advanceFrame();
 
-                    std::vector<vk::Semaphore> waits = { vkSwapchain->getCurrentAcquireSemaphore() };
-                    
-                    // FIXED: Wait at AllCommands to ensure layout transitions (which happen at the 
-                    // start of the command buffer) are blocked until the image is acquired.
-                    // 'eColorAttachmentOutput' is insufficient because it allows Transfer/Barriers 
-                    // to execute before the stage is reached, causing the WRITE_AFTER_PRESENT hazard.
+                    std::vector<vk::Semaphore> waits = {vkSwapchain->getCurrentAcquireSemaphore()};
+
+                    // Optimized: Only wait at ColorAttachmentOutput.
+                    // This allows Vertex and Compute stages to start immediately even if the
+                    // presentation engine hasn't fully released the image yet.
                     std::vector<vk::PipelineStageFlags> waitStages = {
-                        vk::PipelineStageFlagBits::eAllCommands
+                        vk::PipelineStageFlagBits::eColorAttachmentOutput
                     };
-                    
-                    std::vector<vk::Semaphore> signals = { vkSwapchain->getCurrentRenderFinishedSemaphore() };
+
+                    std::vector<vk::Semaphore> signals = {vkSwapchain->getCurrentRenderFinishedSemaphore()};
 
                     vkDevice->submitCommands(
                         m_activeCommandBuffer,
@@ -380,7 +403,6 @@ namespace pnkr::renderer
                 }
             }
         }
-
         m_frameInProgress = false;
         m_activeCommandBuffer = nullptr;
         m_frameIndex++;
@@ -413,7 +435,8 @@ namespace pnkr::renderer
         uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
         mesh.m_vertexBuffer = m_device->createBuffer({
             .size = vertexBufferSize,
-            .usage = rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::TransferDst | rhi::BufferUsage::ShaderDeviceAddress,
+            .usage = rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::TransferDst |
+            rhi::BufferUsage::ShaderDeviceAddress,
             .memoryUsage = rhi::MemoryUsage::GPUOnly,
             .data = vertices.data(),
             .debugName = "VertexBuffer"
@@ -432,7 +455,7 @@ namespace pnkr::renderer
         mesh.m_vertexCount = u32(vertices.size());
         mesh.m_indexCount = u32(indices.size());
 
-        auto handle = static_cast<MeshHandle>(m_meshes.size());
+        MeshHandle handle{u32(m_meshes.size())};
         m_meshes.push_back(std::move(mesh));
 
         core::Logger::info("Created mesh: {} vertices, {} indices",
@@ -467,7 +490,8 @@ namespace pnkr::renderer
         uint64_t vertexBufferSize = gpuVertices.size() * sizeof(GPUVertex);
         mesh.m_vertexBuffer = m_device->createBuffer({
             .size = vertexBufferSize,
-            .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress | rhi::BufferUsage::TransferDst,
+            .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress |
+            rhi::BufferUsage::TransferDst,
             .memoryUsage = rhi::MemoryUsage::GPUOnly,
             .data = gpuVertices.data(),
             .debugName = "VertexPullingVertexBuffer"
@@ -486,7 +510,7 @@ namespace pnkr::renderer
         mesh.m_vertexCount = u32(vertices.size());
         mesh.m_indexCount = u32(indices.size());
 
-        auto handle = static_cast<MeshHandle>(m_meshes.size());
+        MeshHandle handle{u32(m_meshes.size())};
         m_meshes.push_back(std::move(mesh));
 
         core::Logger::info("Created mesh: {} vertices, {} indices",
@@ -517,9 +541,13 @@ namespace pnkr::renderer
             break;
         case 2: format = isSigned ? rhi::Format::R8G8_SNORM : rhi::Format::R8G8_UNORM;
             break;
-        case 3: format = isSigned ? rhi::Format::R8G8B8_SNORM :  rhi::Format::R8G8B8_UNORM;
+        case 3: format = isSigned ? rhi::Format::R8G8B8_SNORM : rhi::Format::R8G8B8_UNORM;
             break;
-        case 4: format =  srgb ? rhi::Format::R8G8B8A8_SRGB : isSigned ? rhi::Format::R8G8B8A8_SNORM : rhi::Format::R8G8B8A8_UNORM;
+        case 4: format = srgb
+                             ? rhi::Format::R8G8B8A8_SRGB
+                             : isSigned
+                             ? rhi::Format::R8G8B8A8_SNORM
+                             : rhi::Format::R8G8B8A8_UNORM;
             break;
         default:
             core::Logger::error("Unsupported channel count: {}", channels);
@@ -537,19 +565,19 @@ namespace pnkr::renderer
         uint64_t imageSize = static_cast<uint64_t>(width * height * channels);
         texture->uploadData(data, imageSize);
 
-        TextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = 0;
-
         if (m_useBindless && m_device)
         {
             auto bindlessHandle = m_device->registerBindlessTexture2D(
-                texData.texture.get()
+                texture.get()
             );
-            texData.bindlessIndex = bindlessHandle.index;
+            texture->setBindlessHandle(bindlessHandle);
         }
 
-        auto handle = static_cast<TextureHandle>(m_textures.size());
+        TextureData texData{};
+        texData.texture = std::move(texture);
+        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
+
+        TextureHandle handle{u32(m_textures.size())};
         m_textures.push_back(std::move(texData));
 
         core::Logger::info("Created texture: {}x{}, {} channels", width, height, channels);
@@ -561,22 +589,23 @@ namespace pnkr::renderer
     {
         auto texture = m_device->createTexture(desc);
 
-        TextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = 0;
-
         if (m_useBindless && m_device)
         {
             auto bindlessHandle = m_device->registerBindlessTexture2D(
-                texData.texture.get()
+                texture.get()
             );
-            texData.bindlessIndex = bindlessHandle.index;
+            texture->setBindlessHandle(bindlessHandle);
         }
 
-        auto handle = static_cast<TextureHandle>(m_textures.size());
+        TextureData texData{};
+        texData.texture = std::move(texture);
+        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
+
+        TextureHandle handle{u32(m_textures.size())};
         m_textures.push_back(std::move(texData));
 
-        core::Logger::info("Created texture (desc): {}x{} mips={}", desc.extent.width, desc.extent.height, desc.mipLevels);
+        core::Logger::info("Created texture (desc): {}x{} mips={}", desc.extent.width, desc.extent.height,
+                           desc.mipLevels);
 
         return handle;
     }
@@ -616,10 +645,11 @@ namespace pnkr::renderer
             return INVALID_TEXTURE_HANDLE;
         }
 
-        struct DestroyGuard {
+        struct DestroyGuard
+        {
             KTXTextureData* d;
             ~DestroyGuard() { if (d) KTXUtils::destroy(*d); }
-        } guard{ &ktxData };
+        } guard{&ktxData};
 
         if (ktxData.type == rhi::TextureType::TextureCube && ktxData.numFaces != 6)
         {
@@ -710,32 +740,33 @@ namespace pnkr::renderer
             }
         }
 
-        TextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = 0;
-
         if (m_useBindless && m_device)
         {
             if (ktxData.type == rhi::TextureType::TextureCube)
             {
                 auto bindlessHandle = m_device->registerBindlessCubemapImage(
-                    texData.texture.get()
+                    texture.get()
                 );
-                texData.bindlessIndex = bindlessHandle.index;
+                texture->setBindlessHandle(bindlessHandle);
             }
             else
             {
                 auto bindlessHandle = m_device->registerBindlessTexture2D(
-                    texData.texture.get()
+                    texture.get()
                 );
-                texData.bindlessIndex = bindlessHandle.index;
+                texture->setBindlessHandle(bindlessHandle);
             }
         }
 
-        auto handle = static_cast<TextureHandle>(m_textures.size());
+        TextureData texData{};
+        texData.texture = std::move(texture);
+        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
+
+        TextureHandle handle{u32(m_textures.size())};
         m_textures.push_back(std::move(texData));
 
-        core::Logger::debug("Loaded KTX texture: {}, index {}, bindlessIndex {}", filepath.string(), m_textures.size()-1, texData.bindlessIndex);
+        core::Logger::debug("Loaded KTX texture: {}, index {}, bindlessIndex {}", filepath.string(),
+                            m_textures.size() - 1, texData.bindlessIndex);
 
         return handle;
     }
@@ -760,7 +791,7 @@ namespace pnkr::renderer
             int w;
             int h;
             int c;
-            stbi_set_flip_vertically_on_load(1); // Don't flip for cubemaps
+            stbi_set_flip_vertically_on_load(0); // Don't flip for cubemaps
             unsigned char* data = stbi_load(facePath.string().c_str(), &w, &h, &c, STBI_rgb_alpha);
 
             if (data == nullptr)
@@ -822,19 +853,19 @@ namespace pnkr::renderer
             texture->uploadData(faceData[i].get(), faceSize, subresource);
         }
 
-        TextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = 0;
-
         if (m_useBindless && m_device)
         {
             auto bindlessHandle = m_device->registerBindlessCubemapImage(
-                texData.texture.get()
+                texture.get()
             );
-            texData.bindlessIndex = bindlessHandle.index;
+            texture->setBindlessHandle(bindlessHandle);
         }
 
-        auto handle = static_cast<TextureHandle>(m_textures.size());
+        TextureData texData{};
+        texData.texture = std::move(texture);
+        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
+
+        TextureHandle handle{u32(m_textures.size())};
         m_textures.push_back(std::move(texData));
 
         core::Logger::info("Created cubemap: {}x{}, {} faces", widths[0], heights[0], 6);
@@ -844,19 +875,22 @@ namespace pnkr::renderer
 
     BufferHandle RHIRenderer::createBuffer(const rhi::BufferDescriptor& desc)
     {
-        BufferData data{};
-
         // 1. Create the hardware resource via device
-        data.buffer = m_device->createBuffer(desc);
+        auto buffer = m_device->createBuffer(desc);
 
         // 2. Automatically register with Bindless if it's a Storage Buffer
-        if (m_useBindless && hasFlag(desc.usage, rhi::BufferUsage::StorageBuffer)) {
-            auto bindlessHandle = m_device->registerBindlessBuffer(data.buffer.get());
-            data.bindlessIndex = bindlessHandle.index;
+        if (m_useBindless && hasFlag(desc.usage, rhi::BufferUsage::StorageBuffer))
+        {
+            auto bindlessHandle = m_device->registerBindlessBuffer(buffer.get());
+            buffer->setBindlessHandle(bindlessHandle);
         }
 
+        BufferData data{};
+        data.buffer = std::move(buffer);
+        data.bindlessIndex = data.buffer->getBindlessHandle().index;
+
         // 3. Store and return handle
-        BufferHandle handle{static_cast<uint32_t>(m_buffers.size())};
+        BufferHandle handle{u32(m_buffers.size())};
         m_buffers.push_back(std::move(data));
 
         core::Logger::info("Created Buffer: handle={}, size={}, bindless={}",
@@ -868,7 +902,7 @@ namespace pnkr::renderer
     {
         auto pipeline = m_device->createGraphicsPipeline(desc);
 
-        auto handle = static_cast<PipelineHandle>(m_pipelines.size());
+        PipelineHandle handle{u32(m_pipelines.size())};
         m_pipelines.push_back(std::move(pipeline));
 
         core::Logger::info("Created graphics pipeline");
@@ -880,7 +914,7 @@ namespace pnkr::renderer
     {
         auto pipeline = m_device->createComputePipeline(desc);
 
-        auto handle = static_cast<PipelineHandle>(m_pipelines.size());
+        PipelineHandle handle{u32(m_pipelines.size())};
         m_pipelines.push_back(std::move(pipeline));
 
         core::Logger::info("Created compute pipeline");
@@ -1000,7 +1034,7 @@ namespace pnkr::renderer
     }
 
     uint32_t RHIRenderer::getBindlessSamplerIndex(rhi::Filter filter,
-                                                 rhi::SamplerAddressMode addressMode) const
+                                                  rhi::SamplerAddressMode addressMode) const
     {
         const bool nearest = (filter == rhi::Filter::Nearest);
         switch (addressMode)
@@ -1143,7 +1177,8 @@ namespace pnkr::renderer
 
     void RHIRenderer::setVsync(bool enabled)
     {
-        if (m_swapchain) {
+        if (m_swapchain)
+        {
             m_device->waitIdle();
             m_swapchain->setVsync(enabled);
             // Force recreate

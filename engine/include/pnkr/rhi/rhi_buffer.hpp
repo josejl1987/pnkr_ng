@@ -34,6 +34,12 @@ namespace pnkr::renderer::rhi
         // Backend-specific handle (for interop)
         virtual void* nativeHandle() const = 0;
         virtual uint64_t getDeviceAddress() const = 0;
+
+        void setBindlessHandle(BindlessHandle handle) { m_bindlessHandle = handle; }
+        BindlessHandle getBindlessHandle() const { return m_bindlessHandle; }
+
+    protected:
+        BindlessHandle m_bindlessHandle;
     };
 
 } // namespace pnkr::renderer::rhi

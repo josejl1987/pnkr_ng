@@ -7,11 +7,10 @@
 #include "pnkr/core/common.hpp"
 
 using namespace pnkr;
-using namespace pnkr::samples;
 
 
 
-class DebugCanvasSample : public Application
+class DebugCanvasSample : public app::Application
 {
 public:
     DebugCanvasSample() : Application({

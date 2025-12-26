@@ -6,9 +6,10 @@
 #include <glm/glm.hpp>
 
 #include "pnkr/renderer/scene/Camera.hpp"
-#include "generated/indirect.frag.h"
+
 
 #include <span>
+#include "generated/indirect.frag.h"
 
 namespace pnkr::renderer {
 
@@ -41,16 +42,44 @@ namespace pnkr::renderer {
         uint32_t envMapTextureCharlieSampler;
     };
 
+    struct FrameResources {
+        BufferHandle indirectBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle instanceDataBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle transformBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle jointBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle jointMatricesBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle meshXformsBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle skinnedVertexBuffer = INVALID_BUFFER_HANDLE;
+
+        // Command buffers for separated passes
+        BufferHandle indirectOpaqueBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle indirectTransmissionBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle indirectTransparentBuffer = INVALID_BUFFER_HANDLE;
+
+        // Pointers for mapped access (if using persistent mapping)
+        void* mappedIndirect = nullptr;
+        void* mappedInstance = nullptr;
+        void* mappedTransform = nullptr;
+        void* mappedJoints = nullptr;
+        void* mappedJointMatrices = nullptr;
+        void* mappedMeshXforms = nullptr;
+    };
+
     class IndirectRenderer {
     public:
         void init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model,
                   TextureHandle brdf = INVALID_TEXTURE_HANDLE, 
                   TextureHandle irradiance = INVALID_TEXTURE_HANDLE, 
                   TextureHandle prefilter = INVALID_TEXTURE_HANDLE);
+        
+        void resize(uint32_t width, uint32_t height);
         void update(float dt);
         void updateGlobalTransforms();
         void dispatchSkinning(rhi::RHICommandBuffer* cmd);
-        void draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera);
+        
+        // Requires viewport size to manage offscreen targets
+        void draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera, uint32_t width, uint32_t height);
+        
         void setWireframe(bool enabled);
         void updateMaterial(uint32_t materialIndex);
 
@@ -64,31 +93,39 @@ namespace pnkr::renderer {
         void buildBuffers();
         void uploadMaterialData();
         void uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
+        void createOffscreenResources(uint32_t width, uint32_t height);
 
         RHIRenderer* m_renderer = nullptr;
         std::shared_ptr<scene::ModelDOD> m_model;
         std::vector<uint32_t> m_skinOffsets;
 
-        // Buffers owned by this renderer
-        BufferHandle m_indirectBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle m_instanceDataBuffer = INVALID_BUFFER_HANDLE;
+        // Per-frame resources for concurrency
+        std::vector<FrameResources> m_frames;
+        uint32_t m_currentFrameIndex = 0;
         
         // Scene data mirror (could be shared, but local for this sample)
-        BufferHandle m_transformBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle m_materialBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle m_environmentBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle m_jointBuffer = INVALID_BUFFER_HANDLE;
         std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> m_materialsCPU;
 
-        // Skinning Resources
-        BufferHandle m_jointMatricesBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle m_meshXformsBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle m_skinnedVertexBuffer = INVALID_BUFFER_HANDLE;
+        // Shared Resources
         PipelineHandle m_skinningPipeline = INVALID_PIPELINE_HANDLE;
 
-        PipelineHandle m_pipeline = INVALID_PIPELINE_HANDLE;
+        PipelineHandle m_pipeline = INVALID_PIPELINE_HANDLE; // Opaque
+        PipelineHandle m_pipelineTransparent = INVALID_PIPELINE_HANDLE; // Transparent
         PipelineHandle m_pipelineWireframe = INVALID_PIPELINE_HANDLE;
-        uint32_t m_drawCount = 0;
+        
         bool m_drawWireframe = false;
+
+        // Transmission / Offscreen Support
+        TextureHandle m_sceneColor = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_transmissionTexture = INVALID_TEXTURE_HANDLE;
+        uint32_t m_width = 0;
+        uint32_t m_height = 0;
+
+        // Track layouts to avoid redundant barriers or validation errors
+        rhi::ResourceLayout m_sceneColorLayout = rhi::ResourceLayout::Undefined;
+        rhi::ResourceLayout m_transmissionLayout = rhi::ResourceLayout::Undefined;
+        rhi::ResourceLayout m_depthLayout = rhi::ResourceLayout::Undefined;
     };
 }

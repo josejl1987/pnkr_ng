@@ -230,6 +230,7 @@ namespace pnkr::renderer::scene
             mc.flags = 0;
             if (md.m_isUnlit) mc.flags |= Material_Unlit;
             if (md.m_isSpecularGlossiness) mc.flags |= Material_SpecularGlossiness;
+            if (md.m_doubleSided) mc.flags |= Material_DoubleSided;
             if (md.m_hasSpecular) mc.flags |= Material_CastShadow | Material_ReceiveShadow; // placeholder logic
             mc.flags |= Material_CastShadow | Material_ReceiveShadow;
             if (md.m_alphaMode == 2) mc.flags |= Material_Transparent;
@@ -291,6 +292,7 @@ namespace pnkr::renderer::scene
 
             md.m_isUnlit = (mc.flags & Material_Unlit) != 0;
             md.m_isSpecularGlossiness = (mc.flags & Material_SpecularGlossiness) != 0;
+            md.m_doubleSided = (mc.flags & Material_DoubleSided) != 0;
             md.m_alphaMode = (mc.flags & Material_Transparent) ? 2 : 0;
 
             return md;
@@ -486,7 +488,15 @@ namespace pnkr::renderer::scene
         }
     }
 
-    static std::vector<std::uint8_t> base64Decode(std::string_view in)
+    static float getNormalScale(const fastgltf::NormalTextureInfo& info) {
+        return info.scale;
+    }
+
+    static float getOcclusionStrength(const fastgltf::OcclusionTextureInfo& info) {
+        return info.strength;
+    }
+
+    static std::vector<uint8_t> base64Decode(std::string_view in)
     {
         static constexpr std::array<std::uint8_t, 256> kDec = [] {
             std::array<std::uint8_t, 256> t{}; t.fill(0xFF);
@@ -696,6 +706,7 @@ namespace pnkr::renderer::scene
             md.m_volumeAttenuationColor = glm::vec3(1.0f);
             md.m_volumeAttenuationDistance = std::numeric_limits<float>::max();
 
+            md.m_doubleSided = mat.doubleSided;
             md.m_isUnlit = mat.unlit;
 
             // 2. Handle Workflow: Specular-Glossiness OR Metallic-Roughness
@@ -747,11 +758,35 @@ namespace pnkr::renderer::scene
 
             md.m_alphaMode = toAlphaMode(mat.alphaMode);
             md.m_alphaCutoff = mat.alphaCutoff;
+            md.m_emissiveFactor = glm::make_vec3(mat.emissiveFactor.data());
 
             // 3. Fix: KHR_materials_emissive_strength
             // fastgltf places this directly on material if extension is enabled
             if (mat.emissiveStrength != 1.0f) { 
                 md.m_emissiveStrength = mat.emissiveStrength;
+            }
+
+            if (mat.normalTexture.has_value()) {
+                size_t texIdx = mat.normalTexture->textureIndex;
+                if (texIdx < model->m_textures.size()) md.m_normalTexture = model->m_textures[texIdx];
+                md.m_normalUV = getTexCoordIndex(*mat.normalTexture);
+                md.m_normalSampler = getSamplerAddressMode(gltf, texIdx);
+                md.m_normalScale = getNormalScale(*mat.normalTexture);
+            }
+
+            if (mat.occlusionTexture.has_value()) {
+                size_t texIdx = mat.occlusionTexture->textureIndex;
+                if (texIdx < model->m_textures.size()) md.m_occlusionTexture = model->m_textures[texIdx];
+                md.m_occlusionUV = getTexCoordIndex(*mat.occlusionTexture);
+                md.m_occlusionSampler = getSamplerAddressMode(gltf, texIdx);
+                md.m_occlusionStrength = getOcclusionStrength(*mat.occlusionTexture);
+            }
+
+            if (mat.emissiveTexture.has_value()) {
+                size_t texIdx = mat.emissiveTexture->textureIndex;
+                if (texIdx < model->m_textures.size()) md.m_emissiveTexture = model->m_textures[texIdx];
+                md.m_emissiveUV = getTexCoordIndex(*mat.emissiveTexture);
+                md.m_emissiveSampler = getSamplerAddressMode(gltf, texIdx);
             }
             
             if (mat.transmission) {

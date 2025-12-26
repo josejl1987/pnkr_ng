@@ -7,15 +7,7 @@
 
 #include "pbr_common.glsl"
 
-layout(buffer_reference, scalar) readonly buffer TransformBuffer { mat4 models[]; };
-
-struct DrawInstanceData {
-    uint transformIndex;
-    uint materialIndex;
-    int  jointOffset; // unused in this shader (skinning done in compute)
-    uint _pad1;
-};
-layout(buffer_reference, scalar) readonly buffer InstanceBuffer { DrawInstanceData instances[]; };
+layout(buffer_reference, std430) readonly buffer TransformBuffer { GLTFTransform transforms[]; };
 
 struct Vertex {
     vec3  position;
@@ -40,25 +32,25 @@ layout(location = 5) out vec3          outNormalW;
 layout(location = 6) out vec3          outWorldPos;
 layout(location = 7) out flat uint64_t outEnvironmentAddr;
 layout(location = 8) out vec3          outViewDirW;
+layout(location = 9) out flat uint     outInstanceIndex;
 
 void main() {
     const uint64_t transformAddr = perFrame.drawable.transformBufferPtr;
-    const uint64_t instanceAddr = perFrame.drawable.instanceBufferPtr;
     const uint64_t vertexAddr = perFrame.drawable.vertexBufferPtr;
     const uint64_t materialAddr = perFrame.drawable.materialBufferPtr;
     const uint64_t environmentAddr = perFrame.drawable.environmentBufferPtr;
 
-    InstanceBuffer  instanceBuffer  = InstanceBuffer(instanceAddr);
     TransformBuffer transformBuffer = TransformBuffer(transformAddr);
     VertexBuffer    vertexBuffer    = VertexBuffer(vertexAddr);
 
     mat4 viewProj = perFrame.drawable.proj * perFrame.drawable.view;
 
-    // Use gl_DrawID to index per-draw instance data (indirect command index).
-    DrawInstanceData inst = instanceBuffer.instances[gl_DrawID];
+    // Use gl_InstanceIndex to index per-draw transform data.
+    // BaseInstance is automatically added to gl_InstanceIndex by the RHI/Vulkan.
+    GLTFTransform xf = transformBuffer.transforms[gl_InstanceIndex];
 
     // Fetch transform for this node
-    mat4 model = transformBuffer.models[inst.transformIndex];
+    mat4 model = xf.model;
 
     // Manual vertex pulling
     Vertex v = vertexBuffer.vertices[gl_VertexIndex];
@@ -66,9 +58,8 @@ void main() {
     vec4 worldPos4 = model * vec4(v.position, 1.0);
     vec3 worldPos  = worldPos4.xyz;
 
-    // World normal. (Matches your current approach.)
-    mat3 nrmMat = transpose(inverse(mat3(model)));
-    vec3 nW     = normalize(nrmMat * v.normal);
+    // World normal.
+    vec3 nW = normalize(mat3(xf.normalMatrix) * v.normal);
 
     gl_Position = viewProj * worldPos4;
 
@@ -82,7 +73,8 @@ void main() {
     outNormalW        = nW;
     outViewDirW       = normalize(perFrame.drawable.cameraPos.xyz - worldPos);
 
-    outMaterialIndex  = inst.materialIndex;
+    outMaterialIndex  = xf.materialIndex;
     outMaterialAddr   = materialAddr;
     outEnvironmentAddr = environmentAddr;
+    outInstanceIndex = gl_InstanceIndex;
 }

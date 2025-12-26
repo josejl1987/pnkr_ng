@@ -163,22 +163,35 @@ inline VkBuffer getVkBufferFromRHI(void* nativeHandle) {
 template <typename T, typename Index = uint32_t>
 void eraseSelected(std::vector<T>& v, const std::vector<Index>& selection)
 {
-    // stable_partition moves elements to be erased to the end
-    // we use binary_search to check if an element's original index is in the selection
-    // Note: We use pointer arithmetic to deduce the original index.
-    // This assumes 'v' has not been reallocated during this process (it hasn't).
-    const T* basePtr = v.data();
-    
-    auto it = std::stable_partition(v.begin(), v.end(),
-        [&selection, basePtr](const T& item) {
-            // Return true if we want to KEEP the item (i.e., NOT in selection)
-            // Index calculation:
-            const auto index = static_cast<Index>(&item - basePtr);
-            return !std::binary_search(selection.begin(), selection.end(), index);
+    if (selection.empty()) {
+        return;
+    }
+
+    size_t write = 0;
+    size_t selIdx = 0;
+    const size_t selCount = selection.size();
+
+    for (size_t read = 0; read < v.size(); ++read)
+    {
+        const size_t index = read;
+        while (selIdx < selCount && static_cast<size_t>(selection[selIdx]) < index)
+        {
+            ++selIdx;
         }
-    );
-    
-    v.erase(it, v.end());
+
+        if (selIdx < selCount && static_cast<size_t>(selection[selIdx]) == index)
+        {
+            continue;
+        }
+
+        if (write != read)
+        {
+            v[write] = std::move(v[read]);
+        }
+        ++write;
+    }
+
+    v.resize(write);
 }
 
 } // namespace pnkr::util

@@ -10,6 +10,8 @@
 #include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
 #include "pnkr/renderer/scene/AnimationSystem.hpp"
 
+#include <cmath>
+
 namespace pnkr::renderer {
 
 struct MeshXformGPU {
@@ -31,38 +33,84 @@ void IndirectRenderer::init(RHIRenderer* renderer, std::shared_ptr<scene::ModelD
 
     createComputePipeline();
 
+    uint32_t flightCount = m_renderer->getSwapchain()->framesInFlight();
+    m_frames.resize(flightCount);
+
+    const uint32_t meshCount = (uint32_t)m_model->meshes().size();
+    const uint32_t xformCount = (meshCount > 0) ? meshCount : 1u;
+
     // Allocate skinned buffer (same size as source)
+    uint64_t skinnedVertexBufferSize = 0;
     if (m_model->vertexBuffer != INVALID_BUFFER_HANDLE) {
-        auto* srcBuf = m_renderer->getBuffer(m_model->vertexBuffer);
-        m_skinnedVertexBuffer = m_renderer->createBuffer({
-            .size = srcBuf->size(),
-            .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::ShaderDeviceAddress,
-            .memoryUsage = rhi::MemoryUsage::GPUOnly,
-            .debugName = "SkinnedVertexBuffer"
+        skinnedVertexBufferSize = m_renderer->getBuffer(m_model->vertexBuffer)->size();
+    }
+
+    // Initialize per-frame resources
+    for (auto& frame : m_frames) {
+        if (skinnedVertexBufferSize > 0) {
+            frame.skinnedVertexBuffer = m_renderer->createBuffer({
+                .size = skinnedVertexBufferSize,
+                .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::ShaderDeviceAddress,
+                .memoryUsage = rhi::MemoryUsage::GPUOnly,
+                .debugName = "SkinnedVertexBuffer"
+            });
+        }
+
+        frame.meshXformsBuffer = m_renderer->createBuffer({
+            .size = sizeof(MeshXformGPU) * xformCount,
+            .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
+            .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+            .debugName = "MeshXformsBuffer"
         });
+        frame.mappedMeshXforms = m_renderer->getBuffer(frame.meshXformsBuffer)->map();
     }
 
     createPipeline();
-    buildBuffers();
-
-    // Phase 2: per-mesh xforms used by compute to convert world-space skinned results back to mesh-local.
-    // Allocate at least 1 element to keep device address valid.
-    const uint32_t meshCount = (uint32_t)m_model->meshes().size();
-    const uint32_t count = (meshCount > 0) ? meshCount : 1u;
-    m_meshXformsBuffer = m_renderer->createBuffer({
-        .size = sizeof(MeshXformGPU) * count,
-        .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
-        .memoryUsage = rhi::MemoryUsage::CPUToGPU,
-        .debugName = "MeshXformsBuffer"
-    });
+    // Note: We don't call buildBuffers() here anymore; GLTFUnifiedDOD handles it in draw()
     
     // Initial upload of static data
     uploadMaterialData();
     uploadEnvironmentData(brdf, irradiance, prefilter);
+
+    // Init offscreen targets
+    resize(m_renderer->getSwapchain()->extent().width, m_renderer->getSwapchain()->extent().height);
+}
+
+void IndirectRenderer::createOffscreenResources(uint32_t width, uint32_t height) {
+    if (width == 0 || height == 0) return;
+
+    // 1. Scene Color (High precision if needed, but matching swapchain for now)
+    rhi::TextureDescriptor descRT{};
+    descRT.extent = {width, height, 1};
+    descRT.format = m_renderer->getSwapchainColorFormat();
+    descRT.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::TransferSrc | rhi::TextureUsage::Sampled;
+    descRT.mipLevels = 1;
+    descRT.debugName = "SceneColor";
+    m_sceneColor = m_renderer->createTexture(descRT);
+    m_sceneColorLayout = rhi::ResourceLayout::Undefined;
+
+    // 2. Transmission Copy (Needs mips for roughness blur)
+    rhi::TextureDescriptor descCopy{};
+    descCopy.extent = descRT.extent;
+    descCopy.format = descRT.format;
+    descCopy.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst | rhi::TextureUsage::TransferSrc;
+    descCopy.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
+    descCopy.debugName = "TransmissionCopy";
+    m_transmissionTexture = m_renderer->createTexture(descCopy);
+    m_transmissionLayout = rhi::ResourceLayout::Undefined;
+}
+
+void IndirectRenderer::resize(uint32_t width, uint32_t height) {
+    if (width == 0 || height == 0) return;
+    if (m_width == width && m_height == height && m_sceneColor != INVALID_TEXTURE_HANDLE) return;
+
+    m_width = width;
+    m_height = height;
+    createOffscreenResources(width, height);
 }
 
 void IndirectRenderer::createComputePipeline() {
-    auto comp = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/renderer/indirect/skinning.comp.spv");
+    auto comp = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/skinning.comp.spv");
     
     rhi::RHIPipelineBuilder builder;
     builder.setComputeShader(comp.get());
@@ -71,6 +119,9 @@ void IndirectRenderer::createComputePipeline() {
 
 void IndirectRenderer::update(float dt) {
     if (m_model) {
+        m_currentFrameIndex = (m_currentFrameIndex + 1) % m_frames.size();
+        auto& frame = m_frames[m_currentFrameIndex];
+
         scene::AnimationSystem::update(*m_model, dt);
         m_model->scene().recalculateGlobalTransformsDirty();
         
@@ -78,16 +129,22 @@ void IndirectRenderer::update(float dt) {
         auto jointMatrices = scene::AnimationSystem::updateSkinning(*m_model);
         if (!jointMatrices.empty()) {
             size_t dataSize = jointMatrices.size() * sizeof(glm::mat4);
-            if (m_jointMatricesBuffer == INVALID_BUFFER_HANDLE || 
-                m_renderer->getBuffer(m_jointMatricesBuffer)->size() < dataSize) {
-                m_jointMatricesBuffer = m_renderer->createBuffer({
+            if (frame.jointMatricesBuffer == INVALID_BUFFER_HANDLE || 
+                m_renderer->getBuffer(frame.jointMatricesBuffer)->size() < dataSize) {
+                frame.jointMatricesBuffer = m_renderer->createBuffer({
                     .size = dataSize,
                     .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
                     .memoryUsage = rhi::MemoryUsage::CPUToGPU,
                     .debugName = "JointMatrices"
                 });
+                frame.mappedJointMatrices = m_renderer->getBuffer(frame.jointMatricesBuffer)->map();
             }
-            m_renderer->getBuffer(m_jointMatricesBuffer)->uploadData(jointMatrices.data(), dataSize);
+            
+            if (frame.mappedJointMatrices) {
+                std::memcpy(frame.mappedJointMatrices, jointMatrices.data(), dataSize);
+            } else {
+                m_renderer->getBuffer(frame.jointMatricesBuffer)->uploadData(jointMatrices.data(), dataSize);
+            }
         }
 
         // Update Morph States
@@ -118,14 +175,12 @@ void IndirectRenderer::update(float dt) {
         }
 
         // Fill from scene: first skinned node that references each mesh wins.
-        // If you want stricter behavior, replace this with an explicit mesh->node mapping in your loader.
         std::vector<bool> filled(meshCount, false);
         for (uint32_t nodeId : sc.topoOrder) {
             if (nodeId >= sc.meshIndex.size()) continue;
             const int32_t meshIdx = sc.meshIndex[nodeId];
             if (meshIdx < 0 || (uint32_t)meshIdx >= meshCount) continue;
 
-            // Prefer nodes that actually have a skin (since this xform is only needed to "undo" world-space skinning).
             bool hasSkin = false;
             if (nodeId < sc.skinIndex.size()) {
                 const int32_t sIdx = sc.skinIndex[nodeId];
@@ -141,7 +196,6 @@ void IndirectRenderer::update(float dt) {
             MeshXformGPU xf{};
             xf.invModel = invModel;
             xf.normalWorldToLocal = glm::mat4(1.0f);
-            // localNormal = transpose(mat3(model)) * worldNormal
             xf.normalWorldToLocal[0] = glm::vec4(glm::transpose(m3)[0], 0.0f);
             xf.normalWorldToLocal[1] = glm::vec4(glm::transpose(m3)[1], 0.0f);
             xf.normalWorldToLocal[2] = glm::vec4(glm::transpose(m3)[2], 0.0f);
@@ -150,9 +204,13 @@ void IndirectRenderer::update(float dt) {
             filled[(uint32_t)meshIdx] = true;
         }
 
-        if (m_meshXformsBuffer != INVALID_BUFFER_HANDLE) {
+        if (frame.meshXformsBuffer != INVALID_BUFFER_HANDLE) {
             const size_t bytes = sizeof(MeshXformGPU) * xforms.size();
-            m_renderer->getBuffer(m_meshXformsBuffer)->uploadData(xforms.data(), bytes);
+            if (frame.mappedMeshXforms) {
+                std::memcpy(frame.mappedMeshXforms, xforms.data(), bytes);
+            } else {
+                m_renderer->getBuffer(frame.meshXformsBuffer)->uploadData(xforms.data(), bytes);
+            }
         }
     }
 
@@ -165,22 +223,29 @@ void IndirectRenderer::updateGlobalTransforms() {
     
     if (scene.global.empty()) return;
 
+    auto& frame = m_frames[m_currentFrameIndex];
+
     size_t dataSize = scene.global.size() * sizeof(glm::mat4);
 
-    if (m_transformBuffer == INVALID_BUFFER_HANDLE || 
-        m_renderer->getBuffer(m_transformBuffer)->size() < dataSize) 
+    if (frame.transformBuffer == INVALID_BUFFER_HANDLE || 
+        m_renderer->getBuffer(frame.transformBuffer)->size() < dataSize) 
     {
         // Reallocate
-        m_transformBuffer = m_renderer->createBuffer({
+        frame.transformBuffer = m_renderer->createBuffer({
             .size = dataSize,
             .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
             .memoryUsage = rhi::MemoryUsage::CPUToGPU,
             .debugName = "IndirectTransforms"
         });
+        frame.mappedTransform = m_renderer->getBuffer(frame.transformBuffer)->map();
     }
 
     // Upload
-    m_renderer->getBuffer(m_transformBuffer)->uploadData(scene.global.data(), dataSize);
+    if (frame.mappedTransform) {
+        std::memcpy(frame.mappedTransform, scene.global.data(), dataSize);
+    } else {
+        m_renderer->getBuffer(frame.transformBuffer)->uploadData(scene.global.data(), dataSize);
+    }
 
     // Update Skins
     if (!m_model->skins().empty()) {
@@ -204,84 +269,27 @@ void IndirectRenderer::updateGlobalTransforms() {
          
          if (!joints.empty()) {
              size_t size = joints.size() * sizeof(glm::mat4);
-             if (m_jointBuffer == INVALID_BUFFER_HANDLE || m_renderer->getBuffer(m_jointBuffer)->size() < size) {
-                 m_jointBuffer = m_renderer->createBuffer({
+             if (frame.jointBuffer == INVALID_BUFFER_HANDLE || m_renderer->getBuffer(frame.jointBuffer)->size() < size) {
+                 frame.jointBuffer = m_renderer->createBuffer({
                      .size = size,
                      .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
                      .memoryUsage = rhi::MemoryUsage::CPUToGPU, 
                      .debugName = "JointBuffer"
                  });
+                 frame.mappedJoints = m_renderer->getBuffer(frame.jointBuffer)->map();
              }
-             m_renderer->getBuffer(m_jointBuffer)->uploadData(joints.data(), size);
+             
+             if (frame.mappedJoints) {
+                 std::memcpy(frame.mappedJoints, joints.data(), size);
+             } else {
+                 m_renderer->getBuffer(frame.jointBuffer)->uploadData(joints.data(), size);
+             }
          }
     }
 }
 
 void IndirectRenderer::buildBuffers() {
-    std::vector<IndirectCommand> commands;
-    std::vector<DrawInstanceData> instances;
-
-    const auto& scene = m_model->scene();
-    const auto& meshes = m_model->meshes();
-
-    // Traverse scene in topological order (Parent -> Child)
-    for (uint32_t nodeId : scene.topoOrder) {
-        int32_t meshIdx = -1;
-        if (nodeId < scene.meshIndex.size()) meshIdx = scene.meshIndex[nodeId];
-        if (meshIdx < 0) continue;
-
-        const auto& mesh = meshes[meshIdx];
-
-        // For each primitive in the mesh, add a draw command
-        for (const auto& prim : mesh.primitives) {
-            IndirectCommand cmd{};
-            cmd.indexCount = prim.indexCount;
-            cmd.instanceCount = 1;
-            cmd.firstIndex = prim.firstIndex;
-            cmd.vertexOffset = prim.vertexOffset;
-            
-            // Fix: Set firstInstance to 0 to avoid dependency on 'drawIndirectFirstInstance' feature.
-            // We will use gl_DrawID in the shader to index into the instance data.
-            cmd.firstInstance = 0; 
-
-            DrawInstanceData inst{};
-            inst.transformIndex = nodeId;
-            inst.materialIndex = prim.materialIndex;
-            inst.jointOffset = -1;
-            
-            if (nodeId < scene.skinIndex.size()) {
-                int32_t sIdx = scene.skinIndex[nodeId];
-                if (sIdx >= 0 && (size_t)sIdx < m_skinOffsets.size()) {
-                    inst.jointOffset = (int32_t)m_skinOffsets[sIdx];
-                }
-            }
-            
-            commands.push_back(cmd);
-            instances.push_back(inst);
-        }
-    }
-
-    m_drawCount = (uint32_t)commands.size();
-
-    if (m_drawCount > 0) {
-        m_indirectBuffer = m_renderer->createBuffer({
-            .size = commands.size() * sizeof(IndirectCommand),
-            .usage = rhi::BufferUsage::IndirectBuffer | rhi::BufferUsage::StorageBuffer,
-            .memoryUsage = rhi::MemoryUsage::CPUToGPU,
-            .data = commands.data(),
-            .debugName = "IndirectBuffer"
-        });
-
-        m_instanceDataBuffer = m_renderer->createBuffer({
-            .size = instances.size() * sizeof(DrawInstanceData),
-            .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
-            .memoryUsage = rhi::MemoryUsage::CPUToGPU,
-            .data = instances.data(),
-            .debugName = "InstanceDataBuffer"
-        });
-        
-        pnkr::core::Logger::info("Built indirect buffers: {} commands", m_drawCount);
-    }
+    // Legacy - no longer used as GLTFUnifiedDOD handles it
 }
 
 void IndirectRenderer::uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter) {
@@ -293,27 +301,26 @@ void IndirectRenderer::uploadEnvironmentData(TextureHandle brdf, TextureHandle i
     envData.texBRDF_LUT = ~0u;
     envData.envMapTextureCharlie = ~0u;
 
-    // Get bindless indices from the renderer
-    // Assuming sampler index 0 is a valid default linear sampler for the engine
-    uint32_t defaultSampler = 0; 
+    // FIX: Use ClampToEdge sampler for IBL lookups to avoid edge artifacts
+    uint32_t clampSampler = m_renderer->getBindlessSamplerIndex(rhi::SamplerAddressMode::ClampToEdge);
 
     if (prefilter != INVALID_TEXTURE_HANDLE) {
         envData.envMapTexture = m_renderer->getTextureBindlessIndex(prefilter);
-        envData.envMapTextureSampler = defaultSampler;
+        envData.envMapTextureSampler = clampSampler;
         
-        // Charlie (Sheen) map - using prefilter as placeholder
+        // Charlie (Sheen) map - using prefilter as placeholder if specific map missing
         envData.envMapTextureCharlie = envData.envMapTexture; 
-        envData.envMapTextureCharlieSampler = defaultSampler;
+        envData.envMapTextureCharlieSampler = clampSampler;
     }
     
     if (irradiance != INVALID_TEXTURE_HANDLE) {
         envData.envMapTextureIrradiance = m_renderer->getTextureBindlessIndex(irradiance);
-        envData.envMapTextureIrradianceSampler = defaultSampler;
+        envData.envMapTextureIrradianceSampler = clampSampler;
     }
     
     if (brdf != INVALID_TEXTURE_HANDLE) {
         envData.texBRDF_LUT = m_renderer->getTextureBindlessIndex(brdf);
-        envData.texBRDF_LUTSampler = defaultSampler;
+        envData.texBRDF_LUTSampler = clampSampler;
     }
 
     m_environmentBuffer = m_renderer->createBuffer({
@@ -332,18 +339,27 @@ void IndirectRenderer::uploadMaterialData() {
 }
 
 void IndirectRenderer::createPipeline() {
-    auto vert = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/renderer/indirect/indirect.vert.spv");
-    auto frag = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/renderer/indirect/indirect.frag.spv");
+    auto vert = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/indirect.vert.spv");
+    auto frag = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/indirect.frag.spv");
 
     rhi::RHIPipelineBuilder builder;
     builder.setShaders(vert.get(), frag.get())
            .setTopology(rhi::PrimitiveTopology::TriangleList)
-           .enableDepthTest(true, rhi::CompareOp::LessOrEqual)
-           .setColorFormat(m_renderer->getDrawColorFormat())
+           .setColorFormat(m_renderer->getSwapchainColorFormat()) // Matches m_sceneColor format
            .setDepthFormat(m_renderer->getDrawDepthFormat());
 
-    builder.setPolygonMode(rhi::PolygonMode::Fill).setName("IndirectSolid");
+    // Solid Pipeline (Writes Depth)
+    builder.setPolygonMode(rhi::PolygonMode::Fill)
+           .enableDepthTest(true, rhi::CompareOp::LessOrEqual)
+           .setNoBlend()
+           .setName("IndirectSolid");
     m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+
+    // Transparent Pipeline (No Depth Write, Blend)
+    builder.enableDepthTest(false, rhi::CompareOp::LessOrEqual) // Keep test enabled, disable write
+           .setAlphaBlend()
+           .setName("IndirectTransparent");
+    m_pipelineTransparent = m_renderer->createGraphicsPipeline(builder.buildGraphics());
 
     builder.setPolygonMode(rhi::PolygonMode::Line).setName("IndirectWireframe");
     m_pipelineWireframe = m_renderer->createGraphicsPipeline(builder.buildGraphics());
@@ -386,10 +402,12 @@ void IndirectRenderer::repackMaterialsFromModel() {
 }
 
 void IndirectRenderer::dispatchSkinning(rhi::RHICommandBuffer* cmd) {
-    if (m_drawCount == 0) return;
+    if (m_model->meshes().empty()) return;
+
+    auto& frame = m_frames[m_currentFrameIndex];
 
     // 1. Dispatch Skinning/Morphing if needed
-    bool hasSkinning = (m_jointMatricesBuffer != INVALID_BUFFER_HANDLE);
+    bool hasSkinning = (frame.jointMatricesBuffer != INVALID_BUFFER_HANDLE);
     bool hasMorphing = (m_model->morphVertexBuffer != INVALID_BUFFER_HANDLE && m_model->morphStateBuffer != INVALID_BUFFER_HANDLE);
 
     if ((hasSkinning || hasMorphing) && m_skinningPipeline != INVALID_PIPELINE_HANDLE) {
@@ -408,12 +426,12 @@ void IndirectRenderer::dispatchSkinning(rhi::RHICommandBuffer* cmd) {
         } skinPC{};
         
         auto* srcBuf = m_renderer->getBuffer(m_model->vertexBuffer);
-        auto* dstBuf = m_renderer->getBuffer(m_skinnedVertexBuffer);
+        auto* dstBuf = m_renderer->getBuffer(frame.skinnedVertexBuffer);
         
         skinPC.inBuffer = srcBuf->getDeviceAddress();
         skinPC.outBuffer = dstBuf->getDeviceAddress();
         if (hasSkinning) {
-            skinPC.jointMatrices = m_renderer->getBuffer(m_jointMatricesBuffer)->getDeviceAddress();
+            skinPC.jointMatrices = m_renderer->getBuffer(frame.jointMatricesBuffer)->getDeviceAddress();
             skinPC.hasSkinning = 1;
         }
         if (hasMorphing) {
@@ -421,8 +439,8 @@ void IndirectRenderer::dispatchSkinning(rhi::RHICommandBuffer* cmd) {
             skinPC.morphStates = m_renderer->getBuffer(m_model->morphStateBuffer)->getDeviceAddress();
             skinPC.hasMorphing = 1;
         }
-        if (m_meshXformsBuffer != INVALID_BUFFER_HANDLE) {
-            skinPC.meshXforms = m_renderer->getBuffer(m_meshXformsBuffer)->getDeviceAddress();
+        if (frame.meshXformsBuffer != INVALID_BUFFER_HANDLE) {
+            skinPC.meshXforms = m_renderer->getBuffer(frame.meshXformsBuffer)->getDeviceAddress();
         }
 
         skinPC.count = (uint32_t)(srcBuf->size() / sizeof(pnkr::renderer::Vertex));
@@ -440,51 +458,276 @@ void IndirectRenderer::dispatchSkinning(rhi::RHICommandBuffer* cmd) {
     }
 }
 
-void IndirectRenderer::draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera) {
-    PipelineHandle activePipeline = m_drawWireframe ? m_pipelineWireframe : m_pipeline;
-    if (m_drawCount == 0 || activePipeline == INVALID_PIPELINE_HANDLE) return;
+void IndirectRenderer::draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera, uint32_t width, uint32_t height) {
+    if (m_pipeline == INVALID_PIPELINE_HANDLE) return;
 
-    cmd->bindPipeline(m_renderer->getPipeline(activePipeline));
+    resize(width, height);
 
-    // Bind Global Index Buffer (Unified)
+    // 1. PREPARE DRAW LISTS (Sorting & Culling)
+    scene::GLTFUnifiedDODContext ctx;
+    ctx.renderer = m_renderer;
+    ctx.model = m_model.get();
+    
+    // Assign frame-specific buffers to the context
+    auto& frame = m_frames[m_currentFrameIndex];
+    
+    // Assign existing buffers
+    ctx.transformBuffer = frame.transformBuffer;
+    ctx.indirectOpaqueBuffer = frame.indirectOpaqueBuffer;
+    ctx.indirectTransmissionBuffer = frame.indirectTransmissionBuffer;
+    ctx.indirectTransparentBuffer = frame.indirectTransparentBuffer;
+    
+    // Build lists
+    scene::GLTFUnifiedDOD::buildDrawLists(ctx, camera.position());
+    
+    // Update handles back to frame (in case they were recreated)
+    frame.transformBuffer = ctx.transformBuffer;
+    frame.indirectOpaqueBuffer = ctx.indirectOpaqueBuffer;
+    frame.indirectTransmissionBuffer = ctx.indirectTransmissionBuffer;
+    frame.indirectTransparentBuffer = ctx.indirectTransparentBuffer;
+
+    // 2. STOP DEFAULT PASS
+    cmd->endRendering();
+
+    // 3. COMMON DATA
+    ShaderGen::indirect_vert::PerFrameData pc{};
+    pc.drawable.view = camera.view();
+    pc.drawable.proj = camera.proj();
+    pc.drawable.cameraPos = glm::vec4(camera.position(), 1.0f);
+    
+    // Bind Unified Index Buffer
     cmd->bindIndexBuffer(m_renderer->getBuffer(m_model->indexBuffer), 0, false);
 
-    ShaderGen::indirect_vert::PerFrameData pc{};
-    auto& d = pc.drawable;
-
-    d.view = camera.view();
-    d.proj = camera.proj();
-    d.cameraPos = glm::vec4(camera.position(), 1.0f);
-    d.transformBufferPtr = m_renderer->getBuffer(m_transformBuffer)->getDeviceAddress();
-    d.instanceBufferPtr = m_renderer->getBuffer(m_instanceDataBuffer)->getDeviceAddress();
-    
-    // Bind skinned buffer if compute produced it (skinning and/or morphing)
-    const bool hasSkinning = (m_jointMatricesBuffer != INVALID_BUFFER_HANDLE);
-    const bool hasMorphing = (m_model->morphVertexBuffer != INVALID_BUFFER_HANDLE && m_model->morphStateBuffer != INVALID_BUFFER_HANDLE);
-
-    if (m_skinnedVertexBuffer != INVALID_BUFFER_HANDLE && (hasSkinning || hasMorphing)) {
-        d.vertexBufferPtr = m_renderer->getBuffer(m_skinnedVertexBuffer)->getDeviceAddress();
+    // Skinning / Vertex Address
+    bool hasSkinning = (frame.jointMatricesBuffer != INVALID_BUFFER_HANDLE);
+    bool hasMorphing = (m_model->morphVertexBuffer != INVALID_BUFFER_HANDLE);
+    if (frame.skinnedVertexBuffer != INVALID_BUFFER_HANDLE && (hasSkinning || hasMorphing)) {
+        pc.drawable.vertexBufferPtr = m_renderer->getBuffer(frame.skinnedVertexBuffer)->getDeviceAddress();
     } else {
-        d.vertexBufferPtr = m_renderer->getBuffer(m_model->vertexBuffer)->getDeviceAddress();
+        pc.drawable.vertexBufferPtr = m_renderer->getBuffer(m_model->vertexBuffer)->getDeviceAddress();
+    }
+    
+    pc.drawable.transformBufferPtr = m_renderer->getBuffer(frame.transformBuffer)->getDeviceAddress();
+    pc.drawable.instanceBufferPtr = 0; // Not used in UnifiedDOD logic as it uses gl_InstanceIndex
+    
+    pc.drawable.materialBufferPtr = m_renderer->getBuffer(m_materialBuffer)->getDeviceAddress();
+    pc.drawable.environmentBufferPtr = m_renderer->getBuffer(m_environmentBuffer)->getDeviceAddress();
+
+    auto* sceneColorTex = m_renderer->getTexture(m_sceneColor);
+    auto* depthTex = m_renderer->getDepthTexture();
+
+    // --- PHASE 1: Opaque Pass ---
+    {
+        // Barriers
+        std::vector<rhi::RHIMemoryBarrier> barriers;
+        rhi::RHIMemoryBarrier bColor{};
+        bColor.texture = sceneColorTex;
+        bColor.oldLayout = m_sceneColorLayout;
+        bColor.newLayout = rhi::ResourceLayout::ColorAttachment;
+        bColor.srcAccessStage = rhi::ShaderStage::All;
+        bColor.dstAccessStage = rhi::ShaderStage::RenderTarget;
+        barriers.push_back(bColor);
+        
+        // Ensure Depth is ready
+        if (m_depthLayout != rhi::ResourceLayout::DepthStencilAttachment) {
+            rhi::RHIMemoryBarrier bDepth{};
+            bDepth.texture = depthTex;
+            bDepth.oldLayout = m_depthLayout;
+            bDepth.newLayout = rhi::ResourceLayout::DepthStencilAttachment;
+            bDepth.srcAccessStage = rhi::ShaderStage::All;
+            bDepth.dstAccessStage = rhi::ShaderStage::DepthStencilAttachment;
+            barriers.push_back(bDepth);
+            m_depthLayout = rhi::ResourceLayout::DepthStencilAttachment;
+        }
+        cmd->pipelineBarrier(rhi::ShaderStage::All, rhi::ShaderStage::RenderTarget, barriers);
+        m_sceneColorLayout = rhi::ResourceLayout::ColorAttachment;
+
+        // Render Info
+        rhi::RenderingInfo info{};
+        info.renderArea = {0, 0, width, height};
+        rhi::RenderingAttachment attColor{};
+        attColor.texture = sceneColorTex;
+        attColor.loadOp = rhi::LoadOp::Clear;
+        attColor.storeOp = rhi::StoreOp::Store;
+        attColor.clearValue.isDepthStencil = false;
+        attColor.clearValue.color.float32[0] = 0.0f; // Black clear
+        info.colorAttachments.push_back(attColor);
+        
+        rhi::RenderingAttachment attDepth{};
+        attDepth.texture = depthTex;
+        attDepth.loadOp = rhi::LoadOp::Clear;
+        attDepth.storeOp = rhi::StoreOp::Store;
+        attDepth.clearValue.isDepthStencil = true;
+        attDepth.clearValue.depthStencil.depth = 1.0f;
+        info.depthAttachment = &attDepth;
+
+        cmd->beginRendering(info);
+        cmd->setViewport({0,0,(float)width,(float)height,0,1});
+        cmd->setScissor({0,0,width,height});
+
+        PipelineHandle opaquePipeline = m_drawWireframe ? m_pipelineWireframe : m_pipeline;
+
+        if (!ctx.indirectOpaque.empty()) {
+            cmd->bindPipeline(m_renderer->getPipeline(opaquePipeline));
+            m_renderer->pushConstants(cmd, opaquePipeline, rhi::ShaderStage::Vertex|rhi::ShaderStage::Fragment, pc);
+            
+            auto* ib = m_renderer->getBuffer(frame.indirectOpaqueBuffer);
+            cmd->drawIndexedIndirect(ib, 0, (uint32_t)ctx.indirectOpaque.size(), sizeof(rhi::DrawIndexedIndirectCommand));
+        }
+        cmd->endRendering();
     }
 
-    d.materialBufferPtr = m_renderer->getBuffer(m_materialBuffer)->getDeviceAddress();
-    d.environmentBufferPtr = m_renderer->getBuffer(m_environmentBuffer)->getDeviceAddress();
-    d.lightBufferPtr = 0;
-    d.lightCount = 0;
-    d.envId = 0;
-    d.transmissionFramebuffer = 0xFFFFFFFFu;
-    d.transmissionFramebufferSampler = 0u;
+    // --- PHASE 2: Copy Opaque to Transmission ---
+    if (!ctx.indirectTransmission.empty()) {
+        auto* transTex = m_renderer->getTexture(m_transmissionTexture);
 
-    m_renderer->pushConstants(cmd, activePipeline, rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
+        // Barrier: SceneColor -> TransferSrc, TransTex -> TransferDst
+        std::vector<rhi::RHIMemoryBarrier> barriers;
+        rhi::RHIMemoryBarrier bSrc{};
+        bSrc.texture = sceneColorTex;
+        bSrc.oldLayout = m_sceneColorLayout;
+        bSrc.newLayout = rhi::ResourceLayout::TransferSrc;
+        bSrc.srcAccessStage = rhi::ShaderStage::RenderTarget;
+        bSrc.dstAccessStage = rhi::ShaderStage::Transfer;
+        barriers.push_back(bSrc);
 
-    // Single Indirect Draw Call
-    cmd->drawIndexedIndirect(
-        m_renderer->getBuffer(m_indirectBuffer), 
-        0,              // offset 
-        m_drawCount,    // count
-        sizeof(IndirectCommand) // stride
-    );
+        rhi::RHIMemoryBarrier bDst{};
+        bDst.texture = transTex;
+        bDst.oldLayout = m_transmissionLayout;
+        bDst.newLayout = rhi::ResourceLayout::TransferDst;
+        bDst.srcAccessStage = rhi::ShaderStage::All;
+        bDst.dstAccessStage = rhi::ShaderStage::Transfer;
+        barriers.push_back(bDst);
+
+        cmd->pipelineBarrier(rhi::ShaderStage::All, rhi::ShaderStage::Transfer, barriers);
+        m_sceneColorLayout = rhi::ResourceLayout::TransferSrc;
+        m_transmissionLayout = rhi::ResourceLayout::TransferDst;
+
+        // Copy
+        rhi::TextureCopyRegion region{};
+        region.extent = {width, height, 1};
+        cmd->copyTexture(sceneColorTex, transTex, region);
+
+        // Mips (Transitions to ShaderReadOnly)
+        transTex->generateMipmaps(cmd);
+        m_transmissionLayout = rhi::ResourceLayout::ShaderReadOnly;
+
+        // Restore SceneColor
+        rhi::RHIMemoryBarrier bRest{};
+        bRest.texture = sceneColorTex;
+        bRest.oldLayout = rhi::ResourceLayout::TransferSrc;
+        bRest.newLayout = rhi::ResourceLayout::ColorAttachment;
+        bRest.srcAccessStage = rhi::ShaderStage::Transfer;
+        bRest.dstAccessStage = rhi::ShaderStage::RenderTarget;
+        cmd->pipelineBarrier(rhi::ShaderStage::Transfer, rhi::ShaderStage::RenderTarget, {bRest});
+        m_sceneColorLayout = rhi::ResourceLayout::ColorAttachment;
+
+        // Update PC for transmission lookup
+        pc.drawable.transmissionFramebuffer = m_renderer->getTextureBindlessIndex(m_transmissionTexture);
+        pc.drawable.transmissionFramebufferSampler = m_renderer->getBindlessSamplerIndex(rhi::SamplerAddressMode::ClampToEdge);
+    } else {
+        // Fallback if no transmission needed
+        pc.drawable.transmissionFramebuffer = m_renderer->getTextureBindlessIndex(m_renderer->getWhiteTexture());
+        pc.drawable.transmissionFramebufferSampler = 0;
+    }
+
+    // --- PHASE 3: Transmission & Transparent ---
+    {
+        rhi::RenderingInfo info{};
+        info.renderArea = {0, 0, width, height};
+        rhi::RenderingAttachment attColor{};
+        attColor.texture = sceneColorTex;
+        attColor.loadOp = rhi::LoadOp::Load; // Keep opaque pixels
+        attColor.storeOp = rhi::StoreOp::Store;
+        info.colorAttachments.push_back(attColor);
+        
+        rhi::RenderingAttachment attDepth{};
+        attDepth.texture = depthTex;
+        attDepth.loadOp = rhi::LoadOp::Load; // Keep depth
+        attDepth.storeOp = rhi::StoreOp::Store;
+        info.depthAttachment = &attDepth;
+
+        cmd->beginRendering(info);
+        cmd->setViewport({0,0,(float)width,(float)height,0,1});
+        cmd->setScissor({0,0,width,height});
+
+        PipelineHandle opaquePipeline = m_drawWireframe ? m_pipelineWireframe : m_pipeline;
+
+        // Transmission (using Opaque pipeline state usually, but with transmission texture bound)
+        if (!ctx.indirectTransmission.empty()) {
+            cmd->bindPipeline(m_renderer->getPipeline(opaquePipeline)); // Rebind
+            m_renderer->pushConstants(cmd, opaquePipeline, rhi::ShaderStage::Vertex|rhi::ShaderStage::Fragment, pc);
+            
+            auto* ib = m_renderer->getBuffer(frame.indirectTransmissionBuffer);
+            cmd->drawIndexedIndirect(ib, 0, (uint32_t)ctx.indirectTransmission.size(), sizeof(rhi::DrawIndexedIndirectCommand));
+        }
+
+        // Transparent
+        if (!ctx.indirectTransparent.empty()) {
+            cmd->bindPipeline(m_renderer->getPipeline(m_pipelineTransparent));
+            m_renderer->pushConstants(cmd, m_pipelineTransparent, rhi::ShaderStage::Vertex|rhi::ShaderStage::Fragment, pc);
+            
+            auto* ib = m_renderer->getBuffer(frame.indirectTransparentBuffer);
+            cmd->drawIndexedIndirect(ib, 0, (uint32_t)ctx.indirectTransparent.size(), sizeof(rhi::DrawIndexedIndirectCommand));
+        }
+        cmd->endRendering();
+    }
+
+    // --- PHASE 4: Final Blit to Swapchain ---
+    {
+        auto* backbuffer = m_renderer->getBackbuffer();
+        
+        // Barriers
+        std::vector<rhi::RHIMemoryBarrier> barriers;
+        rhi::RHIMemoryBarrier bSrc{};
+        bSrc.texture = sceneColorTex;
+        bSrc.oldLayout = m_sceneColorLayout;
+        bSrc.newLayout = rhi::ResourceLayout::TransferSrc;
+        bSrc.srcAccessStage = rhi::ShaderStage::RenderTarget;
+        bSrc.dstAccessStage = rhi::ShaderStage::Transfer;
+        barriers.push_back(bSrc);
+
+        rhi::RHIMemoryBarrier bDst{};
+        bDst.texture = backbuffer;
+        // Backbuffer comes in as ColorAttachment from beginFrame
+        bDst.oldLayout = rhi::ResourceLayout::ColorAttachment; 
+        bDst.newLayout = rhi::ResourceLayout::TransferDst;
+        bDst.srcAccessStage = rhi::ShaderStage::RenderTarget;
+        bDst.dstAccessStage = rhi::ShaderStage::Transfer;
+        barriers.push_back(bDst);
+
+        cmd->pipelineBarrier(rhi::ShaderStage::RenderTarget, rhi::ShaderStage::Transfer, barriers);
+        m_sceneColorLayout = rhi::ResourceLayout::TransferSrc;
+
+        // Blit
+        rhi::TextureCopyRegion region{};
+        region.extent = {width, height, 1};
+        cmd->copyTexture(sceneColorTex, backbuffer, region);
+
+        // Restore Backbuffer for UI (ColorAttachment)
+        rhi::RHIMemoryBarrier bRest{};
+        bRest.texture = backbuffer;
+        bRest.oldLayout = rhi::ResourceLayout::TransferDst;
+        bRest.newLayout = rhi::ResourceLayout::ColorAttachment;
+        bRest.srcAccessStage = rhi::ShaderStage::Transfer;
+        bRest.dstAccessStage = rhi::ShaderStage::RenderTarget;
+        cmd->pipelineBarrier(rhi::ShaderStage::Transfer, rhi::ShaderStage::RenderTarget, {bRest});
+    }
+
+    // --- PHASE 5: Restart Swapchain Pass for ImGui ---
+    {
+        rhi::RenderingInfo info{};
+        info.renderArea = {0, 0, width, height};
+        rhi::RenderingAttachment attColor{};
+        attColor.texture = m_renderer->getBackbuffer();
+        attColor.loadOp = rhi::LoadOp::Load; // Keep blitted image
+        attColor.storeOp = rhi::StoreOp::Store;
+        info.colorAttachments.push_back(attColor);
+        
+        cmd->beginRendering(info);
+        cmd->setViewport({0,0,(float)width,(float)height,0,1});
+        cmd->setScissor({0,0,width,height});
+    }
 }
 
 void IndirectRenderer::setWireframe(bool enabled) {

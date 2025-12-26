@@ -68,6 +68,7 @@ namespace pnkr::renderer::rhi::vulkan
         Extent3D m_extent;
         Format m_format;
         TextureUsage m_usage;
+        TextureType m_type;
         uint32_t m_mipLevels = 1;
         uint32_t m_arrayLayers = 1;
 

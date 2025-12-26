@@ -1,68 +1,40 @@
 #pragma once
+
 #include <cstdint>
 #include <string>
 
-// Forward-declared RenderDoc API pointer in global namespace.
+// Forward declaration to avoid including the heavy renderdoc_app.h here
 struct RENDERDOC_API_1_6_0;
 
 namespace pnkr::debug {
 
 class RenderDoc {
 public:
-    // Attempts to locate and load RenderDoc at runtime.
-    // Safe to call multiple times; returns true if API is available.
-    bool init();
+    RenderDoc() = default;
+    ~RenderDoc() = default;
 
-    bool isAvailable() const { return m_available; }
+    // Returns true if RenderDoc was found and loaded
+    bool init();
+    
+    // Returns true if the RenderDoc API is loaded and ready
+    bool isAvailable() const { return m_api != nullptr; }
+    
+    // Returns true if a capture is currently in progress
     bool isCapturing() const { return m_capturing; }
 
-    // Capture control. For Vulkan you can pass nullptr/nullptr and it will capture globally.
-    void startCapture(void* device = nullptr, void* windowHandle = nullptr);
-    void endCapture(void* device = nullptr, void* windowHandle = nullptr);
+    // The main toggle function (Yuzu style)
+    // Starts or Ends a capture immediately on all active devices/windows
+    void toggleCapture();
 
-    // Convenience: capture N consecutive frames using the frame hooks below.
-    void requestCaptureFrames(uint32_t frames, bool andLaunchUI = true);
+    // Utility: Launch the RenderDoc UI tool
+    void launchReplayUI();
 
-    // These must be called from your frame loop:
-    // - onFrameBegin(): before recording/submitting for the frame
-    // - onFrameEnd(): after present (or at least after submitting all work)
-    void onFrameBegin(void* device = nullptr, void* windowHandle = nullptr);
-    void onFrameEnd(void* device = nullptr, void* windowHandle = nullptr);
-
-    // Optional helper (works when RenderDoc UI path is discoverable)
-    // In practice, LaunchReplayUI is supported but may require renderdoc.dll already loaded.
-    bool launchReplayUI(uint32_t connectTargetControlPort = 0);
-
-    std::string statusString() const;
+    // Diagnostics
+    std::string getOverlayText() const;
 
 private:
-    bool loadRenderDocLibrary();
-
-    // Tries to launch UI with the most recent capture once it exists.
-    bool tryOpenLatestCapture(uint32_t connectTargetControlPort);
-
-private:
-    bool m_available = false;
+    RENDERDOC_API_1_6_0* m_api = nullptr;
     bool m_capturing = false;
-
-    // requested capture count (N frames)
-    uint32_t m_captureFramesRemaining = 0;
-
-    // internal: whether we started capture at this frame begin and need to end it at frame end
-    bool m_shouldEndThisFrame = false;
-
-    // whether to launch UI after finishing current capture request
-    bool m_launchUIOnFinish = false;
-
-    // If true, we will attempt to open the latest capture on subsequent frames
-    // (fixes timing where GetNumCaptures()==0 immediately after EndFrameCapture).
-    bool m_openLatestPending = false;
-
-    // opaque handles
-    void* m_libHandle = nullptr;
-
-    // The API pointer.
-    ::RENDERDOC_API_1_6_0* m_api = nullptr;
 };
 
 } // namespace pnkr::debug

@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.hpp>
 #include <vk_mem_alloc.h>
 
+#include "vulkan_device.hpp"
 #include "pnkr/rhi/rhi_types.hpp"
 
 namespace pnkr::renderer::rhi::vulkan
@@ -11,8 +12,7 @@ namespace pnkr::renderer::rhi::vulkan
     class VulkanRHIBuffer : public RHIBuffer
     {
     public:
-        VulkanRHIBuffer(vk::Device device,
-                        VmaAllocator allocator,
+        VulkanRHIBuffer(VulkanRHIDevice* device,
                         const BufferDescriptor& desc);
         ~VulkanRHIBuffer() override;
 
@@ -35,8 +35,7 @@ namespace pnkr::renderer::rhi::vulkan
         operator VkBuffer() const { return m_buffer; }
 
     private:
-        vk::Device m_device;
-        VmaAllocator m_allocator;
+        VulkanRHIDevice* m_device;
         vk::Buffer m_buffer;
         VmaAllocation m_allocation{};
         uint64_t m_size;

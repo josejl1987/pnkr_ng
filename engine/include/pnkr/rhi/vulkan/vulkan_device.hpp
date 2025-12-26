@@ -11,6 +11,39 @@ namespace pnkr::platform { class Window; }
 
 namespace pnkr::renderer::rhi::vulkan
 {
+    class BindlessResourceManager {
+    public:
+        void init(uint32_t maxCapacity) {
+            m_maxCapacity = maxCapacity;
+            m_highWaterMark = 0;
+            m_freeList.clear();
+        }
+
+        uint32_t allocate() {
+            if (!m_freeList.empty()) {
+                uint32_t id = m_freeList.back();
+                m_freeList.pop_back();
+                return id;
+            }
+            
+            if (m_highWaterMark >= m_maxCapacity) {
+                return 0xFFFFFFFF;
+            }
+            return m_highWaterMark++;
+        }
+
+        void free(uint32_t id) {
+            if (id != 0xFFFFFFFF) {
+                m_freeList.push_back(id);
+            }
+        }
+
+    private:
+        uint32_t m_maxCapacity = 0;
+        uint32_t m_highWaterMark = 0;
+        std::vector<uint32_t> m_freeList;
+    };
+
     struct VulkanInstanceContext
     {
         vk::Instance instance{};
@@ -84,6 +117,9 @@ namespace pnkr::renderer::rhi::vulkan
         std::unique_ptr<RHIPipeline> createComputePipeline(
             const ComputePipelineDescriptor& desc) override;
 
+        std::unique_ptr<RHIUploadContext> createUploadContext(uint64_t stagingBufferSize = 64 * 1024 * 1024) override;
+        RHIUploadContext* uploadContext();
+
         std::unique_ptr<RHIDescriptorSetLayout> createDescriptorSetLayout(
             const DescriptorSetLayout& desc) override;
         std::unique_ptr<RHIDescriptorSet> allocateDescriptorSet(
@@ -129,6 +165,13 @@ namespace pnkr::renderer::rhi::vulkan
         BindlessHandle registerBindlessSampler(RHISampler* sampler) override;
         BindlessHandle registerBindlessBuffer(RHIBuffer* buffer) override;
         BindlessHandle registerBindlessStorageImage(RHITexture* texture) override;
+
+        void releaseBindlessTexture(BindlessHandle handle) override;
+        void releaseBindlessCubemap(BindlessHandle handle) override;
+        void releaseBindlessSampler(BindlessHandle handle) override;
+        void releaseBindlessStorageImage(BindlessHandle handle) override;
+        void releaseBindlessBuffer(BindlessHandle handle) override;
+
         // To bind the global set to a command buffer
         RHIDescriptorSet* getBindlessDescriptorSet() override;
         RHIDescriptorSetLayout* getBindlessDescriptorSetLayout() override;
@@ -163,11 +206,11 @@ namespace pnkr::renderer::rhi::vulkan
         std::unique_ptr<RHIDescriptorSetLayout> m_bindlessLayout;
         std::unique_ptr<class VulkanRHIDescriptorSet> m_bindlessSetWrapper;
     
-        uint32_t m_textureIndexCounter = 0;
-        uint32_t m_samplerIndexCounter = 0;
-        uint32_t m_bufferIndexCounter = 0;
-        uint32_t m_cubemapIndexCounter = 0;
-        uint32_t m_storageImageIndexCounter = 0;
+        BindlessResourceManager m_textureManager;
+        BindlessResourceManager m_samplerManager;
+        BindlessResourceManager m_bufferManager;
+        BindlessResourceManager m_cubemapManager;
+        BindlessResourceManager m_storageImageManager;
     
         static constexpr uint32_t MAX_BINDLESS_RESOURCES = 100000;
         static constexpr uint32_t MAX_SAMPLERS = 200;
@@ -192,6 +235,7 @@ namespace pnkr::renderer::rhi::vulkan
         vk::Semaphore m_frameTimelineSemaphore;
         uint64_t m_frameCounter = 0;
         vk::DescriptorPool m_descriptorPool{};
+        std::unique_ptr<RHIUploadContext> m_uploadContext;
 
         // Initialization helpers
         void createLogicalDevice(const DeviceDescriptor& desc);

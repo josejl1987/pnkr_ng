@@ -58,14 +58,6 @@ namespace pnkr::app
         // Default implementation uses m_renderer. Override for RHI/Custom rendering.
         virtual void onRenderFrame(float deltaTime);
 
-        virtual void onFrameBegin()
-        {
-        }
-
-        virtual void onFrameEnd()
-        {
-        }
-
         // Only used by default onRenderFrame
         virtual void onRecord(const renderer::RHIFrameContext& ctx)
         {
@@ -162,11 +154,9 @@ namespace pnkr::app
     {
         if (m_renderer)
         {
-            onFrameBegin();
             m_renderer->beginFrame(deltaTime);
             m_renderer->drawFrame();
             m_renderer->endFrame();
-            onFrameEnd();
         }
     }
 

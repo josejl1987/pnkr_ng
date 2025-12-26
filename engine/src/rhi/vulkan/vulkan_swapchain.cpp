@@ -449,12 +449,13 @@ namespace pnkr::renderer::rhi::vulkan
 
             RHIMemoryBarrier b{};
             b.texture = out.color;
-            b.srcAccessStage = ShaderStage::None;
+            // Align with RHIRenderer optimized wait stage (ColorAttachmentOutput)
+            b.srcAccessStage = ShaderStage::RenderTarget;
             b.dstAccessStage = ShaderStage::RenderTarget;
             b.oldLayout = m_layouts[imageIndex];
             b.newLayout = ResourceLayout::ColorAttachment;
 
-            cmd->pipelineBarrier(ShaderStage::None, ShaderStage::RenderTarget, {b});
+            cmd->pipelineBarrier(ShaderStage::RenderTarget, ShaderStage::RenderTarget, {b});
             m_layouts[imageIndex] = ResourceLayout::ColorAttachment;
 
             PNKR_PROFILE_GPU_COLLECT(m_tracyContext, vkCmd);

@@ -9,11 +9,9 @@ using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
-    VulkanRHIBuffer::VulkanRHIBuffer(vk::Device device,
-                                     VmaAllocator allocator,
+    VulkanRHIBuffer::VulkanRHIBuffer(VulkanRHIDevice* device,
                                      const BufferDescriptor& desc)
         : m_device(device)
-        , m_allocator(allocator)
         , m_size(desc.size)
         , m_usage(desc.usage)
         , m_memoryUsage(desc.memoryUsage)
@@ -37,7 +35,7 @@ namespace pnkr::renderer::rhi::vulkan
         VkBuffer cBuffer = nullptr;
 
         auto result = static_cast<vk::Result>(
-            vmaCreateBuffer(m_allocator, &cBufferInfo, &allocInfo,
+            vmaCreateBuffer(m_device->allocator(), &cBufferInfo, &allocInfo,
                           &cBuffer, &m_allocation, nullptr));
 
         if (result != vk::Result::eSuccess) {
@@ -50,7 +48,7 @@ namespace pnkr::renderer::rhi::vulkan
         if (desc.memoryUsage == MemoryUsage::CPUToGPU)
         {
             VmaAllocationInfo ainfo{};
-            vmaGetAllocationInfo(m_allocator, m_allocation, &ainfo);
+            vmaGetAllocationInfo(m_device->allocator(), m_allocation, &ainfo);
             m_mappedData = ainfo.pMappedData;
             m_isPersistentlyMapped = (m_mappedData != nullptr);
         }
@@ -62,17 +60,21 @@ namespace pnkr::renderer::rhi::vulkan
             nameInfo.objectHandle = u64((VkBuffer)m_buffer);
             nameInfo.pObjectName = desc.debugName;
 
-                m_device.setDebugUtilsObjectNameEXT(nameInfo);
+                m_device->device().setDebugUtilsObjectNameEXT(nameInfo);
 
         }
     }
 
     VulkanRHIBuffer::~VulkanRHIBuffer()
     {
+        if (m_bindlessHandle.isValid()) {
+            m_device->releaseBindlessBuffer(m_bindlessHandle);
+        }
+
         if (m_mappedData != nullptr) {
             unmap();
         }
-        vmaDestroyBuffer(m_allocator, m_buffer, m_allocation);
+        vmaDestroyBuffer(m_device->allocator(), m_buffer, m_allocation);
     }
 
     void* VulkanRHIBuffer::map()
@@ -85,7 +87,7 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         auto result = static_cast<vk::Result>(
-            vmaMapMemory(m_allocator, m_allocation, &m_mappedData));
+            vmaMapMemory(m_device->allocator(), m_allocation, &m_mappedData));
 
         if (result != vk::Result::eSuccess) {
             core::Logger::error("Failed to map buffer memory: {}", vk::to_string(result));
@@ -101,7 +103,7 @@ namespace pnkr::renderer::rhi::vulkan
             return;
         }
         if (m_mappedData != nullptr) {
-            vmaUnmapMemory(m_allocator, m_allocation);
+            vmaUnmapMemory(m_device->allocator(), m_allocation);
             m_mappedData = nullptr;
         }
     }
@@ -120,7 +122,7 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         std::memcpy(static_cast<char*>(mapped) + offset, data, size);
-        vmaFlushAllocation(m_allocator, m_allocation, offset, size);
+        vmaFlushAllocation(m_device->allocator(), m_allocation, offset, size);
         unmap();
     }
 
@@ -128,6 +130,6 @@ namespace pnkr::renderer::rhi::vulkan
     {
         vk::BufferDeviceAddressInfo addressInfo{};
         addressInfo.buffer = m_buffer;
-        return m_device.getBufferAddress(addressInfo);
+        return m_device->device().getBufferAddress(addressInfo);
     }
 } // namespace pnkr::renderer::rhi::vulkan

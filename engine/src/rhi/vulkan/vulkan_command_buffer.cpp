@@ -14,6 +14,22 @@ using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
+    namespace
+    {
+        template <typename To, typename From>
+        To* castOrAssert(From* ptr, const char* message)
+        {
+#ifdef DEBUG
+            auto* out = dynamic_cast<To*>(ptr);
+            PNKR_ASSERT(out != nullptr, message);
+            return out;
+#else
+            (void)message;
+            return static_cast<To*>(ptr);
+#endif
+        }
+    }
+
     VulkanRHICommandBuffer::VulkanRHICommandBuffer(VulkanRHIDevice* device)
         : m_device(device)
     {
@@ -156,7 +172,8 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHICommandBuffer::bindPipeline(RHIPipeline* pipeline)
     {
-        auto* vkPipeline = dynamic_cast<VulkanRHIPipeline*>(pipeline);
+        auto* vkPipeline = castOrAssert<VulkanRHIPipeline>(
+            pipeline, "bindPipeline: pipeline is not Vulkan");
         m_boundPipeline = vkPipeline;
 
         vk::PipelineBindPoint bindPoint =
@@ -178,13 +195,15 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHICommandBuffer::bindVertexBuffer(uint32_t binding, RHIBuffer* buffer, uint64_t offset)
     {
-        auto* vkBuffer = dynamic_cast<VulkanRHIBuffer*>(buffer);
+        auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
+            buffer, "bindVertexBuffer: buffer is not Vulkan");
         m_commandBuffer.bindVertexBuffers(binding, vkBuffer->buffer(), offset);
     }
 
     void VulkanRHICommandBuffer::bindIndexBuffer(RHIBuffer* buffer, uint64_t offset, bool use16Bit)
     {
-        auto* vkBuffer = dynamic_cast<VulkanRHIBuffer*>(buffer);
+        auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
+            buffer, "bindIndexBuffer: buffer is not Vulkan");
         m_commandBuffer.bindIndexBuffer(
             vkBuffer->buffer(),
             offset,
@@ -207,7 +226,8 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHICommandBuffer::drawIndexedIndirect(RHIBuffer* buffer, uint64_t offset, uint32_t drawCount, uint32_t stride)
     {
-        auto* vkBuffer = dynamic_cast<VulkanRHIBuffer*>(buffer);
+        auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
+            buffer, "drawIndexedIndirect: buffer is not Vulkan");
         m_commandBuffer.drawIndexedIndirect(vkBuffer->buffer(), offset, drawCount, stride);
     }
 
@@ -219,7 +239,8 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::pushConstants(RHIPipeline* pipeline, ShaderStage stages,
                                                uint32_t offset, uint32_t size, const void* data)
     {
-        auto* vkPipeline = dynamic_cast<VulkanRHIPipeline*>(pipeline);
+        auto* vkPipeline = castOrAssert<VulkanRHIPipeline>(
+            pipeline, "pushConstants: pipeline is not Vulkan");
         m_commandBuffer.pushConstants(
             vkPipeline->pipelineLayout(),
             VulkanUtils::toVkShaderStage(stages),
@@ -231,7 +252,8 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::bindDescriptorSet(RHIPipeline* pipeline, uint32_t setIndex,
                                                    RHIDescriptorSet* descriptorSet)
     {
-        auto* vkPipeline = dynamic_cast<VulkanRHIPipeline*>(pipeline);
+        auto* vkPipeline = castOrAssert<VulkanRHIPipeline>(
+            pipeline, "bindDescriptorSet: pipeline is not Vulkan");
         if (vkPipeline == nullptr)
         {
             throw cpptrace::runtime_error("bindDescriptorSet: pipeline is null or not a VulkanRHIPipeline");
@@ -250,7 +272,8 @@ namespace pnkr::renderer::rhi::vulkan
             return;
         }
 
-        auto* vkSet = dynamic_cast<VulkanRHIDescriptorSet*>(descriptorSet);
+        auto* vkSet = castOrAssert<VulkanRHIDescriptorSet>(
+            descriptorSet, "bindDescriptorSet: descriptor set is not Vulkan");
         auto vkDescSet = vk::DescriptorSet(
             static_cast<VkDescriptorSet>(vkSet->nativeHandle()));
 
@@ -403,7 +426,8 @@ namespace pnkr::renderer::rhi::vulkan
             if (barrier.buffer != nullptr)
             {
                 // Buffer barrier
-                auto* vkBuffer = dynamic_cast<VulkanRHIBuffer*>(barrier.buffer);
+                auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
+                    barrier.buffer, "pipelineBarrier: buffer is not Vulkan");
 
                 vk::BufferMemoryBarrier2 vkBarrier{};
 
@@ -499,8 +523,10 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::copyBuffer(RHIBuffer* src, RHIBuffer* dst,
                                             uint64_t srcOffset, uint64_t dstOffset, uint64_t size)
     {
-        auto* srcBuffer = dynamic_cast<VulkanRHIBuffer*>(src);
-        auto* dstBuffer = dynamic_cast<VulkanRHIBuffer*>(dst);
+        auto* srcBuffer = castOrAssert<VulkanRHIBuffer>(
+            src, "copyBuffer: src is not Vulkan");
+        auto* dstBuffer = castOrAssert<VulkanRHIBuffer>(
+            dst, "copyBuffer: dst is not Vulkan");
 
         vk::BufferCopy copyRegion{};
         copyRegion.srcOffset = srcOffset;
@@ -513,7 +539,8 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::copyBufferToTexture(RHIBuffer* src, RHITexture* dst,
                                                      const BufferTextureCopyRegion& region)
     {
-        auto* srcBuffer = dynamic_cast<VulkanRHIBuffer*>(src);
+        auto* srcBuffer = castOrAssert<VulkanRHIBuffer>(
+            src, "copyBufferToTexture: src is not Vulkan");
         if (dst == nullptr)
         {
             throw cpptrace::runtime_error("copyBufferToTexture: dst is null");
@@ -563,7 +590,8 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::copyTextureToBuffer(RHITexture* src, RHIBuffer* dst,
                                                      const BufferTextureCopyRegion& region)
     {
-        auto* dstBuffer = dynamic_cast<VulkanRHIBuffer*>(dst);
+        auto* dstBuffer = castOrAssert<VulkanRHIBuffer>(
+            dst, "copyTextureToBuffer: dst is not Vulkan");
         if (src == nullptr)
         {
             throw cpptrace::runtime_error("copyTextureToBuffer: src is null");

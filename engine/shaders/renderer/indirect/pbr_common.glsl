@@ -44,6 +44,7 @@ const uint MaterialType_Specular           = 1u << 4;
 const uint MaterialType_Transmission       = 1u << 5;
 const uint MaterialType_Volume             = 1u << 6;
 const uint MaterialType_Unlit              = 1u << 7;
+const uint MaterialType_DoubleSided        = 1u << 8;
 
 // corresponds to MetallicRoughnessDataGPU from Chapter06/04_MetallicRoughness/src/main.cpp
 struct MetallicRoughnessDataGPU {
@@ -345,6 +346,10 @@ bool isMaterialTypeVolume(MetallicRoughnessDataGPU mat) {
 
 bool isMaterialTypeUnlit(MetallicRoughnessDataGPU mat) {
     return (getMaterialType(mat) & 0x80U) != 0;
+}
+
+bool isMaterialTypeDoubleSided(MetallicRoughnessDataGPU mat) {
+    return (getMaterialType(mat) & 0x100U) != 0;
 }
 
 

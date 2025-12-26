@@ -55,6 +55,12 @@ namespace pnkr::renderer::rhi
         virtual void* nativeHandle() const = 0;
         virtual void* nativeView() const = 0;  // Image view
         virtual void* nativeView(uint32_t mipLevel, uint32_t arrayLayer) const = 0;
+
+        void setBindlessHandle(BindlessHandle handle) { m_bindlessHandle = handle; }
+        BindlessHandle getBindlessHandle() const { return m_bindlessHandle; }
+
+    protected:
+        BindlessHandle m_bindlessHandle;
     };
 
 } // namespace pnkr::renderer::rhi

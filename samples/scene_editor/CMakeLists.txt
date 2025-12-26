@@ -12,6 +12,7 @@ target_compile_features(pnkr_scene_editor PRIVATE cxx_std_20)
 
 target_link_libraries(pnkr_scene_editor PRIVATE 
     pnkr_engine
+        imguizmo::imguizmo
 )
 
 set_target_properties(pnkr_scene_editor PROPERTIES

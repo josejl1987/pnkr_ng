@@ -149,9 +149,11 @@ target_compile_features(pnkr_engine PUBLIC cxx_std_20)
 target_include_directories(pnkr_engine
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
     $<INSTALL_INTERFACE:include>
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_compile_definitions(pnkr_engine
@@ -352,7 +354,6 @@ add_shader_target("shaders/renderer/indirect/skinning.comp")
 add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 
 # Include generated headers
-target_include_directories(pnkr_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 # Rebuild if shader headers change
 set_source_files_properties( src/renderer/scene/Skybox.cpp PROPERTIES

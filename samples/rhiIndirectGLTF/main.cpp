@@ -4,7 +4,6 @@
 #include "pnkr/platform/FileDialog.hpp"
 #include "pnkr/core/RecentFiles.hpp"
 #include "pnkr/debug/RenderDoc.hpp"
-#include "renderdoc_app.h"
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/CameraController.hpp"
 #include <glm/gtc/matrix_inverse.hpp>
@@ -57,7 +56,7 @@ public:
     std::shared_ptr<renderer::scene::ModelDOD> m_model;
     std::unique_ptr<renderer::IndirectRenderer> m_indirectRenderer;
     renderer::scene::Camera m_camera;
-    scene::CameraController m_cameraController{{-19.2609997, 8.46500015, -7.31699991}, 20.801124201214570, -16.146098030003937f};
+    renderer::scene::CameraController m_cameraController{{-19.2609997, 8.46500015, -7.31699991}, 20.801124201214570, -16.146098030003937f};
     TextureHandle m_brdfLut;
     TextureHandle m_irradiance;
     TextureHandle m_prefilter;
@@ -73,16 +72,22 @@ public:
     bool m_materialDirty = false;
     glm::vec3 m_cameraPosUI{0.0f};
     glm::vec3 m_cameraTargetUI{0.0f, 0.0f, -1.0f};
-    pnkr::debug::RenderDoc m_renderdoc;
-
-    void onPreInit() override
-    {
-        m_renderdoc.init();
-    }
 
     void onInit() override {
         m_recent.load();
-        m_brdfLut = m_renderer->loadTextureKTX("assets/brdf_lut.ktx2");
+        
+        // Load IBL Textures
+        m_brdfLut    = m_renderer->loadTextureKTX("assets/brdf_lut.ktx2");
+        m_irradiance = m_renderer->loadTextureKTX("assets/immenstadter_horn_2k_irradiance.ktx");
+        m_prefilter  = m_renderer->loadTextureKTX("assets/immenstadter_horn_2k_prefilter.ktx");
+        
+        if (m_brdfLut == INVALID_TEXTURE_HANDLE || 
+            m_irradiance == INVALID_TEXTURE_HANDLE || 
+            m_prefilter == INVALID_TEXTURE_HANDLE) 
+        {
+            pnkr::core::Logger::warn("One or more IBL textures failed to load. PBR will look flat.");
+        }
+
         loadModel(baseDir() / "assets/AnimatedMorphCube.glb");
 
         // Setup Camera
@@ -209,17 +214,40 @@ public:
         }
     }
 
+    void onEvent(const SDL_Event& event) override
+    {
+        if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat)
+        {
+            if (event.key.scancode == SDL_SCANCODE_F10)
+            {
+                auto& rd = m_renderer->renderdoc();
+                
+                // Try to lazy load if not available
+                if (!rd.isAvailable()) {
+                    if (rd.init()) {
+                        pnkr::core::Logger::info("RenderDoc hot-loaded via F10.");
+                    } else {
+                        pnkr::core::Logger::error("RenderDoc DLL not found. Cannot capture.");
+                        return;
+                    }
+                }
+                
+                rd.toggleCapture();
+            }
+        }
+    }
+
     void onImGui() override
     {
         if (ImGui::BeginMainMenuBar())
-                    {
-                        if (ImGui::BeginMenu("File"))
-                        {
-                            if (ImGui::MenuItem("Open glTF/glb..."))
-                            {
-                                if (auto p = pnkr::platform::FileDialog::OpenGLTFDialog())
-                                    m_pendingLoad = *p;
-                            }
+        {
+            if (ImGui::BeginMenu("File"))
+            {
+                if (ImGui::MenuItem("Open glTF/glb..."))
+                {
+                    if (auto p = pnkr::platform::FileDialog::OpenGLTFDialog())
+                        m_pendingLoad = *p;
+                }
         
                 if (auto pick = m_recent.drawImGuiMenu("Recent Files")) {
                     m_pendingLoad = *pick;
@@ -229,21 +257,36 @@ public:
 
             if (ImGui::BeginMenu("Capture"))
             {
-                const bool rdAvail = m_renderdoc.isAvailable() || m_renderdoc.init();
-                if (!rdAvail) {
-                    ImGui::MenuItem("RenderDoc not available", nullptr, false, false);
+                auto& rd = m_renderer->renderdoc();
+                bool avail = rd.isAvailable();
+
+                // Status Indicator
+                std::string status = rd.getOverlayText();
+                if (rd.isCapturing()) {
+                    ImGui::TextColored(ImVec4(1, 0, 0, 1), "(( %s ))", status.c_str());
                 } else {
-                    if (ImGui::MenuItem("Capture next frame")) {
-                        m_renderdoc.requestCaptureFrames(1);
+                    ImGui::TextDisabled("%s", status.c_str());
+                }
+                ImGui::Separator();
+
+                if (!avail) {
+                    if (ImGui::MenuItem("Load RenderDoc DLL")) {
+                        rd.init();
                     }
-                    if (ImGui::MenuItem("Capture next 5 frames")) {
-                        m_renderdoc.requestCaptureFrames(5);
+                } else {
+                    if (rd.isCapturing()) {
+                        if (ImGui::MenuItem("Stop Capture", "F10")) {
+                            rd.toggleCapture();
+                        }
+                    } else {
+                        if (ImGui::MenuItem("Start Capture", "F10")) {
+                            rd.toggleCapture();
+                        }
                     }
-                    if (ImGui::MenuItem("Launch RenderDoc UI")) {
-                        m_renderdoc.launchReplayUI(0);
+
+                    if (ImGui::MenuItem("Launch Replay UI")) {
+                        rd.launchReplayUI();
                     }
-                    ImGui::Separator();
-                    ImGui::TextUnformatted(m_renderdoc.statusString().c_str());
                 }
                 ImGui::EndMenu();
             }
@@ -477,25 +520,7 @@ public:
 
     void onRecord(const renderer::RHIFrameContext& ctx) override {
         if (m_indirectRenderer) {
-            m_indirectRenderer->draw(ctx.commandBuffer, m_camera);
-        }
-    }
-
-    void onFrameBegin() override
-    {
-        if (m_renderer) {
-            VkInstance inst = (VkInstance)m_renderer->device()->getNativeInstance();
-            void* rdDevice = RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(inst);
-            m_renderdoc.onFrameBegin(rdDevice, nullptr);
-        }
-    }
-
-    void onFrameEnd() override
-    {
-        if (m_renderer) {
-            VkInstance inst = (VkInstance)m_renderer->device()->getNativeInstance();
-            void* rdDevice = RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(inst);
-            m_renderdoc.onFrameEnd(rdDevice, nullptr);
+            m_indirectRenderer->draw(ctx.commandBuffer, m_camera, ctx.backBuffer->extent().width, ctx.backBuffer->extent().height);
         }
     }
 };

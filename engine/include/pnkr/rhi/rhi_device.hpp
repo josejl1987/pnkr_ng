@@ -80,6 +80,16 @@ namespace pnkr::renderer::rhi
         virtual bool supportsPresentation(uint32_t queueFamily) const = 0;
     };
 
+    // Abstract upload context for batched transfers
+    class RHIUploadContext
+    {
+    public:
+        virtual ~RHIUploadContext() = default;
+        virtual void uploadTexture(RHITexture* texture, const void* data, uint64_t size, const TextureSubresource& subresource = {}) = 0;
+        virtual void uploadBuffer(RHIBuffer* buffer, const void* data, uint64_t size, uint64_t offset = 0) = 0;
+        virtual void flush() = 0;
+    };
+
     // Abstract logical device
     class RHIDevice
     {
@@ -116,6 +126,8 @@ namespace pnkr::renderer::rhi
 
         virtual std::unique_ptr<RHIPipeline> createComputePipeline(
             const struct ComputePipelineDescriptor& desc) = 0;
+
+        virtual std::unique_ptr<RHIUploadContext> createUploadContext(uint64_t stagingBufferSize = 64 * 1024 * 1024) = 0;
 
         // Descriptor sets/layouts
         virtual std::unique_ptr<RHIDescriptorSetLayout> createDescriptorSetLayout(
@@ -156,6 +168,12 @@ namespace pnkr::renderer::rhi
         virtual BindlessHandle registerBindlessSampler(RHISampler* sampler) = 0;
         virtual BindlessHandle registerBindlessStorageImage(RHITexture* texture) = 0;
         virtual BindlessHandle registerBindlessBuffer(RHIBuffer* buffer) = 0;
+
+        virtual void releaseBindlessTexture(BindlessHandle handle) = 0;
+        virtual void releaseBindlessCubemap(BindlessHandle handle) = 0;
+        virtual void releaseBindlessSampler(BindlessHandle handle) = 0;
+        virtual void releaseBindlessStorageImage(BindlessHandle handle) = 0;
+        virtual void releaseBindlessBuffer(BindlessHandle handle) = 0;
 
         // To bind the global set to a command buffer
         virtual RHIDescriptorSet* getBindlessDescriptorSet() = 0; 

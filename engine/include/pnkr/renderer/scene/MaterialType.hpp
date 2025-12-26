@@ -12,6 +12,7 @@ enum MaterialType : uint32_t {
     MaterialType_Transmission       = 1u << 5, // 0x20
     MaterialType_Volume             = 1u << 6, // 0x40
     MaterialType_Unlit              = 1u << 7, // 0x80
+    MaterialType_DoubleSided        = 1u << 8, // 0x100
 };
 
 inline bool hasFlag(uint32_t mask, MaterialType f) {
