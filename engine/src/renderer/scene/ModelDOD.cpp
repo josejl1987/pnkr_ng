@@ -322,6 +322,7 @@ namespace pnkr::renderer::scene
         writer.writeChunk(makeFourCC("SHIE"), 1, m_scene.hierarchy);
         writer.writeChunk(makeFourCC("SMES"), 1, m_scene.meshIndex);
         writer.writeChunk(makeFourCC("SLIT"), 1, m_scene.lightIndex);
+        writer.writeChunk(makeFourCC("SCAM"), 1, m_scene.cameraIndex);
         writer.writeChunk(makeFourCC("SNID"), 1, m_scene.nameId);
         writer.writeStringListChunk(makeFourCC("SNMS"), 1, m_scene.names);
         writer.writeChunk(makeFourCC("SROT"), 1, m_scene.roots);
@@ -366,6 +367,7 @@ namespace pnkr::renderer::scene
             else if (fcc == makeFourCC("SHIE")) reader.readChunk(c, m_scene.hierarchy);
             else if (fcc == makeFourCC("SMES")) reader.readChunk(c, m_scene.meshIndex);
             else if (fcc == makeFourCC("SLIT")) reader.readChunk(c, m_scene.lightIndex);
+            else if (fcc == makeFourCC("SCAM")) reader.readChunk(c, m_scene.cameraIndex);
             else if (fcc == makeFourCC("SNID")) reader.readChunk(c, m_scene.nameId);
             else if (fcc == makeFourCC("SNMS")) reader.readStringListChunk(c, m_scene.names);
             else if (fcc == makeFourCC("SROT")) reader.readChunk(c, m_scene.roots);
@@ -588,6 +590,36 @@ namespace pnkr::renderer::scene
             model->m_lights.push_back(l);
         }
         if (model->m_lights.empty()) model->m_lights.push_back({});
+
+        // --- Cameras ---
+        model->m_cameras.clear();
+        model->m_cameras.reserve(gltf.cameras.size());
+        for (const auto& c : gltf.cameras)
+        {
+            GltfCamera out{};
+            out.name = c.name;
+
+            std::visit(fastgltf::visitor{
+                [&](const fastgltf::Camera::Perspective& p)
+                {
+                    out.type = GltfCamera::Type::Perspective;
+                    out.yfovRad = p.yfov;
+                    out.aspectRatio = p.aspectRatio.value_or(0.0f);
+                    out.znear = p.znear;
+                    out.zfar  = p.zfar.value_or(0.0f);
+                },
+                [&](const fastgltf::Camera::Orthographic& o)
+                {
+                    out.type = GltfCamera::Type::Orthographic;
+                    out.xmag = o.xmag;
+                    out.ymag = o.ymag;
+                    out.znear = o.znear;
+                    out.zfar  = o.zfar;
+                }
+            }, c.camera);
+
+            model->m_cameras.push_back(std::move(out));
+        }
 
         // --- Textures (precached to KTX2) ---
         const uint32_t kMaxTextureSize = 2048;

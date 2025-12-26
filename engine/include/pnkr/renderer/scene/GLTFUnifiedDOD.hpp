@@ -5,6 +5,9 @@
 #include "pnkr/rhi/rhi_command_buffer.hpp"
 
 #include <cstddef>
+#include <vector>
+
+namespace ShaderGen { namespace indirect_frag { struct MetallicRoughnessDataGPU; } }
 
 namespace pnkr::renderer::scene {
 
@@ -52,5 +55,8 @@ namespace pnkr::renderer::scene {
     void uploadMaterials(GLTFUnifiedDODContext& ctx);
     void uploadEnvironment(GLTFUnifiedDODContext& ctx, TextureHandle env, TextureHandle irr, TextureHandle brdf);
     void uploadLights(GLTFUnifiedDODContext& ctx);
+
+    std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU>
+    packMaterialsGPU(const ModelDOD& model, RHIRenderer& renderer);
 
 } // namespace pnkr::renderer::scene

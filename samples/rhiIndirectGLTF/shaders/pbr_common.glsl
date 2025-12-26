@@ -157,7 +157,14 @@ layout(std430, buffer_reference) readonly buffer LightBuffer {
 struct PerDrawData {
     mat4 view;
     mat4 proj;
-    mat4 model;
+    uint64_t instanceBufferPtr;
+    uint64_t vertexBufferPtr;
+    uint64_t _padModel0;
+    uint64_t _padModel1;
+    uint64_t _padModel2;
+    uint64_t _padModel3;
+    uint64_t _padModel4;
+    uint64_t _padModel5;
     vec4 cameraPos;
     uint64_t transformBufferPtr;
     uint64_t materialBufferPtr;
@@ -289,7 +296,7 @@ vec4 sampleClearcoatNormal(InputAttributes tc, MetallicRoughnessDataGPU mat) {
 }
 
 vec4 sampleBRDF_LUT(vec2 tc, EnvironmentMapDataGPU map) {
-    return textureBindless2D(map.texBRDF_LUT, map.texBRDF_LUT, tc);
+    return textureBindless2D(map.texBRDF_LUT, map.texBRDF_LUTSampler, tc);
 }
 
 vec4 sampleEnvMap(vec3 tc, EnvironmentMapDataGPU map) {

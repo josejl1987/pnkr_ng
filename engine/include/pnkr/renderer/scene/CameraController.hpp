@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <cmath>
 #include "Camera.hpp"
 #include "pnkr/platform/Input.hpp"
 
@@ -72,6 +73,17 @@ public:
   void setPosition(const glm::vec3& pos) { m_position = pos; }
   void setMoveSpeed(float speed) { m_moveSpeed = speed; }
   void setMouseSensitivity(float sensitivity) { m_mouseSensitivity = sensitivity; }
+  void setLookAt(const glm::vec3& position, const glm::vec3& target,
+                 const glm::vec3& worldUp = {0.0f, 1.0f, 0.0f}) {
+    m_position = position;
+    m_worldUp = worldUp;
+    m_front = glm::normalize(target - position);
+    m_right = glm::normalize(glm::cross(m_front, m_worldUp));
+    m_up = glm::normalize(glm::cross(m_right, m_front));
+
+    m_pitch = glm::degrees(std::asin(glm::clamp(m_front.y, -1.0f, 1.0f)));
+    m_yaw = glm::degrees(std::atan2(m_front.z, m_front.x));
+  }
 
   // Getters
   [[nodiscard]] const glm::vec3& position() const { return m_position; }

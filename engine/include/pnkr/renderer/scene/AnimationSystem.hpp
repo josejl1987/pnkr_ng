@@ -7,12 +7,25 @@ namespace pnkr::renderer::scene
     {
     public:
         static void update(ModelDOD& model, float dt);
+
+        // New: Animation Blending support
+        static void updateBlending(ModelDOD& model, 
+                                   AnimationState& stateA, 
+                                   AnimationState& stateB, 
+                                   float blendWeight, 
+                                   float dt);
         
         // New: Compute joint matrices for skinning
         static std::vector<glm::mat4> updateSkinning(const ModelDOD& model);
 
     private:
         static void applyAnimation(ModelDOD& model, const Animation& anim, float time);
+
+        // Helper for blending
+        static void applyBlending(ModelDOD& model, 
+                                  const Animation& animA, float timeA,
+                                  const Animation& animB, float timeB,
+                                  float weight);
 
         // Helper to find keyframe index
         static size_t getKeyframeIndex(const std::vector<float>& inputs, float time);

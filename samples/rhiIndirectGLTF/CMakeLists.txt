@@ -2,10 +2,25 @@ add_executable(pnkr_rhi_indirect_gltf
     main.cpp
     IndirectRenderer.cpp
     IndirectRenderer.hpp
+    RecentFiles.cpp
+    RecentFiles.hpp
+    RenderDocIntegration.cpp
+    RenderDocIntegration.hpp
+    ../common/NfdFileDialog.cpp
 )
 
 target_compile_features(pnkr_rhi_indirect_gltf PRIVATE cxx_std_20)
-target_link_libraries(pnkr_rhi_indirect_gltf PRIVATE pnkr_engine)
+
+target_include_directories(pnkr_rhi_indirect_gltf PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/thirdparty/renderdoc"
+)
+
+find_package(nfd CONFIG REQUIRED)
+
+target_link_libraries(pnkr_rhi_indirect_gltf PRIVATE 
+    pnkr_engine
+    nfd::nfd
+)
 
 if(MSVC)
   target_compile_options(pnkr_rhi_indirect_gltf PRIVATE /W4)
@@ -50,6 +65,8 @@ add_dependencies(pnkr_rhi_indirect_gltf ${LAST_GENERATED_TARGET})
 target_include_directories(pnkr_rhi_indirect_gltf PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 # --- Assets and Binary setup ---
+find_file(RENDERDOC_DLL "renderdoc.dll" HINTS "C:/Program Files/RenderDoc")
+
 add_custom_command(TARGET pnkr_rhi_indirect_gltf POST_BUILD
 # 1. Create directories
 COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/shaders"
@@ -59,4 +76,7 @@ COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_indirect_
 COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/shaders"
 COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/assets"
 
+# 3. Deploy RenderDoc DLL if found
+COMMAND ${CMAKE_COMMAND} -E echo "Deploying RenderDoc DLL from: ${RENDERDOC_DLL}"
+COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_DLL}" "$<TARGET_FILE_DIR:pnkr_rhi_indirect_gltf>/renderdoc.dll"
 )

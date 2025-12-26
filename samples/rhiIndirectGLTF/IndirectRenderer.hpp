@@ -6,6 +6,9 @@
 #include <glm/glm.hpp>
 
 #include "pnkr/renderer/scene/Camera.hpp"
+#include "generated/indirect.frag.h"
+
+#include <span>
 
 using namespace pnkr;
 using namespace pnkr::renderer;
@@ -41,21 +44,6 @@ namespace indirect {
         uint32_t envMapTextureCharlieSampler;
     };
 
-    // Push Constants for the pipeline
-    struct PushConstants {
-        glm::mat4 viewProj;
-        uint64_t transformBufferAddr; // BDA
-        uint64_t instanceBufferAddr;  // BDA
-        uint64_t vertexBufferAddr;    // BDA
-        uint64_t materialBufferAddr;  // BDA
-        uint64_t environmentBufferAddr; // BDA
-        
-        // Padding to match the 'PerFrameData' size defined in pbr_common.glsl (256 bytes total)
-        // Original size: 64 + 8*5 = 104 bytes.
-        // Required: 256 bytes. Padding: 152 bytes.
-        uint8_t _padding[152]; 
-    };
-
     class IndirectRenderer {
     public:
         void init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model,
@@ -63,6 +51,9 @@ namespace indirect {
         void update(float dt);
         void dispatchSkinning(rhi::RHICommandBuffer* cmd);
         void draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera);
+        std::span<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> materialsCPU();
+        void uploadMaterialsToGPU();
+        void repackMaterialsFromModel();
 
     private:
         void createPipeline();
@@ -84,6 +75,7 @@ namespace indirect {
         BufferHandle m_materialBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle m_environmentBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle m_jointBuffer = INVALID_BUFFER_HANDLE;
+        std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> m_materialsCPU;
 
         // Skinning Resources
         BufferHandle m_jointMatricesBuffer = INVALID_BUFFER_HANDLE;

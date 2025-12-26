@@ -133,6 +133,8 @@ namespace pnkr::renderer::rhi::vulkan
         RHIDescriptorSet* getBindlessDescriptorSet() override;
         RHIDescriptorSetLayout* getBindlessDescriptorSetLayout() override;
 
+        void* getNativeInstance() const override { return (void*)(VkInstance)instance(); }
+
         // Timeline Synchronization
         uint64_t getFrameCount() const { return m_frameCounter; }
         uint64_t advanceFrame() { return ++m_frameCounter; }

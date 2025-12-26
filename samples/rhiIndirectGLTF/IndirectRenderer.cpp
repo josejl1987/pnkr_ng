@@ -322,13 +322,9 @@ void IndirectRenderer::uploadEnvironmentData(TextureHandle brdf, TextureHandle i
 }
 
 void IndirectRenderer::uploadMaterialData() {
-    scene::GLTFUnifiedDODContext tempCtx;
-    tempCtx.renderer = m_renderer;
-    tempCtx.model = m_model.get();
-    
-    scene::uploadMaterials(tempCtx);
-    
-    m_materialBuffer = tempCtx.materialBuffer;
+    if (!m_renderer || !m_model) return;
+    m_materialsCPU = scene::packMaterialsGPU(*m_model, *m_renderer);
+    uploadMaterialsToGPU();
 }
 
 void IndirectRenderer::createPipeline() {
@@ -343,6 +339,32 @@ void IndirectRenderer::createPipeline() {
            .setDepthFormat(m_renderer->getDrawDepthFormat());
 
     m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+}
+
+std::span<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> IndirectRenderer::materialsCPU() {
+    return m_materialsCPU;
+}
+
+void IndirectRenderer::uploadMaterialsToGPU() {
+    if (m_materialsCPU.empty()) return;
+
+    const uint64_t bytes = m_materialsCPU.size() * sizeof(ShaderGen::indirect_frag::MetallicRoughnessDataGPU);
+    if (m_materialBuffer == INVALID_BUFFER_HANDLE ||
+        m_renderer->getBuffer(m_materialBuffer)->size() < bytes)
+    {
+        m_materialBuffer = m_renderer->createBuffer({
+            .size = bytes,
+            .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
+            .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+            .debugName = "GLTF Materials"
+        });
+    }
+    m_renderer->getBuffer(m_materialBuffer)->uploadData(m_materialsCPU.data(), bytes);
+}
+
+void IndirectRenderer::repackMaterialsFromModel() {
+    if (!m_renderer || !m_model) return;
+    m_materialsCPU = scene::packMaterialsGPU(*m_model, *m_renderer);
 }
 
 void IndirectRenderer::dispatchSkinning(rhi::RHICommandBuffer* cmd) {
@@ -408,23 +430,32 @@ void IndirectRenderer::draw(rhi::RHICommandBuffer* cmd, const scene::Camera& cam
     // Bind Global Index Buffer (Unified)
     cmd->bindIndexBuffer(m_renderer->getBuffer(m_model->indexBuffer), 0, false);
 
-    PushConstants pc{};
-    pc.viewProj = camera.viewProj();
-    pc.transformBufferAddr = m_renderer->getBuffer(m_transformBuffer)->getDeviceAddress();
-    pc.instanceBufferAddr = m_renderer->getBuffer(m_instanceDataBuffer)->getDeviceAddress();
+    ShaderGen::indirect_vert::PerFrameData pc{};
+    auto& d = pc.drawable;
+
+    d.view = camera.view();
+    d.proj = camera.proj();
+    d.cameraPos = glm::vec4(camera.position(), 1.0f);
+    d.transformBufferPtr = m_renderer->getBuffer(m_transformBuffer)->getDeviceAddress();
+    d.instanceBufferPtr = m_renderer->getBuffer(m_instanceDataBuffer)->getDeviceAddress();
     
     // Bind skinned buffer if compute produced it (skinning and/or morphing)
     const bool hasSkinning = (m_jointMatricesBuffer != INVALID_BUFFER_HANDLE);
     const bool hasMorphing = (m_model->morphVertexBuffer != INVALID_BUFFER_HANDLE && m_model->morphStateBuffer != INVALID_BUFFER_HANDLE);
 
     if (m_skinnedVertexBuffer != INVALID_BUFFER_HANDLE && (hasSkinning || hasMorphing)) {
-        pc.vertexBufferAddr = m_renderer->getBuffer(m_skinnedVertexBuffer)->getDeviceAddress();
+        d.vertexBufferPtr = m_renderer->getBuffer(m_skinnedVertexBuffer)->getDeviceAddress();
     } else {
-        pc.vertexBufferAddr = m_renderer->getBuffer(m_model->vertexBuffer)->getDeviceAddress();
+        d.vertexBufferPtr = m_renderer->getBuffer(m_model->vertexBuffer)->getDeviceAddress();
     }
 
-    pc.materialBufferAddr = m_renderer->getBuffer(m_materialBuffer)->getDeviceAddress();
-    pc.environmentBufferAddr = m_renderer->getBuffer(m_environmentBuffer)->getDeviceAddress();
+    d.materialBufferPtr = m_renderer->getBuffer(m_materialBuffer)->getDeviceAddress();
+    d.environmentBufferPtr = m_renderer->getBuffer(m_environmentBuffer)->getDeviceAddress();
+    d.lightBufferPtr = 0;
+    d.lightCount = 0;
+    d.envId = 0;
+    d.transmissionFramebuffer = 0xFFFFFFFFu;
+    d.transmissionFramebufferSampler = 0u;
 
     m_renderer->pushConstants(cmd, m_pipeline, rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
 

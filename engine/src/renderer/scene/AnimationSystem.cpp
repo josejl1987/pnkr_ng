@@ -3,6 +3,8 @@
 #include <glm/gtx/compatibility.hpp> // for lerp
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <unordered_map>
+#include <set>
 
 namespace pnkr::renderer::scene
 {
@@ -42,6 +44,106 @@ namespace pnkr::renderer::scene
         
         // Signal the scene that the hierarchy (transforms) has changed
         model.scene().hierarchyDirty = true;
+    }
+
+    void AnimationSystem::updateBlending(ModelDOD& model, AnimationState& stateA, AnimationState& stateB, float blendWeight, float dt)
+    {
+        const uint32_t animCount = static_cast<uint32_t>(model.animations().size());
+        const bool hasA = stateA.isPlaying && stateA.animIndex < animCount;
+        const bool hasB = stateB.isPlaying && stateB.animIndex < animCount;
+
+        if (!hasA && !hasB) return;
+
+        auto advance = [&](AnimationState& state, const Animation& anim) {
+            state.currentTime += dt;
+            if (state.currentTime > anim.duration) {
+                if (state.isLooping) state.currentTime = std::fmod(state.currentTime, anim.duration);
+                else { state.currentTime = anim.duration; state.isPlaying = false; }
+            }
+        };
+
+        if (hasA && hasB) {
+            const auto& animA = model.animations()[stateA.animIndex];
+            const auto& animB = model.animations()[stateB.animIndex];
+            advance(stateA, animA);
+            advance(stateB, animB);
+            applyBlending(model, animA, stateA.currentTime, animB, stateB.currentTime, blendWeight);
+        } else if (hasA) {
+            const auto& animA = model.animations()[stateA.animIndex];
+            advance(stateA, animA);
+            applyAnimation(model, animA, stateA.currentTime);
+            for (const auto& ch : animA.channels) model.scene().markAsChanged(ch.targetNode);
+        } else if (hasB) {
+            const auto& animB = model.animations()[stateB.animIndex];
+            advance(stateB, animB);
+            applyAnimation(model, animB, stateB.currentTime);
+            for (const auto& ch : animB.channels) model.scene().markAsChanged(ch.targetNode);
+        }
+
+        model.scene().hierarchyDirty = true;
+    }
+
+    void AnimationSystem::applyBlending(ModelDOD& model, const Animation& animA, float timeA, const Animation& animB, float timeB, float weight)
+    {
+        auto& scene = model.scene();
+
+        struct NodeTRS {
+            glm::vec3 t; bool hasT = false;
+            glm::quat r; bool hasR = false;
+            glm::vec3 s; bool hasS = false;
+        };
+
+        std::unordered_map<uint32_t, NodeTRS> sampledA;
+        std::unordered_map<uint32_t, NodeTRS> sampledB;
+        std::set<uint32_t> affectedNodes;
+
+        // Sample A
+        for (const auto& ch : animA.channels) {
+            if (ch.path == AnimationPath::Weights) continue; // Morph weights blending not implemented yet
+            auto& trs = sampledA[ch.targetNode];
+            const auto& sampler = animA.samplers[ch.samplerIndex];
+            if (ch.path == AnimationPath::Translation) { trs.t = interpolateTranslation(sampler, timeA); trs.hasT = true; }
+            else if (ch.path == AnimationPath::Rotation) { trs.r = interpolateRotation(sampler, timeA); trs.hasR = true; }
+            else if (ch.path == AnimationPath::Scale) { trs.s = interpolateScale(sampler, timeA); trs.hasS = true; }
+            affectedNodes.insert(ch.targetNode);
+        }
+
+        // Sample B
+        for (const auto& ch : animB.channels) {
+            if (ch.path == AnimationPath::Weights) continue;
+            auto& trs = sampledB[ch.targetNode];
+            const auto& sampler = animB.samplers[ch.samplerIndex];
+            if (ch.path == AnimationPath::Translation) { trs.t = interpolateTranslation(sampler, timeB); trs.hasT = true; }
+            else if (ch.path == AnimationPath::Rotation) { trs.r = interpolateRotation(sampler, timeB); trs.hasR = true; }
+            else if (ch.path == AnimationPath::Scale) { trs.s = interpolateScale(sampler, timeB); trs.hasS = true; }
+            affectedNodes.insert(ch.targetNode);
+        }
+
+        for (uint32_t nodeIndex : affectedNodes) {
+            glm::mat4& localMat = scene.local[nodeIndex];
+            
+            glm::vec3 t; glm::quat r; glm::vec3 s;
+            glm::vec3 skew; glm::vec4 perspective;
+            glm::decompose(localMat, s, r, t, skew, perspective);
+
+            auto itA = sampledA.find(nodeIndex);
+            auto itB = sampledB.find(nodeIndex);
+
+            glm::vec3 tA = (itA != sampledA.end() && itA->second.hasT) ? itA->second.t : t;
+            glm::vec3 tB = (itB != sampledB.end() && itB->second.hasT) ? itB->second.t : t;
+            t = glm::mix(tA, tB, weight);
+
+            glm::quat rA = (itA != sampledA.end() && itA->second.hasR) ? itA->second.r : r;
+            glm::quat rB = (itB != sampledB.end() && itB->second.hasR) ? itB->second.r : r;
+            r = glm::normalize(glm::slerp(rA, rB, weight));
+
+            glm::vec3 sA = (itA != sampledA.end() && itA->second.hasS) ? itA->second.s : s;
+            glm::vec3 sB = (itB != sampledB.end() && itB->second.hasS) ? itB->second.s : s;
+            s = glm::mix(sA, sB, weight);
+
+            localMat = glm::translate(glm::mat4(1.0f), t) * glm::toMat4(r) * glm::scale(glm::mat4(1.0f), s);
+            scene.markAsChanged(nodeIndex);
+        }
     }
 
     std::vector<glm::mat4> AnimationSystem::updateSkinning(const ModelDOD& model)

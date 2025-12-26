@@ -12,6 +12,7 @@
     "spdlog",
     "imguizmo",
     "cpptrace",
+    "nativefiledialog-extended",
     {
       "name": "spirv-cross"
     },

@@ -15,35 +15,34 @@
 
 namespace pnkr::renderer::scene
 {
-    void uploadMaterials(GLTFUnifiedDODContext& ctx)
+    std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU>
+    packMaterialsGPU(const ModelDOD& model, RHIRenderer& renderer)
     {
-        if (!ctx.model || !ctx.renderer) return;
-
         std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> gpuData;
-        gpuData.reserve(ctx.model->materials().size());
+        gpuData.reserve(model.materials().size());
 
         auto resolveNormalDefault = [&](TextureHandle handle) -> uint32_t
         {
-            if (handle == INVALID_TEXTURE_HANDLE) handle = ctx.renderer->getFlatNormalTexture();
-            return ctx.renderer->getTextureBindlessIndex(handle);
+            if (handle == INVALID_TEXTURE_HANDLE) handle = renderer.getFlatNormalTexture();
+            return renderer.getTextureBindlessIndex(handle);
         };
         auto resolveTextureWhiteDefault = [&](TextureHandle handle) -> uint32_t
         {
-            if (handle == INVALID_TEXTURE_HANDLE) handle = ctx.renderer->getWhiteTexture();
-            return ctx.renderer->getTextureBindlessIndex(handle);
+            if (handle == INVALID_TEXTURE_HANDLE) handle = renderer.getWhiteTexture();
+            return renderer.getTextureBindlessIndex(handle);
         };
         auto resolveTextureBlackDefault = [&](TextureHandle handle) -> uint32_t
         {
-            if (handle == INVALID_TEXTURE_HANDLE) handle = ctx.renderer->getBlackTexture();
-            return ctx.renderer->getTextureBindlessIndex(handle);
+            if (handle == INVALID_TEXTURE_HANDLE) handle = renderer.getBlackTexture();
+            return renderer.getTextureBindlessIndex(handle);
         };
 
         auto resolveSampler = [&](rhi::SamplerAddressMode mode) -> uint32_t
         {
-            return ctx.renderer->getBindlessSamplerIndex(mode);
+            return renderer.getBindlessSamplerIndex(mode);
         };
 
-        for (const auto& mat : ctx.model->materials())
+        for (const auto& mat : model.materials())
         {
             ShaderGen::indirect_frag::MetallicRoughnessDataGPU d{};
             d.baseColorFactor = mat.m_baseColorFactor;
@@ -129,6 +128,16 @@ namespace pnkr::renderer::scene
 
             gpuData.push_back(d);
         }
+
+        return gpuData;
+    }
+
+    void uploadMaterials(GLTFUnifiedDODContext& ctx)
+    {
+        if (!ctx.model || !ctx.renderer) return;
+
+        std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> gpuData =
+            packMaterialsGPU(*ctx.model, *ctx.renderer);
 
         const uint64_t bytes = gpuData.size() * sizeof(ShaderGen::indirect_frag::MetallicRoughnessDataGPU);
         if (ctx.materialBuffer == INVALID_BUFFER_HANDLE || ctx.renderer->getBuffer(ctx.materialBuffer)->size() < bytes)

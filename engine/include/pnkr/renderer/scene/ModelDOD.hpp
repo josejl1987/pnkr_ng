@@ -4,6 +4,7 @@
 #include "pnkr/renderer/scene/SceneGraph.hpp"
 #include "pnkr/renderer/scene/VtxData.hpp"
 #include "pnkr/renderer/scene/Animation.hpp"
+#include "pnkr/renderer/scene/GltfCamera.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 #include <filesystem>
 #include <vector>
@@ -67,6 +68,7 @@ namespace pnkr::renderer::scene
         const std::vector<BoundingBox>& meshBounds() const { return m_meshBounds; }
         const std::vector<Skin>& skins() const { return m_skins; }
         const std::vector<Animation>& animations() const { return m_animations; }
+        const std::vector<GltfCamera>& cameras() const { return m_cameras; }
 
         std::vector<MorphTargetInfo>& morphTargetInfos() { return m_morphTargetInfos; }
         const std::vector<MorphTargetInfo>& morphTargetInfos() const { return m_morphTargetInfos; }
@@ -103,6 +105,7 @@ namespace pnkr::renderer::scene
         std::vector<MeshDOD> m_meshes;
         std::vector<Skin> m_skins;
         std::vector<Animation> m_animations;
+        std::vector<GltfCamera> m_cameras;
         std::vector<MorphTargetInfo> m_morphTargetInfos;
         std::vector<MorphStateGPU> m_morphStates;
         AnimationState m_animState;

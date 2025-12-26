@@ -160,6 +160,8 @@ namespace pnkr::renderer::rhi
         // To bind the global set to a command buffer
         virtual RHIDescriptorSet* getBindlessDescriptorSet() = 0; 
         virtual RHIDescriptorSetLayout* getBindlessDescriptorSetLayout() = 0;
+
+        virtual void* getNativeInstance() const = 0;
     };
 
 } // namespace pnkr::renderer::rhi

@@ -14,7 +14,16 @@ namespace pnkr::renderer::scene {
 
     class Camera {
     public:
+        void setViewMatrix(const glm::mat4& view)
+        {
+            m_view = view;
+            // Note: m_eye/m_center/m_up are not updated in this path (intentionally).
+        }
 
+        void setProjMatrix(const glm::mat4& proj)
+        {
+            m_proj = proj;
+        }
 
         void lookAt(const glm::vec3& eye,
                     const glm::vec3& center,
@@ -32,6 +41,11 @@ namespace pnkr::renderer::scene {
         void setPerspective(float fovyRad, float aspect, float zNear, float zFar)
         {
             m_proj = glm::perspective(fovyRad, aspect, zNear, zFar);
+        }
+
+        void setOrthographic(float left, float right, float bottom, float top, float zNear, float zFar)
+        {
+            m_proj = glm::ortho(left, right, bottom, top, zNear, zFar);
         }
 
         const glm::mat4& view() const noexcept { return m_view; }

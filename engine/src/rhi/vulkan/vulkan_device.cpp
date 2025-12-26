@@ -10,6 +10,7 @@
 #include <array>
 #include <algorithm>
 #include <set>
+#include <stdexcept>
 #include <cpptrace/cpptrace.hpp>
 
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
@@ -582,10 +583,14 @@ namespace pnkr::renderer::rhi::vulkan
         waitInfo.pSemaphores = &m_frameTimelineSemaphore;
         waitInfo.pValues = &value;
 
-        auto result = m_device.waitSemaphores(waitInfo, 1000000000);
+        // NOTE:
+        // Timing out here and continuing will cause reuse of per-frame semaphores/command buffers
+        // while still pending, triggering validation errors and eventually DEVICE_LOST.
+        const auto result = m_device.waitSemaphores(waitInfo, UINT64_MAX);
         if (result != vk::Result::eSuccess)
         {
-            core::Logger::error("Failed to wait for timeline value {}: {}", value, vk::to_string(result));
+            core::Logger::critical("Failed to wait for timeline value {}: {}", value, vk::to_string(result));
+            throw std::runtime_error("VulkanRHIDevice::waitForTimelineValue failed");
         }
     }
 
