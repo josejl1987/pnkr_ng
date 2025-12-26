@@ -29,6 +29,10 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
   add_compile_definitions(_HAS_EXCEPTIONS=1)
 endif()
 
+if (WIN32)
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+endif()
+
 
 # Prefer faster linkers when available
 if(NOT MSVC)
