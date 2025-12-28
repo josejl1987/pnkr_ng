@@ -6,6 +6,7 @@
 #include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
 #include "pnkr/rhi/vulkan/vulkan_pipeline.hpp"
 #include "pnkr/rhi/vulkan/vulkan_descriptor.hpp"
+#include "pnkr/core/profiler.hpp"
 #include "pnkr/core/logger.hpp"
 #include <array>
 #include <algorithm>
@@ -61,14 +62,14 @@ namespace pnkr::renderer::rhi::vulkan
         m_capabilities.samplerAnisotropy = (features.samplerAnisotropy != 0u);
         m_capabilities.textureCompressionBC = (features.textureCompressionBC != 0u);
 
-        // Check for bindless support (descriptor indexing)
-        vk::PhysicalDeviceDescriptorIndexingFeatures indexingFeatures;
-        vk::PhysicalDeviceFeatures2 features2;
+        // Vulkan 1.2 features for bindless
+        vk::PhysicalDeviceVulkan12Features indexingFeatures{};
+        vk::PhysicalDeviceFeatures2 features2{};
         features2.pNext = &indexingFeatures;
         m_physicalDevice.getFeatures2(&features2);
-        m_capabilities.bindlessTextures = (indexingFeatures.descriptorBindingPartiallyBound != 0u);
 
-        // Check for ray tracing
+        m_capabilities.bindlessTextures = (indexingFeatures.descriptorBindingPartiallyBound != 0u);
+        m_capabilities.drawIndirectCount = (indexingFeatures.drawIndirectCount != 0u);
         m_capabilities.rayTracing = false;
         m_capabilities.meshShading = false;
     }
@@ -240,6 +241,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         // Vulkan 1.2 features (core) - Promoted features go here
         vk::PhysicalDeviceVulkan12Features features12{};
+        features12.drawIndirectCount = m_physicalDevice->capabilities().drawIndirectCount ? VK_TRUE : VK_FALSE;
 
         // Original 1.2 features
         features12.descriptorBindingVariableDescriptorCount = VK_TRUE;
@@ -391,44 +393,44 @@ namespace pnkr::renderer::rhi::vulkan
 
     std::unique_ptr<RHIBuffer> VulkanRHIDevice::createBuffer(const BufferDescriptor& desc)
     {
+        PNKR_PROFILE_FUNCTION();
+        
         BufferDescriptor finalDesc = desc;
-
-        // If we have data to upload to a GPU-only buffer, we need TransferDst usage
-        if (desc.data && desc.memoryUsage == MemoryUsage::GPUOnly)
+        if (finalDesc.data != nullptr && finalDesc.memoryUsage == MemoryUsage::GPUOnly)
         {
             finalDesc.usage |= BufferUsage::TransferDst;
         }
 
-        auto buffer = std::make_unique<VulkanRHIBuffer>(this, finalDesc);
+        auto buf = std::make_unique<VulkanRHIBuffer>(this, finalDesc);
 
-        if (desc.data)
+        if (finalDesc.data != nullptr)
         {
-            if (desc.memoryUsage == MemoryUsage::CPUToGPU || desc.memoryUsage == MemoryUsage::CPUOnly)
+            if (finalDesc.memoryUsage == MemoryUsage::CPUToGPU || finalDesc.memoryUsage == MemoryUsage::CPUOnly)
             {
-                // Direct map and copy
-                buffer->uploadData(desc.data, desc.size);
+                buf->uploadData(finalDesc.data, finalDesc.size);
             }
             else
             {
-                // GPUOnly: Requires staging buffer
+                // GPUOnly: stage + copy
                 auto staging = createBuffer({
-                    .size = desc.size,
+                    .size = finalDesc.size,
                     .usage = BufferUsage::TransferSrc,
-                    .memoryUsage = MemoryUsage::CPUToGPU
+                    .memoryUsage = MemoryUsage::CPUToGPU,
+                    .debugName = "StagingBuffer"
                 });
-                staging->uploadData(desc.data, desc.size);
+                staging->uploadData(finalDesc.data, finalDesc.size);
 
-                auto cmd = createCommandBuffer();
-                cmd->begin();
-                cmd->copyBuffer(staging.get(), buffer.get(), 0, 0, desc.size);
-                cmd->end();
-
-                submitCommands(cmd.get());
-                waitIdle(); // Ensure data is there before returning the handle
+                immediateSubmit([&](RHICommandBuffer* cmd) {
+                    cmd->copyBuffer(staging.get(), buf.get(), 0, 0, finalDesc.size);
+                });
             }
         }
 
-        return buffer;
+#if defined(TRACY_ENABLE)
+        TracyAllocN(buf->nativeHandle(), desc.size, desc.debugName ? desc.debugName : "UnnamedBuffer");
+#endif
+
+        return buf;
     }
 
     std::unique_ptr<RHITexture> VulkanRHIDevice::createTexture(const TextureDescriptor& desc)

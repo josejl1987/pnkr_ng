@@ -56,6 +56,14 @@ namespace pnkr::renderer::debug
         return true;
     }
 
+    DebugLayer::LineVertex* DebugLayer::appendVertices(size_t count)
+    {
+        if (!hasCapacity(count)) return nullptr;
+        const size_t start = m_verticesPending.size();
+        m_verticesPending.resize(start + count);
+        return m_verticesPending.data() + start;
+    }
+
     void DebugLayer::clear()
     {
         m_verticesPending.clear();
@@ -64,15 +72,16 @@ namespace pnkr::renderer::debug
 
     void DebugLayer::line(const glm::vec3& start, const glm::vec3& end, const glm::vec3& color)
     {
-        if (!hasCapacity(2)) return;
-
-        m_verticesPending.push_back({.position = start, .color = color});
-        m_verticesPending.push_back({.position = end, .color = color});
+        LineVertex* v = appendVertices(2);
+        if (!v) return;
+        v[0] = {.position = start, .color = color};
+        v[1] = {.position = end, .color = color};
     }
 
     void DebugLayer::box(const glm::vec3& min, const glm::vec3& max, const glm::vec3& color)
     {
-        if (!hasCapacity(24)) return;
+        LineVertex* v = appendVertices(24);
+        if (!v) return;
 
         // Axis Aligned Box
         glm::vec3 pts[8] = {
@@ -82,26 +91,23 @@ namespace pnkr::renderer::debug
             glm::vec3(min.x, min.y, max.z), glm::vec3(min.x, min.y, min.z),
         };
 
-        // Connect edges
-        line(pts[0], pts[1], color);
-        line(pts[2], pts[3], color);
-        line(pts[4], pts[5], color);
-        line(pts[6], pts[7], color);
+        static constexpr uint8_t edges[24] = {
+            0, 1, 2, 3, 4, 5, 6, 7,
+            0, 2, 1, 3, 4, 6, 5, 7,
+            0, 4, 1, 5, 2, 6, 3, 7
+        };
 
-        line(pts[0], pts[2], color);
-        line(pts[1], pts[3], color);
-        line(pts[4], pts[6], color);
-        line(pts[5], pts[7], color);
-
-        line(pts[0], pts[4], color);
-        line(pts[1], pts[5], color);
-        line(pts[2], pts[6], color);
-        line(pts[3], pts[7], color);
+        for (size_t i = 0; i < 24; i += 2)
+        {
+            v[i + 0] = {.position = pts[edges[i + 0]], .color = color};
+            v[i + 1] = {.position = pts[edges[i + 1]], .color = color};
+        }
     }
 
     void DebugLayer::box(const glm::mat4& transform, const glm::vec3& size, const glm::vec3& color)
     {
-        if (!hasCapacity(24)) return;
+        LineVertex* v = appendVertices(24);
+        if (!v) return;
 
         glm::vec3 halfSize = size * 0.5f;
 
@@ -117,21 +123,17 @@ namespace pnkr::renderer::debug
             p = glm::vec3(transform * glm::vec4(p, 1.f));
         }
 
-        // Connect edges
-        line(pts[0], pts[1], color);
-        line(pts[2], pts[3], color);
-        line(pts[4], pts[5], color);
-        line(pts[6], pts[7], color);
+        static constexpr uint8_t edges[24] = {
+            0, 1, 2, 3, 4, 5, 6, 7,
+            0, 2, 1, 3, 4, 6, 5, 7,
+            0, 4, 1, 5, 2, 6, 3, 7
+        };
 
-        line(pts[0], pts[2], color);
-        line(pts[1], pts[3], color);
-        line(pts[4], pts[6], color);
-        line(pts[5], pts[7], color);
-
-        line(pts[0], pts[4], color);
-        line(pts[1], pts[5], color);
-        line(pts[2], pts[6], color);
-        line(pts[3], pts[7], color);
+        for (size_t i = 0; i < 24; i += 2)
+        {
+            v[i + 0] = {.position = pts[edges[i + 0]], .color = color};
+            v[i + 1] = {.position = pts[edges[i + 1]], .color = color};
+        }
     }
 
     void DebugLayer::plane(const glm::vec3& origin, const glm::vec3& v1, const glm::vec3& v2,

@@ -8,6 +8,7 @@
 #include "pnkr/rhi/vulkan/vulkan_descriptor.hpp"
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/core/common.hpp"
+#include "pnkr/core/profiler.hpp"
 #include <cpptrace/cpptrace.hpp>
 
 using namespace pnkr::util;
@@ -262,9 +263,26 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHICommandBuffer::drawIndexedIndirect(RHIBuffer* buffer, uint64_t offset, uint32_t drawCount, uint32_t stride)
     {
+        PNKR_PROFILE_FUNCTION();
         auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
             buffer, "drawIndexedIndirect: buffer is not Vulkan");
         m_commandBuffer.drawIndexedIndirect(vkBuffer->buffer(), offset, drawCount, stride);
+    }
+
+    void VulkanRHICommandBuffer::drawIndexedIndirectCount(RHIBuffer* buffer, uint64_t offset,
+                                                          RHIBuffer* countBuffer, uint64_t countBufferOffset,
+                                                          uint32_t maxDrawCount, uint32_t stride)
+    {
+        PNKR_PROFILE_FUNCTION();
+        auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
+            buffer, "drawIndexedIndirectCount: buffer is not Vulkan");
+        auto* vkCountBuffer = castOrAssert<VulkanRHIBuffer>(
+            countBuffer, "drawIndexedIndirectCount: countBuffer is not Vulkan");
+
+        m_commandBuffer.drawIndexedIndirectCount(
+            vkBuffer->buffer(), offset,
+            vkCountBuffer->buffer(), countBufferOffset,
+            maxDrawCount, stride);
     }
 
     void VulkanRHICommandBuffer::dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
@@ -288,6 +306,7 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::bindDescriptorSet(RHIPipeline* pipeline, uint32_t setIndex,
                                                    RHIDescriptorSet* descriptorSet)
     {
+        PNKR_PROFILE_FUNCTION();
         auto* vkPipeline = castOrAssert<VulkanRHIPipeline>(
             pipeline, "bindDescriptorSet: pipeline is not Vulkan");
         if (vkPipeline == nullptr)
@@ -435,6 +454,7 @@ namespace pnkr::renderer::rhi::vulkan
         ShaderStage dstStage,
         const std::vector<RHIMemoryBarrier>& barriers)
     {
+        PNKR_PROFILE_FUNCTION();
         if (m_inRendering)
         {
             throw cpptrace::runtime_error("pipelineBarrier() called inside a dynamic rendering instance. Call endRendering() first.");

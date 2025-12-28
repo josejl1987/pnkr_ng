@@ -159,6 +159,7 @@ namespace pnkr::renderer
         rhi::RHIPipeline* pipeline(PipelineHandle handle);
         bool isBindlessEnabled() const noexcept { return m_useBindless; }
         bool hasBindlessSupport() const noexcept { return m_bindlessSupported; }
+        bool checkDrawIndirectCountSupport() const;
 
         // Pipeline access
         [[nodiscard]] rhi::RHIPipeline* getPipeline(PipelineHandle handle);

@@ -238,7 +238,8 @@ namespace pnkr::renderer::rhi::vulkan
         m_pipeline = result.value;
 
         // Set debug name
-        if (desc.debugName != nullptr)
+        if (desc.debugName != nullptr &&
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkSetDebugUtilsObjectNameEXT != nullptr)
         {
             vk::DebugUtilsObjectNameInfoEXT nameInfo{};
             nameInfo.objectType = vk::ObjectType::ePipeline;
@@ -246,7 +247,7 @@ namespace pnkr::renderer::rhi::vulkan
             nameInfo.pObjectName = desc.debugName;
 
 
-            m_device->device().setDebugUtilsObjectNameEXT(nameInfo);
+            m_device->device(). setDebugUtilsObjectNameEXT(nameInfo);
         }
     }
 
@@ -281,7 +282,8 @@ namespace pnkr::renderer::rhi::vulkan
         m_pipeline = result.value;
 
         // Set debug name
-        if (desc.debugName != nullptr)
+        if (desc.debugName != nullptr &&
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkSetDebugUtilsObjectNameEXT != nullptr)
         {
             vk::DebugUtilsObjectNameInfoEXT nameInfo{};
             nameInfo.objectType = vk::ObjectType::ePipeline;

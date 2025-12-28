@@ -84,6 +84,7 @@ namespace pnkr::renderer::debug
         };
 
         bool hasCapacity(size_t additionalVertices);
+        LineVertex* appendVertices(size_t count);
         void createPipeline();
         void allocateBuffer(uint64_t vertexCount);
 

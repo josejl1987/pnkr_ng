@@ -114,6 +114,10 @@ namespace pnkr::renderer::rhi
 
         virtual void drawIndexedIndirect(RHIBuffer* buffer, uint64_t offset, uint32_t drawCount, uint32_t stride) = 0;
 
+        virtual void drawIndexedIndirectCount(RHIBuffer* buffer, uint64_t offset,
+                                              RHIBuffer* countBuffer, uint64_t countBufferOffset,
+                                              uint32_t maxDrawCount, uint32_t stride) = 0;
+
         // Compute dispatch
         virtual void dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) = 0;
 

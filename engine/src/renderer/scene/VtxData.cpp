@@ -1,4 +1,5 @@
 #include "pnkr/renderer/scene/VtxData.hpp"
+#include "pnkr/renderer/scene/Bounds.hpp"
 #include "pnkr/core/common.hpp"
 #include <cstdio>
 #include <cpptrace/cpptrace.hpp>
@@ -205,6 +206,7 @@ namespace pnkr::renderer::scene
         if (meshesToMerge.size() < 2) return; // Nothing to merge
 
         // 2. Merge Mesh Data (Indices and Vertex Offsets)
+        std::vector<BoundingBox> oldBoxes = meshData.m_boxes;
         std::unordered_map<uint32_t, uint32_t> oldToNewMeshID;
         mergeIndexArray(meshData, meshesToMerge, oldToNewMeshID);
 
@@ -219,9 +221,37 @@ namespace pnkr::renderer::scene
             }
         });
 
+        if (!oldBoxes.empty()) {
+            std::vector<BoundingBox> newBoxes(meshData.m_meshes.size());
+            std::vector<uint8_t> boxInit(meshData.m_meshes.size(), 0);
+            for (size_t i = 0; i < oldBoxes.size(); ++i) {
+                auto it = oldToNewMeshID.find(static_cast<uint32_t>(i));
+                if (it == oldToNewMeshID.end()) continue;
+                const uint32_t newIdx = it->second;
+                if (newIdx >= newBoxes.size()) continue;
+
+                if (!boxInit[newIdx]) {
+                    newBoxes[newIdx] = oldBoxes[i];
+                    boxInit[newIdx] = 1;
+                } else {
+                    newBoxes[newIdx].m_min = glm::min(newBoxes[newIdx].m_min, oldBoxes[i].m_min);
+                    newBoxes[newIdx].m_max = glm::max(newBoxes[newIdx].m_max, oldBoxes[i].m_max);
+                }
+            }
+            meshData.m_boxes = std::move(newBoxes);
+        }
+
         // 4. Create New Node for the Merged Mesh
         ecs::Entity newNode = scene.createNode();
-        scene.registry.emplace<MeshRenderer>(newNode, (int32_t)meshData.m_meshes.size() - 1);
+        const int32_t mergedMeshId = (int32_t)meshData.m_meshes.size() - 1;
+        scene.registry.emplace<MeshRenderer>(newNode, mergedMeshId);
+        LocalBounds& lb = scene.registry.emplace<LocalBounds>(newNode);
+        if (mergedMeshId >= 0 && static_cast<size_t>(mergedMeshId) < meshData.m_boxes.size()) {
+            lb.aabb = meshData.m_boxes[mergedMeshId];
+        }
+        scene.registry.emplace<WorldBounds>(newNode);
+        scene.registry.emplace<Visibility>(newNode);
+        scene.registry.emplace<BoundsDirtyTag>(newNode);
 
         // 5. Delete the old nodes
         for (ecs::Entity e : entitiesToDelete) {

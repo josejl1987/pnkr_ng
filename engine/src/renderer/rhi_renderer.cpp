@@ -1237,6 +1237,11 @@ namespace pnkr::renderer
         m_flatNormalTexture = createFlatNormalTexture();
     }
 
+    bool RHIRenderer::checkDrawIndirectCountSupport() const
+    {
+        return m_device->physicalDevice().capabilities().drawIndirectCount;
+    }
+
     rhi::RHIPipeline* RHIRenderer::getPipeline(PipelineHandle handle)
     {
         if (handle.id >= m_pipelines.size())

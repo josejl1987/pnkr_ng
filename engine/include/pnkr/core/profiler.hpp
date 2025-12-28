@@ -30,6 +30,10 @@
 
     #define PNKR_PROFILE_GPU_ZONE(ctx, cmdBuffer, name) TracyVkZone(ctx, cmdBuffer, name)
 
+    // Helper for RHI Command Buffers
+    #define PNKR_RHI_GPU_ZONE(ctx, rhiCmd, name) \
+        PNKR_PROFILE_GPU_ZONE(ctx, static_cast<VkCommandBuffer>((rhiCmd)->nativeHandle()), name)
+
 #else
     // Empty macros when disabled
     #define PNKR_PROFILE_FRAME(name)

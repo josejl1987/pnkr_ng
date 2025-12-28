@@ -1,4 +1,5 @@
 #include "pnkr/renderer/scene/AnimationSystem.hpp"
+#include "pnkr/core/profiler.hpp"
 #include <algorithm>
 #include <glm/gtx/compatibility.hpp> // for lerp
 #include <glm/gtx/matrix_decompose.hpp>
@@ -10,6 +11,7 @@ namespace pnkr::renderer::scene
 {
     void AnimationSystem::update(ModelDOD& model, float dt)
     {
+        PNKR_PROFILE_FUNCTION();
         auto& state = model.animationState();
         if (!state.isPlaying || state.animIndex >= model.animations().size())
         {
@@ -240,6 +242,7 @@ namespace pnkr::renderer::scene
 
     glm::quat AnimationSystem::interpolateRotation(const AnimationSampler& sampler, float time)
     {
+        PNKR_PROFILE_FUNCTION();
         if (sampler.inputs.empty()) return glm::quat(1, 0, 0, 0);
 
         // Handle Step/Linear with stride 1

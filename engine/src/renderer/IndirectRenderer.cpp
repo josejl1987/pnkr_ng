@@ -1,6 +1,7 @@
 #include "pnkr/renderer/IndirectRenderer.hpp"
 
 #include "generated/indirect.frag.h"
+#include "pnkr/core/profiler.hpp"
 #include "generated/indirect.vert.h"
 #include "generated/skinning.comp.h"
 #include "generated/depth_resolve.comp.h"
@@ -13,8 +14,11 @@
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
+#include "pnkr/renderer/scene/Bounds.hpp"
 #include "pnkr/renderer/scene/AnimationSystem.hpp"
 #include "pnkr/renderer/geometry/GeometryUtils.hpp"
+#include "pnkr/renderer/geometry/Frustum.hpp"
+#include "pnkr/rhi/vulkan/vulkan_swapchain.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -547,6 +551,22 @@ namespace pnkr::renderer
         m_shadowPipeline = m_renderer->createGraphicsPipeline(shadowBuilder.buildGraphics());
         // Note: We don't call buildBuffers() here anymore; GLTFUnifiedDOD handles it in draw()
 
+        // Initialize Indirect Buffers
+        uint32_t maxCommands = 10000;
+        if (m_model) maxCommands = std::max(10000u, static_cast<uint32_t>(m_model->meshes().size()) * 10);
+        
+        // Get flight count for ring buffering
+        flightCount = m_renderer->getSwapchain()->framesInFlight();
+
+        m_mainDrawBuffer = std::make_unique<IndirectDrawBuffer>(m_renderer, maxCommands, flightCount);
+        m_opaqueDrawBuffer = std::make_unique<IndirectDrawBuffer>(m_renderer, maxCommands, flightCount);
+        m_transmissionDrawBuffer = std::make_unique<IndirectDrawBuffer>(m_renderer, maxCommands, flightCount);
+        m_transparentDrawBuffer = std::make_unique<IndirectDrawBuffer>(m_renderer, maxCommands, flightCount);
+        m_shadowDrawBuffer = std::make_unique<IndirectDrawBuffer>(m_renderer, maxCommands, flightCount);
+
+        m_indirectPipeline.solid = m_pipeline;
+        m_indirectPipeline.wireframe = m_pipelineWireframe;
+
         // Initial upload of static data
         uploadMaterialData();
         uploadEnvironmentData(brdf, irradiance, prefilter);
@@ -663,6 +683,7 @@ namespace pnkr::renderer
 
             scene::AnimationSystem::update(*m_model, dt);
             m_model->scene().updateTransforms();
+            scene::updateWorldBounds(m_model->scene());
 
             // Update Skinning Matrices
             auto jointMatrices = scene::AnimationSystem::updateSkinning(*m_model);
@@ -1177,8 +1198,12 @@ namespace pnkr::renderer
     }
 
     void IndirectRenderer::draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera, uint32_t width,
-                                uint32_t height)
+                                uint32_t height, debug::DebugLayer* debugLayer)
     {
+        PNKR_PROFILE_FUNCTION();
+        auto* vkSwapchain = dynamic_cast<rhi::vulkan::VulkanRHISwapchain*>(m_renderer->getSwapchain());
+        TracyContext t_ctx = vkSwapchain ? vkSwapchain->getTracyContext() : nullptr;
+
         struct FrameCompleteGuard
         {
             RenderResourceManager& manager;
@@ -1194,6 +1219,9 @@ namespace pnkr::renderer
         ctx.renderer = m_renderer;
         ctx.model = m_model.get();
 
+        // Disable merging to allow per-object culling
+        ctx.mergeByMaterial = false;
+
         // Assign frame-specific buffers to the context
         auto& frame = m_frames[m_currentFrameIndex];
 
@@ -1205,6 +1233,43 @@ namespace pnkr::renderer
 
         updateLights();
 
+        if (!m_freezeCullingView) {
+            m_cullingViewMatrix = camera.view();
+        }
+
+        glm::mat4 cullingProj = camera.proj();
+        geometry::Frustum frustum{};
+        if (m_enableFrustumCulling) {
+            frustum = geometry::createFrustum(cullingProj * m_cullingViewMatrix);
+        }
+
+        m_visibleMeshCount = 0;
+
+        if (m_model) {
+            auto& sc = m_model->scene();
+            auto cullView = sc.registry.view<scene::MeshRenderer, scene::WorldBounds, scene::Visibility>();
+            cullView.each([&](ecs::Entity /*e*/, scene::MeshRenderer& /*mr*/, scene::WorldBounds& wb, scene::Visibility& vis) {
+                bool visible = true;
+                if (m_enableFrustumCulling) {
+                    visible = geometry::isBoxInFrustum(frustum, wb.aabb);
+                }
+                vis.visible = visible ? 1 : 0;
+
+                if (visible) {
+                    m_visibleMeshCount++;
+                    if (m_drawDebugBounds && debugLayer) {
+                        debugLayer->box(wb.aabb.m_min, wb.aabb.m_max, glm::vec3(0, 1, 0)); // Green
+                    }
+                } else if (m_drawDebugBounds && debugLayer) {
+                    debugLayer->box(wb.aabb.m_min, wb.aabb.m_max, glm::vec3(1, 0, 0)); // Red
+                }
+            });
+        }
+
+        if (m_freezeCullingView && m_drawDebugBounds && debugLayer) {
+            debugLayer->frustum(m_cullingViewMatrix, cullingProj, glm::vec3(1, 1, 0)); // Yellow
+        }
+
         // Build lists
         scene::GLTFUnifiedDOD::buildDrawLists(ctx, camera.position());
 
@@ -1215,9 +1280,29 @@ namespace pnkr::renderer
         frame.indirectTransparentBuffer = ctx.indirectTransparentBuffer;
 
         // 2. STOP DEFAULT PASS
+        // We must end the current render pass (started by RHIRenderer::drawFrame) BEFORE
+        // recording transfer commands (copyBuffer) for the indirect buffers.
         cmd->endRendering();
 
-        // 3. COMMON DATA
+        // 3. UPLOAD BUFFERS (Async Copy on Main Queue)
+        // Now safe to call vkCmdCopyBuffer / vkCmdPipelineBarrier
+        m_opaqueDrawBuffer->clear();
+        m_opaqueDrawBuffer->addCommands(ctx.indirectOpaque);
+        m_opaqueDrawBuffer->upload(cmd, m_currentFrameIndex);
+
+        m_transmissionDrawBuffer->clear();
+        m_transmissionDrawBuffer->addCommands(ctx.indirectTransmission);
+        m_transmissionDrawBuffer->upload(cmd, m_currentFrameIndex);
+
+        m_transparentDrawBuffer->clear();
+        m_transparentDrawBuffer->addCommands(ctx.indirectTransparent);
+        m_transparentDrawBuffer->upload(cmd, m_currentFrameIndex);
+
+        m_shadowDrawBuffer->clear();
+        m_shadowDrawBuffer->addCommands(ctx.indirectOpaque); // Shadow pass reuses opaque geometry
+        m_shadowDrawBuffer->upload(cmd, m_currentFrameIndex);
+
+        // 4. COMMON DATA & SHADOW PASS
         ShaderGen::indirect_vert::PerFrameData pc{};
         pc.drawable.view = camera.view();
         pc.drawable.proj = camera.proj();
@@ -1254,8 +1339,6 @@ namespace pnkr::renderer
         auto* sceneColorTex = m_renderer->getTexture(m_sceneColor);
         auto* depthTex = m_renderer->getDepthTexture();
 
-        // --- PHASE 0: Shadow Pass ---
-        cmd->beginDebugLabel("Shadow Pass", 0.3f, 0.3f, 0.3f, 1.0f);
         // Prepare default invalid shadow data
         ShaderGen::indirect_frag::ShadowDataGPU shadowData{};
         shadowData.shadowMapTexture = 0xFFFFFFFFu; // Invalid texture ID disables shadows in shader
@@ -1264,6 +1347,12 @@ namespace pnkr::renderer
         shadowData.lightViewProjBiased = glm::mat4(1.0f);
         shadowData.shadowMapTexelSize = glm::vec2(0.0f);
         shadowData.shadowBias = 0.0f;
+
+        // --- PHASE 0: Shadow Pass ---
+        {
+            PNKR_PROFILE_SCOPE("Record Shadow Pass");
+            PNKR_RHI_GPU_ZONE(t_ctx, cmd, "GPU_ShadowPass");
+            cmd->beginDebugLabel("Shadow Pass", 0.3f, 0.3f, 0.3f, 1.0f);
 
         if (m_shadowPipeline != INVALID_PIPELINE_HANDLE && !ctx.indirectOpaque.empty() && m_shadowCasterIndex != -1)
         {
@@ -1365,9 +1454,7 @@ namespace pnkr::renderer
             shadowPC.drawable.proj = lightProjMat;
             m_renderer->pushConstants(cmd, m_shadowPipeline, rhi::ShaderStage::Vertex, shadowPC);
 
-            auto* ib = m_renderer->getBuffer(frame.indirectOpaqueBuffer);
-            cmd->drawIndexedIndirect(ib, 0, (uint32_t)ctx.indirectOpaque.size(),
-                                     sizeof(rhi::DrawIndexedIndirectCommand));
+            drawIndirect(cmd, *m_shadowDrawBuffer);
 
             cmd->endRendering();
 
@@ -1380,6 +1467,7 @@ namespace pnkr::renderer
         }
 
         cmd->endDebugLabel(); // End Shadows
+        }
 
         // Always upload shadow data (either valid or invalid) to prevent reading garbage
         if (frame.mappedShadowData)
@@ -1395,6 +1483,8 @@ namespace pnkr::renderer
 
         // --- PHASE 1: Opaque Pass ---
         {
+            PNKR_PROFILE_SCOPE("Record Opaque Pass");
+            PNKR_RHI_GPU_ZONE(t_ctx, cmd, "GPU_OpaquePass");
             cmd->beginDebugLabel("Opaque Pass");
             // Barriers
             std::vector<rhi::RHIMemoryBarrier> barriers;
@@ -1467,15 +1557,13 @@ namespace pnkr::renderer
 
             PipelineHandle opaquePipeline = m_drawWireframe ? m_pipelineWireframe : m_pipeline;
 
-            if (!ctx.indirectOpaque.empty())
+            if (m_opaqueDrawBuffer->commands().size() > 0)
             {
                 cmd->bindPipeline(m_renderer->getPipeline(opaquePipeline));
                 m_renderer->pushConstants(cmd, opaquePipeline, rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment,
                                           pc);
 
-                auto* ib = m_renderer->getBuffer(frame.indirectOpaqueBuffer);
-                cmd->drawIndexedIndirect(ib, 0, (uint32_t)ctx.indirectOpaque.size(),
-                                         sizeof(rhi::DrawIndexedIndirectCommand));
+                drawIndirect(cmd, *m_opaqueDrawBuffer);
             }
             cmd->endRendering();
             cmd->endDebugLabel();
@@ -1569,27 +1657,23 @@ namespace pnkr::renderer
             PipelineHandle opaquePipeline = m_drawWireframe ? m_pipelineWireframe : m_pipeline;
 
             // Transmission (using Opaque pipeline state usually, but with transmission texture bound)
-            if (!ctx.indirectTransmission.empty())
+            if (m_transmissionDrawBuffer->commands().size() > 0)
             {
                 cmd->bindPipeline(m_renderer->getPipeline(opaquePipeline)); // Rebind
                 m_renderer->pushConstants(cmd, opaquePipeline, rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment,
                                           pc);
 
-                auto* ib = m_renderer->getBuffer(frame.indirectTransmissionBuffer);
-                cmd->drawIndexedIndirect(ib, 0, (uint32_t)ctx.indirectTransmission.size(),
-                                         sizeof(rhi::DrawIndexedIndirectCommand));
+                drawIndirect(cmd, *m_transmissionDrawBuffer);
             }
 
             // Transparent
-            if (!ctx.indirectTransparent.empty())
+            if (m_transparentDrawBuffer->commands().size() > 0)
             {
                 cmd->bindPipeline(m_renderer->getPipeline(m_pipelineTransparent));
                 m_renderer->pushConstants(cmd, m_pipelineTransparent,
                                           rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
 
-                auto* ib = m_renderer->getBuffer(frame.indirectTransparentBuffer);
-                cmd->drawIndexedIndirect(ib, 0, (uint32_t)ctx.indirectTransparent.size(),
-                                         sizeof(rhi::DrawIndexedIndirectCommand));
+                drawIndirect(cmd, *m_transparentDrawBuffer);
             }
             cmd->endRendering();
             cmd->endDebugLabel();
@@ -1603,6 +1687,7 @@ namespace pnkr::renderer
 
             if (m_ssaoSettings.enabled)
             {
+                PNKR_PROFILE_SCOPE("Record SSAO");
                 dispatchSSAO(cmd, camera);
             }
 
@@ -1892,6 +1977,30 @@ namespace pnkr::renderer
             cmd->beginRendering(info);
             cmd->setViewport({0, 0, (float)width, (float)height, 0, 1});
             cmd->setScissor({0, 0, width, height});
+        }
+    }
+
+    void IndirectRenderer::drawIndirect(rhi::RHICommandBuffer* cmd, const IndirectDrawBuffer& buffer)
+    {
+        auto* rhiBuf = m_renderer->getBuffer(buffer.handle());
+        uint32_t maxDraws = buffer.maxCommands();
+        uint32_t stride = sizeof(IndirectCommand);
+
+        if (m_renderer->checkDrawIndirectCountSupport())
+        {
+            // [Count (4b)] [Padding (12b)] [Commands...]
+            // Count is at offset 0, Commands start at offset 16.
+            cmd->drawIndexedIndirectCount(rhiBuf, 16, rhiBuf, 0, maxDraws, stride);
+        }
+        else
+        {
+            // Fallback: Use maxCount if count not supported (or we could read it back, but that's slow)
+            // Better fallback for CPU-driven: we know the count on CPU.
+            uint32_t currentCount = static_cast<uint32_t>(buffer.commands().size());
+            if (currentCount > 0)
+            {
+                cmd->drawIndexedIndirect(rhiBuf, 16, currentCount, stride);
+            }
         }
     }
 

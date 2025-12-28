@@ -1,4 +1,5 @@
 #include "pnkr/renderer/scene/ModelDOD.hpp"
+#include "pnkr/renderer/scene/Bounds.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
@@ -488,6 +489,21 @@ namespace pnkr::renderer::scene
         for (const auto& mc : matsCPU) {
             m_materials.push_back(fromMaterialCPU(mc, m_textures));
         }
+
+        auto& reg = m_scene->registry;
+        auto meshView = reg.view<MeshRenderer>();
+        meshView.each([&](ecs::Entity e, MeshRenderer& mr) {
+            if (!reg.has<LocalBounds>(e)) {
+                LocalBounds& lb = reg.emplace<LocalBounds>(e);
+                const int32_t meshId = mr.meshID;
+                if (meshId >= 0 && static_cast<size_t>(meshId) < m_meshBounds.size()) {
+                    lb.aabb = m_meshBounds[meshId];
+                }
+            }
+            if (!reg.has<WorldBounds>(e)) reg.emplace<WorldBounds>(e);
+            if (!reg.has<Visibility>(e)) reg.emplace<Visibility>(e);
+            if (!reg.has<BoundsDirtyTag>(e)) reg.emplace<BoundsDirtyTag>(e);
+        });
 
         m_scene->onHierarchyChanged();
 
@@ -1199,7 +1215,16 @@ namespace pnkr::renderer::scene
             model->scene().registry.emplace<WorldTransform>(e);
 
             if (node.meshIndex.has_value()) {
-                model->scene().registry.emplace<MeshRenderer>(e, (int32_t)node.meshIndex.value() + (int32_t)primitiveCount);
+                const int32_t meshId = (int32_t)node.meshIndex.value() + (int32_t)primitiveCount;
+                model->scene().registry.emplace<MeshRenderer>(e, meshId);
+
+                LocalBounds& lb = model->scene().registry.emplace<LocalBounds>(e);
+                if (meshId >= 0 && static_cast<size_t>(meshId) < model->meshBounds().size()) {
+                    lb.aabb = model->meshBounds()[meshId];
+                }
+                model->scene().registry.emplace<WorldBounds>(e);
+                model->scene().registry.emplace<Visibility>(e);
+                model->scene().registry.emplace<BoundsDirtyTag>(e);
             }
             if (node.lightIndex.has_value()) {
                 const size_t lightIndex = static_cast<size_t>(node.lightIndex.value());
@@ -1357,10 +1382,17 @@ namespace pnkr::renderer::scene
 
         auto& scene = *m_scene;
         ecs::Entity parent = scene.root;
-        ecs::Entity nodeId = scene.createNode(parent);
+    ecs::Entity nodeId = scene.createNode(parent);
 
-        scene.registry.get<LocalTransform>(nodeId).matrix = transform;
-        scene.registry.emplace<MeshRenderer>(nodeId, static_cast<int32_t>(meshId));
+    scene.registry.get<LocalTransform>(nodeId).matrix = transform;
+    scene.registry.emplace<MeshRenderer>(nodeId, static_cast<int32_t>(meshId));
+    LocalBounds& lb = scene.registry.emplace<LocalBounds>(nodeId);
+    if (meshId < m_meshBounds.size()) {
+        lb.aabb = m_meshBounds[meshId];
+    }
+    scene.registry.emplace<WorldBounds>(nodeId);
+    scene.registry.emplace<Visibility>(nodeId);
+    scene.registry.emplace<BoundsDirtyTag>(nodeId);
 
         if (!name.empty()) {
             scene.registry.emplace<Name>(nodeId, name);

@@ -360,6 +360,13 @@ public:
     {
         if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat)
         {
+            if (event.key.scancode == SDL_SCANCODE_P)
+            {
+                static bool freeze = false;
+                freeze = !freeze;
+                if (m_indirectRenderer) m_indirectRenderer->setFreezeCullingView(freeze);
+            }
+
             if (event.key.scancode == SDL_SCANCODE_F10)
             {
                 auto& rd = m_renderer->renderdoc();
@@ -562,6 +569,28 @@ public:
             }
         }
         if (m_indirectRenderer) ImGui::End();
+
+        if (m_indirectRenderer) {
+            ImGui::Begin("Culling Settings");
+
+            static bool enableCulling = true;
+            if (ImGui::Checkbox("Enable CPU Frustum Culling", &enableCulling)) {
+                m_indirectRenderer->setCullingEnabled(enableCulling);
+            }
+
+            static bool freeze = false;
+            if (ImGui::Checkbox("Freeze Culling View (P)", &freeze)) {
+                m_indirectRenderer->setFreezeCullingView(freeze);
+            }
+
+            static bool debugDraw = false;
+            if (ImGui::Checkbox("Draw Debug Bounds", &debugDraw)) {
+                m_indirectRenderer->setDrawDebugBounds(debugDraw);
+            }
+
+            ImGui::Text("Visible Meshes: %u", m_indirectRenderer->getVisibleMeshCount());
+            ImGui::End();
+        }
 
         ImGui::Begin("Camera");
         ImGui::TextUnformatted("Position/target controls use the free camera.");
@@ -921,7 +950,7 @@ public:
         if (m_indirectRenderer)
         {
             m_indirectRenderer->draw(ctx.commandBuffer, m_camera, ctx.backBuffer->extent().width,
-                                     ctx.backBuffer->extent().height);
+                                     ctx.backBuffer->extent().height, &m_debugLayer);
         }
 
 

@@ -530,6 +530,7 @@ namespace pnkr::renderer::rhi::vulkan
             return false;
         }
 
+        PNKR_PROFILE_FRAME_MARK();
         return presentResult == vk::Result::eSuccess;
     }
 } // namespace pnkr::renderer::rhi::vulkan

@@ -1,9 +1,11 @@
 ﻿#include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
+#include "pnkr/renderer/scene/Bounds.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/rhi/rhi_command_buffer.hpp"
 #include "pnkr/rhi/rhi_buffer.hpp"
 #include "pnkr/core/common.hpp"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/profiler.hpp"
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/norm.hpp>
 #include <algorithm>
@@ -130,7 +132,7 @@ namespace pnkr::renderer::scene
         }
 
         return gpuData;
-    }
+        }
 
     void uploadMaterials(GLTFUnifiedDODContext& ctx)
     {
@@ -207,7 +209,7 @@ namespace pnkr::renderer::scene
             l._pad = 0;
 
             gpuLights.push_back(l);
-        });
+            });
 
         ctx.activeLightCount = static_cast<uint32_t>(gpuLights.size());
         const size_t dataSize = gpuLights.size() * sizeof(ShaderGen::gltf_frag::LightDataGPU);
@@ -230,10 +232,16 @@ namespace pnkr::renderer::scene
 
     void GLTFUnifiedDOD::buildDrawLists(GLTFUnifiedDODContext& ctx, const glm::vec3& cameraPos)
     {
+        PNKR_PROFILE_FUNCTION();
         ctx.transforms.clear();
         ctx.indirectOpaque.clear();
         ctx.indirectTransmission.clear();
         ctx.indirectTransparent.clear();
+
+        ctx.opaqueMeshIndices.clear();
+        ctx.transmissionMeshIndices.clear();
+        ctx.transparentMeshIndices.clear();
+
         ctx.volumetricMaterial = false;
 
         if (!ctx.model || !ctx.renderer) return;
@@ -246,6 +254,7 @@ namespace pnkr::renderer::scene
         {
             GLTFTransformGPU xf;
             renderer::rhi::DrawIndexedIndirectCommand baseCmd;
+            uint32_t meshId = 0;
             float dist2 = 0.0f;
         };
 
@@ -302,77 +311,95 @@ namespace pnkr::renderer::scene
             return st;
         };
 
-        auto meshView = scene.registry.view<MeshRenderer, WorldTransform>();
-        meshView.each([&](ecs::Entity e, MeshRenderer& meshComp, WorldTransform& world) {
-            if (meshComp.meshID < 0 || static_cast<size_t>(meshComp.meshID) >= meshes.size()) return;
+        auto meshView = scene.registry.view<MeshRenderer, WorldTransform, Visibility>();
+        {
+            PNKR_PROFILE_SCOPE("DOD Mesh View Loop");
+            meshView.each([&](ecs::Entity e, MeshRenderer& meshComp, WorldTransform& world, Visibility& vis) {
+                if (!vis.visible) return;
+                if (meshComp.meshID < 0 || static_cast<size_t>(meshComp.meshID) >= meshes.size()) return;
 
-            const uint32_t meshId = static_cast<uint32_t>(meshComp.meshID);
-            const auto& mesh = meshes[meshId];
-            const glm::mat4& M = world.matrix;
-            const glm::mat4 N = glm::inverseTranspose(M);
+                const uint32_t meshId = static_cast<uint32_t>(meshComp.meshID);
+                const auto& mesh = meshes[meshId];
+                const glm::mat4& M = world.matrix;
+                const glm::mat4 N = glm::inverseTranspose(M);
 
-            for (size_t primId = 0; primId < mesh.primitives.size(); ++primId)
-            {
-                const auto& prim = mesh.primitives[primId];
-
-                uint32_t matIndex = 0u;
-                if (prim.materialIndex < materials.size())
-                    matIndex = prim.materialIndex;
-
-                SortingType st = classify(matIndex);
-
-                Instance inst{};
-                inst.xf = {
-                    .model = M,
-                    .normalMatrix = N,
-                    .nodeIndex = static_cast<uint32_t>(e),
-                    .primIndex = static_cast<uint32_t>(primId),
-                    .materialIndex = matIndex,
-                    .sortingType = static_cast<uint32_t>(st),
-                };
-
-                inst.baseCmd = {
-                    .indexCount = prim.indexCount,
-                    .instanceCount = 0u,
-                    .firstIndex = prim.firstIndex,
-                    .vertexOffset = prim.vertexOffset,
-                    .firstInstance = 0u
-                };
-
-                if (!ctx.mergeByMaterial && st != SortingType::Transparent)
+                for (size_t primId = 0; primId < mesh.primitives.size(); ++primId)
                 {
-                    const uint32_t firstInstance = static_cast<uint32_t>(ctx.transforms.size());
-                    ctx.transforms.push_back(inst.xf);
+                    const auto& prim = mesh.primitives[primId];
 
-                    auto& out = (st == SortingType::Transmission) ? ctx.indirectTransmission : ctx.indirectOpaque;
-                    out.push_back({
-                        .indexCount = inst.baseCmd.indexCount,
-                        .instanceCount = 1u,
-                        .firstIndex = inst.baseCmd.firstIndex,
-                        .vertexOffset = inst.baseCmd.vertexOffset,
-                        .firstInstance = firstInstance
-                    });
-                    continue;
-                }
+                    uint32_t matIndex = 0u;
+                    if (prim.materialIndex < materials.size())
+                        matIndex = prim.materialIndex;
 
-                if (st == SortingType::Transparent)
-                {
-                    const glm::vec3 p = glm::vec3(M[3]);
-                    inst.dist2 = glm::distance2(cameraPos, p);
-                    transparentInstances.push_back(inst);
-                }
-                else
-                {
-                    const Key key{ prim.indexCount, prim.firstIndex, prim.vertexOffset, matIndex };
-                    if (st == SortingType::Transmission)
-                        groupsTransmission[key].push_back(inst);
+                    SortingType st = classify(matIndex);
+
+                    Instance inst{};
+                    inst.xf = {
+                        .model = M,
+                        .normalMatrix = N,
+                        .nodeIndex = static_cast<uint32_t>(e),
+                        .primIndex = static_cast<uint32_t>(primId),
+                        .materialIndex = matIndex,
+                        .sortingType = static_cast<uint32_t>(st),
+                    };
+
+                    inst.baseCmd = {
+                        .indexCount = prim.indexCount,
+                        .instanceCount = 0u,
+                        .firstIndex = prim.firstIndex,
+                        .vertexOffset = prim.vertexOffset,
+                        .firstInstance = 0u
+                    };
+                    inst.meshId = meshId;
+
+                    if (!ctx.mergeByMaterial && st != SortingType::Transparent)
+                    {
+                        const uint32_t firstInstance = static_cast<uint32_t>(ctx.transforms.size());
+                        ctx.transforms.push_back(inst.xf);
+
+                        if (st == SortingType::Transmission) {
+                            ctx.indirectTransmission.push_back({
+                                .indexCount = inst.baseCmd.indexCount,
+                                .instanceCount = 1u,
+                                .firstIndex = inst.baseCmd.firstIndex,
+                                .vertexOffset = inst.baseCmd.vertexOffset,
+                                .firstInstance = firstInstance
+                            });
+                            ctx.transmissionMeshIndices.push_back(meshId);
+                        } else {
+                            ctx.indirectOpaque.push_back({
+                                .indexCount = inst.baseCmd.indexCount,
+                                .instanceCount = 1u,
+                                .firstIndex = inst.baseCmd.firstIndex,
+                                .vertexOffset = inst.baseCmd.vertexOffset,
+                                .firstInstance = firstInstance
+                            });
+                            ctx.opaqueMeshIndices.push_back(meshId);
+                        }
+                        continue;
+                    }
+
+                    if (st == SortingType::Transparent)
+                    {
+                        const glm::vec3 p = glm::vec3(M[3]);
+                        inst.dist2 = glm::distance2(cameraPos, p);
+                        transparentInstances.push_back(inst);
+                    }
                     else
-                        groupsOpaque[key].push_back(inst);
+                    {
+                        const Key key{ prim.indexCount, prim.firstIndex, prim.vertexOffset, matIndex };
+                        if (st == SortingType::Transmission)
+                            groupsTransmission[key].push_back(inst);
+                        else
+                            groupsOpaque[key].push_back(inst);
+                    }
                 }
-            }
-        });
+            });
+        }
 
-        auto emitGroups = [&](auto& groups, std::vector<renderer::rhi::DrawIndexedIndirectCommand>& outCmds)
+    auto emitGroups = [&](auto& groups, 
+                              std::vector<renderer::rhi::DrawIndexedIndirectCommand>& outCmds,
+                              std::vector<uint32_t>& outMeshIndices)
         {
             std::vector<Key> keys;
             keys.reserve(groups.size());
@@ -394,6 +421,8 @@ namespace pnkr::renderer::scene
                 const uint32_t firstInstance = static_cast<uint32_t>(ctx.transforms.size());
                 ctx.transforms.reserve(ctx.transforms.size() + instances.size());
 
+                const uint32_t representativeMesh = instances[0].meshId;
+
                 for (const auto& inst : instances)
                     ctx.transforms.push_back(inst.xf);
 
@@ -404,20 +433,24 @@ namespace pnkr::renderer::scene
                     .vertexOffset = k.vertexOffset,
                     .firstInstance = firstInstance
                 });
+                outMeshIndices.push_back(representativeMesh);
             }
         };
 
         if (ctx.mergeByMaterial)
         {
-            emitGroups(groupsOpaque, ctx.indirectOpaque);
-            emitGroups(groupsTransmission, ctx.indirectTransmission);
+            emitGroups(groupsOpaque, ctx.indirectOpaque, ctx.opaqueMeshIndices);
+            emitGroups(groupsTransmission, ctx.indirectTransmission, ctx.transmissionMeshIndices);
         }
 
-        std::sort(transparentInstances.begin(), transparentInstances.end(),
-                  [](const Instance& a, const Instance& b)
-                  {
-                      return a.dist2 > b.dist2;
-                  });
+        {
+            PNKR_PROFILE_SCOPE("Sort Transparent");
+            std::sort(transparentInstances.begin(), transparentInstances.end(),
+                      [](const Instance& a, const Instance& b)
+                      {
+                          return a.dist2 > b.dist2;
+                      });
+        }
 
         for (const auto& inst : transparentInstances)
         {
@@ -431,6 +464,7 @@ namespace pnkr::renderer::scene
                 .vertexOffset = inst.baseCmd.vertexOffset,
                 .firstInstance = firstInstance
             });
+            ctx.transparentMeshIndices.push_back(inst.meshId);
         }
 
         if (ctx.transforms.empty()) return;

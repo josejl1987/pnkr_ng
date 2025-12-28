@@ -54,13 +54,14 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         // Debug naming with vulkan-hpp
-        if (desc.debugName != nullptr) {
+        if (desc.debugName != nullptr &&
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkSetDebugUtilsObjectNameEXT != nullptr) {
             vk::DebugUtilsObjectNameInfoEXT nameInfo{};
             nameInfo.objectType = vk::ObjectType::eBuffer;
             nameInfo.objectHandle = u64((VkBuffer)m_buffer);
             nameInfo.pObjectName = desc.debugName;
 
-                m_device->device().setDebugUtilsObjectNameEXT(nameInfo);
+            m_device->device().setDebugUtilsObjectNameEXT(nameInfo);
 
         }
     }

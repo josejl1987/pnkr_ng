@@ -133,7 +133,7 @@ void SceneEditorApp::onInit() {
     m_indirectRenderer->init(m_renderer.get(), m_model);
     m_indirectRenderer->setWireframe(m_drawWireframe);
 
-    m_debugLines = std::make_unique<renderer::debug::LineCanvas3D>();
+    m_debugLines = std::make_unique<renderer::debug::DebugLayer>();
     m_debugLines->initialize(m_renderer.get());
 
     // Camera
@@ -160,7 +160,6 @@ void SceneEditorApp::onUpdate(float dt) {
     }
 
     if (m_debugLines) {
-        m_debugLines->beginFrame();
 
         const auto& scene = m_model->scene();
         const auto& bounds = m_model->meshBounds();
@@ -193,7 +192,6 @@ void SceneEditorApp::onUpdate(float dt) {
             }
         }
 
-        m_debugLines->endFrame();
     }
 }
 
@@ -341,7 +339,7 @@ void SceneEditorApp::onImGui() {
 void SceneEditorApp::onRecord(const renderer::RHIFrameContext& ctx) {
     if (!m_model) return;
 
-    m_indirectRenderer->draw(ctx.commandBuffer, m_camera, ctx.backBuffer->extent().width, ctx.backBuffer->extent().height);
+    m_indirectRenderer->draw(ctx.commandBuffer, m_camera, ctx.backBuffer->extent().width, ctx.backBuffer->extent().height, m_debugLines.get());
     if (m_debugLines) {
         m_debugLines->render(ctx, m_camera.viewProj());
     }

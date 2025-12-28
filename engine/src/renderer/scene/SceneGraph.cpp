@@ -1,4 +1,5 @@
 #include "pnkr/renderer/scene/SceneGraph.hpp"
+#include "pnkr/renderer/scene/Bounds.hpp"
 #include <algorithm>
 #include <stack>
 
@@ -136,11 +137,17 @@ namespace pnkr::renderer::scene {
             if (!isDirty && rel.parent != ecs::NULL_ENTITY) {
                 if (registry.has<TransformDirtyTag>(rel.parent)) {
                     registry.emplace<TransformDirtyTag>(e);
+                    if (!registry.has<BoundsDirtyTag>(e)) {
+                        registry.emplace<BoundsDirtyTag>(e);
+                    }
                     isDirty = true;
                 }
             }
 
             if (isDirty) {
+                if (!registry.has<BoundsDirtyTag>(e)) {
+                    registry.emplace<BoundsDirtyTag>(e);
+                }
                 const glm::mat4& local = registry.get<LocalTransform>(e).matrix;
                 if (rel.parent != ecs::NULL_ENTITY) {
                     registry.get<WorldTransform>(e).matrix = registry.get<WorldTransform>(rel.parent).matrix * local;
@@ -157,6 +164,9 @@ namespace pnkr::renderer::scene {
     void SceneGraphDOD::markAsChanged(ecs::Entity entity) {
         if (!registry.has<TransformDirtyTag>(entity)) {
             registry.emplace<TransformDirtyTag>(entity);
+        }
+        if (!registry.has<BoundsDirtyTag>(entity)) {
+            registry.emplace<BoundsDirtyTag>(entity);
         }
     }
 
@@ -224,6 +234,9 @@ namespace pnkr::renderer::scene {
             stack.pop_back();
             if (!registry.has<TransformDirtyTag>(current)) {
                 registry.emplace<TransformDirtyTag>(current);
+            }
+            if (!registry.has<BoundsDirtyTag>(current)) {
+                registry.emplace<BoundsDirtyTag>(current);
             }
 
             if (!registry.has<Relationship>(current)) continue;

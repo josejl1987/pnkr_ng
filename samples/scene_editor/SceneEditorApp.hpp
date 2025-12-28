@@ -5,7 +5,7 @@
 #include "pnkr/renderer/scene/ModelDOD.hpp"
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/CameraController.hpp"
-#include "pnkr/renderer/debug/LineCanvas3D.hpp"
+#include "pnkr/renderer/debug/DebugLayer.hpp"
 #include "pnkr/app/Application.hpp"
 #include "pnkr/renderer/IndirectRenderer.hpp"
 
@@ -27,7 +27,7 @@ protected:
 private:
     std::shared_ptr<pnkr::renderer::scene::ModelDOD> m_model;
     std::unique_ptr<pnkr::renderer::IndirectRenderer> m_indirectRenderer;
-    std::unique_ptr<pnkr::renderer::debug::LineCanvas3D> m_debugLines;
+    std::unique_ptr<pnkr::renderer::debug::DebugLayer> m_debugLines;
 
     pnkr::renderer::scene::Camera m_camera;
     pnkr::renderer::scene::CameraController m_cameraController{{0.0f, 1.0f, 5.0f}};

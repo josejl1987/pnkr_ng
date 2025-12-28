@@ -45,6 +45,7 @@ namespace pnkr::renderer::rhi
         bool samplerAnisotropy;
         bool textureCompressionBC;
         bool bindlessTextures;
+        bool drawIndirectCount;
         bool rayTracing;
         bool meshShading;
     };

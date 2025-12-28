@@ -104,6 +104,8 @@ namespace pnkr::renderer::rhi::vulkan
             return m_renderFinished[m_currentImage];
         }
 
+        TracyContext getTracyContext() const { return m_tracyContext; }
+
         void createSurface();
         void createSwapchain(Format preferredFormat, uint32_t width, uint32_t height);
         void destroySwapchain();

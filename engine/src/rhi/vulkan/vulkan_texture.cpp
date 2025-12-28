@@ -184,7 +184,8 @@ namespace pnkr::renderer::rhi::vulkan
         m_image = cImage;
 
         // Set debug name if provided
-        if (desc.debugName != nullptr)
+        if (desc.debugName != nullptr &&
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkSetDebugUtilsObjectNameEXT != nullptr)
         {
             vk::DebugUtilsObjectNameInfoEXT nameInfo{};
             nameInfo.objectType = vk::ObjectType::eImage;

@@ -28,6 +28,11 @@ namespace pnkr::renderer::scene {
         std::vector<renderer::rhi::DrawIndexedIndirectCommand> indirectTransmission;
         std::vector<renderer::rhi::DrawIndexedIndirectCommand> indirectTransparent;
 
+        // Parallel arrays to track which MeshDOD index corresponds to the draw command
+        std::vector<uint32_t> opaqueMeshIndices;
+        std::vector<uint32_t> transmissionMeshIndices;
+        std::vector<uint32_t> transparentMeshIndices;
+
         // Per-pass indirect command buffers (GPU)
         BufferHandle indirectOpaqueBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle indirectTransmissionBuffer = INVALID_BUFFER_HANDLE;

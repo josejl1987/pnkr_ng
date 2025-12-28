@@ -3,24 +3,17 @@
 #include "pnkr/engine.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/ModelDOD.hpp"
+#include "IndirectUtils.hpp"
 #include <glm/glm.hpp>
 
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/RenderResourceManager.h"
+#include "pnkr/renderer/debug/DebugLayer.hpp"
 
 #include <span>
 #include "generated/indirect.frag.h"
 
 namespace pnkr::renderer {
-
-    // Matches VkDrawIndexedIndirectCommand (20 bytes)
-    struct IndirectCommand {
-        uint32_t indexCount;
-        uint32_t instanceCount;
-        uint32_t firstIndex;
-        int32_t  vertexOffset;
-        uint32_t firstInstance; // We use this as an index into DrawInstanceData
-    };
 
     // Data fetched per draw call via BDA
     struct DrawInstanceData {
@@ -132,7 +125,7 @@ namespace pnkr::renderer {
         void dispatchSkinning(rhi::RHICommandBuffer* cmd);
         
         // Requires viewport size to manage offscreen targets
-        void draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera, uint32_t width, uint32_t height);
+        void draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera, uint32_t width, uint32_t height, debug::DebugLayer* debugLayer = nullptr);
         
         void setWireframe(bool enabled);
         void updateMaterial(uint32_t materialIndex);
@@ -149,7 +142,14 @@ namespace pnkr::renderer {
         TextureHandle getSSAOTexture() const { return m_ssaoFinal; }
         HDRSettings& hdrSettings() { return m_hdrSettings; }
 
+        // Culling Control
+        void setCullingEnabled(bool enable) { m_enableFrustumCulling = enable; }
+        void setFreezeCullingView(bool freeze) { m_freezeCullingView = freeze; }
+        void setDrawDebugBounds(bool draw) { m_drawDebugBounds = draw; }
+        uint32_t getVisibleMeshCount() const { return m_visibleMeshCount; }
+
     private:
+        void drawIndirect(rhi::RHICommandBuffer* cmd, const IndirectDrawBuffer& buffer);
         void createPipeline();
         void createComputePipeline();
         void buildBuffers();
@@ -255,5 +255,21 @@ namespace pnkr::renderer {
         rhi::ResourceLayout m_luminanceLayout = rhi::ResourceLayout::Undefined;
         rhi::ResourceLayout m_bloomLayout[2] = { rhi::ResourceLayout::Undefined,
                                                  rhi::ResourceLayout::Undefined };
+
+        // Indirect Helper Buffers
+        std::unique_ptr<IndirectDrawBuffer> m_mainDrawBuffer;
+        std::unique_ptr<IndirectDrawBuffer> m_opaqueDrawBuffer;
+        std::unique_ptr<IndirectDrawBuffer> m_transmissionDrawBuffer;
+        std::unique_ptr<IndirectDrawBuffer> m_transparentDrawBuffer;
+        std::unique_ptr<IndirectDrawBuffer> m_shadowDrawBuffer;
+
+        IndirectPipeline m_indirectPipeline;
+
+        // Culling State
+        bool m_enableFrustumCulling = true;
+        bool m_freezeCullingView = false;
+        bool m_drawDebugBounds = false;
+        glm::mat4 m_cullingViewMatrix{ 1.0f };
+        uint32_t m_visibleMeshCount = 0;
     };
 }
