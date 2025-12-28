@@ -231,6 +231,9 @@ namespace pnkr::renderer::rhi::vulkan
         featuresCore.shaderInt64 = VK_TRUE;
         featuresCore.shaderFloat64 = VK_TRUE;
         featuresCore.multiDrawIndirect = VK_TRUE; // Enable MultiDraw
+        
+        // FIX: Enable Sample Rate Shading for MSAA
+        featuresCore.sampleRateShading = VK_TRUE; 
 
         // Vulkan 1.2 features (core) - Promoted features go here
         vk::PhysicalDeviceVulkan12Features features12{};

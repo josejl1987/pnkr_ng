@@ -178,6 +178,9 @@ namespace pnkr::renderer::rhi::vulkan
         if (hasFlag(usage, TextureUsage::InputAttachment)) {
             flags |= vk::ImageUsageFlagBits::eInputAttachment;
         }
+        if (hasFlag(usage, TextureUsage::TransientAttachment)) {
+            flags |= vk::ImageUsageFlagBits::eTransientAttachment;
+        }
 
         return flags;
     }
@@ -208,6 +211,20 @@ namespace pnkr::renderer::rhi::vulkan
         return usage;
     }
 
+    vk::SampleCountFlagBits VulkanUtils::toVkSampleCount(uint32_t count)
+    {
+        switch (count) {
+            case 1: return vk::SampleCountFlagBits::e1;
+            case 2: return vk::SampleCountFlagBits::e2;
+            case 4: return vk::SampleCountFlagBits::e4;
+            case 8: return vk::SampleCountFlagBits::e8;
+            case 16: return vk::SampleCountFlagBits::e16;
+            case 32: return vk::SampleCountFlagBits::e32;
+            case 64: return vk::SampleCountFlagBits::e64;
+            default: return vk::SampleCountFlagBits::e1;
+        }
+    }
+
     VmaMemoryUsage VulkanUtils::toVmaMemoryUsage(MemoryUsage usage)
     {
         switch (usage)
@@ -216,6 +233,7 @@ namespace pnkr::renderer::rhi::vulkan
         case MemoryUsage::CPUToGPU: return VMA_MEMORY_USAGE_CPU_TO_GPU;
         case MemoryUsage::GPUToCPU: return VMA_MEMORY_USAGE_GPU_TO_CPU;
         case MemoryUsage::CPUOnly: return VMA_MEMORY_USAGE_CPU_ONLY;
+        case MemoryUsage::GPULazy: return VMA_MEMORY_USAGE_GPU_LAZILY_ALLOCATED;
         default: return VMA_MEMORY_USAGE_AUTO;
         }
     }

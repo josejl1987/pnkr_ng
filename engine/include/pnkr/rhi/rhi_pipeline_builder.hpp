@@ -42,6 +42,9 @@ namespace pnkr::renderer::rhi
         RHIPipelineBuilder& setLineWidth(float width, bool isDynamic = false);
         RHIPipelineBuilder& setDepthBiasEnable(bool enable);
 
+        // --- Multisampling ---
+        RHIPipelineBuilder& setMultisampling(uint32_t sampleCount, bool sampleShading = false, float minSampleShading = 0.0f);
+
         // --- Depth / Stencil ---
         RHIPipelineBuilder& enableDepthTest(bool writeEnable = true, CompareOp op = CompareOp::Less, bool isDynamic = false);
         RHIPipelineBuilder& disableDepthTest(bool isDynamic = false);

@@ -16,6 +16,11 @@ namespace pnkr::renderer::rhi {
         m_gfxDesc.depthStencil.depthWriteEnable = true;
         m_gfxDesc.depthStencil.depthCompareOp = CompareOp::Less;
 
+        // Default multisampling
+        m_gfxDesc.multisample.rasterizationSamples = 1;
+        m_gfxDesc.multisample.sampleShadingEnable = false;
+        m_gfxDesc.multisample.minSampleShading = 0.0f;
+
         // Default dynamic states
         m_gfxDesc.dynamicStates = { DynamicState::Viewport, DynamicState::Scissor };
 
@@ -147,6 +152,13 @@ namespace pnkr::renderer::rhi {
 
     RHIPipelineBuilder& RHIPipelineBuilder::setDepthBiasEnable(bool enable) {
         m_gfxDesc.rasterization.depthBiasEnable = enable;
+        return *this;
+    }
+
+    RHIPipelineBuilder& RHIPipelineBuilder::setMultisampling(uint32_t sampleCount, bool sampleShading, float minSampleShading) {
+        m_gfxDesc.multisample.rasterizationSamples = sampleCount;
+        m_gfxDesc.multisample.sampleShadingEnable = sampleShading;
+        m_gfxDesc.multisample.minSampleShading = minSampleShading;
         return *this;
     }
 

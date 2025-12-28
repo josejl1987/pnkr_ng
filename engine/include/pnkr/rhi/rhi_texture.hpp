@@ -19,8 +19,10 @@ namespace pnkr::renderer::rhi
         Extent3D extent;
         Format format;
         TextureUsage usage;
+        MemoryUsage memoryUsage = MemoryUsage::GPUOnly;
         uint32_t mipLevels = 1;
         uint32_t arrayLayers = 1;
+        uint32_t sampleCount = 1;
         const char* debugName = nullptr;
     };
 

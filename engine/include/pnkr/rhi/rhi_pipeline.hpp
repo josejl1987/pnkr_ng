@@ -55,6 +55,13 @@ namespace pnkr::renderer::rhi
         std::vector<BlendAttachment> attachments;
     };
 
+    struct MultisampleState
+    {
+        uint32_t rasterizationSamples = 1;
+        bool sampleShadingEnable = false;
+        float minSampleShading = 0.0f;
+    };
+
     // Push constant range
     struct PushConstantRange
     {
@@ -86,6 +93,9 @@ namespace pnkr::renderer::rhi
 
         // Blending
         BlendState blend;
+
+        // Multisampling
+        MultisampleState multisample;
 
         // Render target formats
         std::vector<Format> colorFormats;

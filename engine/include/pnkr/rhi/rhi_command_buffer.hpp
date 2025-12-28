@@ -67,6 +67,7 @@ namespace pnkr::renderer::rhi
     struct RenderingAttachment
     {
         RHITexture* texture;
+        RHITexture* resolveTexture = nullptr;
         LoadOp loadOp;
         StoreOp storeOp;
         ClearValue clearValue;

@@ -100,7 +100,8 @@ namespace pnkr::renderer::rhi
         Storage = 1 << 3,
         ColorAttachment = 1 << 4,
         DepthStencilAttachment = 1 << 5,
-        InputAttachment = 1 << 6
+        InputAttachment = 1 << 6,
+        TransientAttachment = 1 << 7
     };
 
     // Memory properties
@@ -109,7 +110,8 @@ namespace pnkr::renderer::rhi
         GPUOnly, // Device local (VRAM)
         CPUToGPU, // Upload heap
         GPUToCPU, // Readback heap
-        CPUOnly // Staging
+        CPUOnly, // Staging
+        GPULazy  // Lazily allocated memory
     };
 
     // Shader stages

@@ -22,6 +22,8 @@ namespace pnkr::renderer::rhi::vulkan
         static vk::ImageUsageFlags toVkImageUsage(TextureUsage usage);
         static TextureUsage fromVkImageUsage(vk::ImageUsageFlags flags);
 
+        static vk::SampleCountFlagBits toVkSampleCount(uint32_t count);
+
         // Memory usage to VMA flags
         static VmaMemoryUsage toVmaMemoryUsage(MemoryUsage usage);
 

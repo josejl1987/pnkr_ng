@@ -119,6 +119,24 @@ namespace pnkr::renderer::rhi::vulkan
             vkAttachment.storeOp = VulkanUtils::toVkStoreOp(attachment.storeOp);
             vkAttachment.clearValue = VulkanUtils::toVkClearValue(attachment.clearValue);
 
+            // Resolve
+            if (attachment.resolveTexture != nullptr)
+            {
+                VkImageView resolveView = VK_NULL_HANDLE;
+                if (attachment.mipLevel > 0 || attachment.arrayLayer > 0)
+                {
+                    resolveView = static_cast<VkImageView>(attachment.resolveTexture->nativeView(attachment.mipLevel, attachment.arrayLayer));
+                }
+                else
+                {
+                    resolveView = static_cast<VkImageView>(attachment.resolveTexture->nativeView());
+                }
+
+                vkAttachment.resolveImageView = vk::ImageView(resolveView);
+                vkAttachment.resolveImageLayout = vk::ImageLayout::eColorAttachmentOptimal;
+                vkAttachment.resolveMode = vk::ResolveModeFlagBits::eAverage;
+            }
+
             colorAttachments.push_back(vkAttachment);
         }
 
@@ -152,6 +170,24 @@ namespace pnkr::renderer::rhi::vulkan
             depthAttachment.loadOp = VulkanUtils::toVkLoadOp(info.depthAttachment->loadOp);
             depthAttachment.storeOp = VulkanUtils::toVkStoreOp(info.depthAttachment->storeOp);
             depthAttachment.clearValue = VulkanUtils::toVkClearValue(info.depthAttachment->clearValue);
+
+            // Depth Resolve
+            if (info.depthAttachment->resolveTexture != nullptr)
+            {
+                VkImageView resolveView = VK_NULL_HANDLE;
+                if (info.depthAttachment->mipLevel > 0 || info.depthAttachment->arrayLayer > 0)
+                {
+                    resolveView = static_cast<VkImageView>(info.depthAttachment->resolveTexture->nativeView(info.depthAttachment->mipLevel, info.depthAttachment->arrayLayer));
+                }
+                else
+                {
+                    resolveView = static_cast<VkImageView>(info.depthAttachment->resolveTexture->nativeView());
+                }
+
+                depthAttachment.resolveImageView = vk::ImageView(resolveView);
+                depthAttachment.resolveImageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+                depthAttachment.resolveMode = vk::ResolveModeFlagBits::eSampleZero; // Default for depth
+            }
 
             renderingInfo.pDepthAttachment = &depthAttachment;
         }

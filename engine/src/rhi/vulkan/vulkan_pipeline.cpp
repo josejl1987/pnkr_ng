@@ -136,8 +136,12 @@ namespace pnkr::renderer::rhi::vulkan
 
         // Multisample state
         vk::PipelineMultisampleStateCreateInfo multisampling{};
-        multisampling.sampleShadingEnable = VK_FALSE;
-        multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
+        multisampling.rasterizationSamples = VulkanUtils::toVkSampleCount(desc.multisample.rasterizationSamples);
+        multisampling.sampleShadingEnable = desc.multisample.sampleShadingEnable ? VK_TRUE : VK_FALSE;
+        multisampling.minSampleShading = desc.multisample.minSampleShading;
+        multisampling.pSampleMask = nullptr;
+        multisampling.alphaToCoverageEnable = VK_FALSE;
+        multisampling.alphaToOneEnable = VK_FALSE;
 
         // Depth/stencil state
         vk::PipelineDepthStencilStateCreateInfo depthStencil{};

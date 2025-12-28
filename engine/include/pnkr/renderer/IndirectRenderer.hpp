@@ -142,6 +142,9 @@ namespace pnkr::renderer {
 
         // Transmission / Offscreen Support
         TextureHandle m_sceneColor = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_msaaColor = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_msaaDepth = INVALID_TEXTURE_HANDLE;
+        uint32_t m_msaaSamples = 4;
         TextureHandle m_transmissionTexture = INVALID_TEXTURE_HANDLE;
         TextureHandle m_shadowMap = INVALID_TEXTURE_HANDLE;
         uint32_t m_shadowMapBindlessIndex = 0xFFFFFFFF;

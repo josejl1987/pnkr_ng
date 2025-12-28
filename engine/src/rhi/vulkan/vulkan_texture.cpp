@@ -146,11 +146,11 @@ namespace pnkr::renderer::rhi::vulkan
         imageInfo.tiling = vk::ImageTiling::eOptimal;
         imageInfo.initialLayout = vk::ImageLayout::eUndefined;
         imageInfo.usage = VulkanUtils::toVkImageUsage(desc.usage);
-        imageInfo.samples = vk::SampleCountFlagBits::e1;
+        imageInfo.samples = VulkanUtils::toVkSampleCount(desc.sampleCount);
         imageInfo.sharingMode = vk::SharingMode::eExclusive;
 
         VmaAllocationCreateInfo allocInfo{};
-        allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+        allocInfo.usage = VulkanUtils::toVmaMemoryUsage(desc.memoryUsage);
 
         auto cImageInfo = static_cast<VkImageCreateInfo>(imageInfo);
         VkImage cImage = nullptr;
@@ -158,6 +158,22 @@ namespace pnkr::renderer::rhi::vulkan
         auto result = static_cast<vk::Result>(
             vmaCreateImage(m_device->allocator(), &cImageInfo, &allocInfo,
                            &cImage, &m_allocation, nullptr));
+
+        // FIX: Fallback if Lazy Allocation is not supported
+        if (result == vk::Result::eErrorFeatureNotPresent && desc.memoryUsage == MemoryUsage::GPULazy)
+        {
+            pnkr::core::Logger::warn("Lazy allocation not supported for texture '{}'. Falling back to GPU-only memory.", 
+                desc.debugName ? desc.debugName : "Unnamed");
+
+            // Fallback settings
+            allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+            allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT; // Standard VRAM
+
+            // Retry
+            result = static_cast<vk::Result>(
+                vmaCreateImage(m_device->allocator(), &cImageInfo, &allocInfo,
+                               &cImage, &m_allocation, nullptr));
+        }
 
         if (result != vk::Result::eSuccess)
         {

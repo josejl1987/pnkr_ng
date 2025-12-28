@@ -181,6 +181,25 @@ namespace pnkr::renderer
         m_sceneColor = m_renderer->createTexture(descRT);
         m_sceneColorLayout = rhi::ResourceLayout::Undefined;
 
+        // MSAA Targets (Transient, Lazy)
+        rhi::TextureDescriptor msaaDesc{};
+        msaaDesc.extent = {width, height, 1};
+        msaaDesc.format = m_renderer->getSwapchainColorFormat();
+        msaaDesc.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::TransientAttachment;
+        msaaDesc.sampleCount = m_msaaSamples;
+        msaaDesc.memoryUsage = rhi::MemoryUsage::GPULazy;
+        msaaDesc.debugName = "MSAA Color";
+        m_msaaColor = m_renderer->createTexture(msaaDesc);
+
+        rhi::TextureDescriptor msaaDepthDesc{};
+        msaaDepthDesc.extent = {width, height, 1};
+        msaaDepthDesc.format = m_renderer->getDrawDepthFormat();
+        msaaDepthDesc.usage = rhi::TextureUsage::DepthStencilAttachment | rhi::TextureUsage::TransientAttachment;
+        msaaDepthDesc.sampleCount = m_msaaSamples;
+        msaaDepthDesc.memoryUsage = rhi::MemoryUsage::GPULazy;
+        msaaDepthDesc.debugName = "MSAA Depth";
+        m_msaaDepth = m_renderer->createTexture(msaaDepthDesc);
+
         // 2. Transmission Copy (Needs mips for roughness blur)
         rhi::TextureDescriptor descCopy{};
         descCopy.extent = descRT.extent;
@@ -569,7 +588,8 @@ namespace pnkr::renderer
         builder.setShaders(vert.get(), frag.get())
                .setTopology(rhi::PrimitiveTopology::TriangleList)
                .setColorFormat(m_renderer->getSwapchainColorFormat()) // Matches m_sceneColor format
-               .setDepthFormat(m_renderer->getDrawDepthFormat());
+               .setDepthFormat(m_renderer->getDrawDepthFormat())
+               .setMultisampling(m_msaaSamples, true, 0.25f);
 
         // Solid Pipeline (Writes Depth)
         builder.setPolygonMode(rhi::PolygonMode::Fill)
@@ -935,17 +955,18 @@ namespace pnkr::renderer
             rhi::RenderingInfo info{};
             info.renderArea = {0, 0, width, height};
             rhi::RenderingAttachment attColor{};
-            attColor.texture = sceneColorTex;
+            attColor.texture = m_renderer->getTexture(m_msaaColor);
+            attColor.resolveTexture = sceneColorTex;
             attColor.loadOp = rhi::LoadOp::Clear;
-            attColor.storeOp = rhi::StoreOp::Store;
+            attColor.storeOp = rhi::StoreOp::Store; // Store for Phase 3
             attColor.clearValue.isDepthStencil = false;
             attColor.clearValue.color.float32[0] = 0.0f; // Black clear
             info.colorAttachments.push_back(attColor);
 
             rhi::RenderingAttachment attDepth{};
-            attDepth.texture = depthTex;
+            attDepth.texture = m_renderer->getTexture(m_msaaDepth);
             attDepth.loadOp = rhi::LoadOp::Clear;
-            attDepth.storeOp = rhi::StoreOp::Store;
+            attDepth.storeOp = rhi::StoreOp::Store; // Store for Phase 3
             attDepth.clearValue.isDepthStencil = true;
             attDepth.clearValue.depthStencil.depth = 1.0f;
             info.depthAttachment = &attDepth;
@@ -1032,15 +1053,16 @@ namespace pnkr::renderer
             rhi::RenderingInfo info{};
             info.renderArea = {0, 0, width, height};
             rhi::RenderingAttachment attColor{};
-            attColor.texture = sceneColorTex;
-            attColor.loadOp = rhi::LoadOp::Load; // Keep opaque pixels
-            attColor.storeOp = rhi::StoreOp::Store;
+            attColor.texture = m_renderer->getTexture(m_msaaColor);
+            attColor.resolveTexture = sceneColorTex;
+            attColor.loadOp = rhi::LoadOp::Load; // Keep opaque pixels in MSAA
+            attColor.storeOp = rhi::StoreOp::DontCare; // Discard MSAA after final resolve
             info.colorAttachments.push_back(attColor);
 
             rhi::RenderingAttachment attDepth{};
-            attDepth.texture = depthTex;
+            attDepth.texture = m_renderer->getTexture(m_msaaDepth);
             attDepth.loadOp = rhi::LoadOp::Load; // Keep depth
-            attDepth.storeOp = rhi::StoreOp::Store;
+            attDepth.storeOp = rhi::StoreOp::DontCare; // Discard MSAA depth
             info.depthAttachment = &attDepth;
 
             cmd->beginRendering(info);
