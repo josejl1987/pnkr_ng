@@ -187,19 +187,20 @@ namespace pnkr::renderer::scene
 
     void mergeNodesWithMaterial(SceneGraphDOD& scene, UnifiedMeshData& meshData, uint32_t materialID)
     {
-        std::vector<uint32_t> nodesToDelete;
+        std::vector<ecs::Entity> entitiesToDelete;
         std::vector<uint32_t> meshesToMerge;
 
         // 1. Find nodes using this material
-        for (size_t i = 0; i < scene.meshIndex.size(); ++i) {
-            int32_t midx = scene.meshIndex[i];
+        auto meshPool = scene.registry.view<MeshRenderer>();
+        meshPool.each([&](ecs::Entity e, MeshRenderer& mr) {
+            int32_t midx = mr.meshID;
             if (midx >= 0 && (size_t)midx < meshData.m_meshes.size()) {
                 if (meshData.m_meshes[midx].materialID == materialID) {
-                    nodesToDelete.push_back((uint32_t)i);
+                    entitiesToDelete.push_back(e);
                     meshesToMerge.push_back((uint32_t)midx);
                 }
             }
-        }
+        });
 
         if (meshesToMerge.size() < 2) return; // Nothing to merge
 
@@ -208,24 +209,23 @@ namespace pnkr::renderer::scene
         mergeIndexArray(meshData, meshesToMerge, oldToNewMeshID);
 
         // 3. Update Scene Mesh References
-        for (auto& mIdx : scene.meshIndex) {
+        meshPool.each([&](ecs::Entity, MeshRenderer& mr) {
+            int32_t mIdx = mr.meshID;
             if (mIdx >= 0) {
                 // If it was in the map (merged or shifted), update it
                 if (oldToNewMeshID.find((uint32_t)mIdx) != oldToNewMeshID.end()) {
-                    mIdx = (int32_t)oldToNewMeshID[(uint32_t)mIdx];
+                    mr.meshID = (int32_t)oldToNewMeshID[(uint32_t)mIdx];
                 }
             }
-        }
+        });
 
         // 4. Create New Node for the Merged Mesh
-        // Add to root (0) for simplicity, or find a common parent
-        uint32_t newNode = scene.addNode(0, 1);
-        
-        // The new merged mesh is the last one in the vector
-        scene.meshIndex[newNode] = (int32_t)meshData.m_meshes.size() - 1;
-        // Note: SceneGraphDOD doesn't store materialID directly, it's in the mesh/primitive.
-        
+        ecs::Entity newNode = scene.createNode();
+        scene.registry.emplace<MeshRenderer>(newNode, (int32_t)meshData.m_meshes.size() - 1);
+
         // 5. Delete the old nodes
-        deleteSceneNodes(scene, nodesToDelete);
+        for (ecs::Entity e : entitiesToDelete) {
+            scene.destroyNode(e);
+        }
     }
 }

@@ -39,7 +39,9 @@ namespace pnkr::renderer::debug
         void box(const glm::mat4& transform, const glm::vec3& size, const glm::vec3& color);
         void plane(const glm::vec3& origin, const glm::vec3& v1, const glm::vec3& v2,
                    int segments1, int segments2, const glm::vec3& color);
-        void frustum(const glm::mat4& viewProj, const glm::vec3& color);
+        void frustum(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& color);
+
+        const std::vector<glm::vec3>& getLastFrustumCorners() const { return m_lastFrustumCorners; }
 
         // Enhanced primitives with orientation support
         void circle(const glm::vec3& center, float radius, const glm::vec3& normal, const glm::vec3& color, int segments = 32);
@@ -85,7 +87,9 @@ namespace pnkr::renderer::debug
         void createPipeline();
         void allocateBuffer(uint64_t vertexCount);
 
-        std::vector<LineVertex> m_vertices;
+        std::vector<LineVertex> m_verticesPending;
+        std::vector<LineVertex> m_verticesRender;
+        std::vector<glm::vec3> m_lastFrustumCorners;
         std::unique_ptr<rhi::RHIBuffer> m_vertexBuffer;
         PipelineHandle m_pipeline;
         RHIRenderer* m_renderer = nullptr;
@@ -96,12 +100,7 @@ namespace pnkr::renderer::debug
         uint32_t m_maxVertices = 100000;
         bool m_initialized = false;
 
-                // Configuration
-
-                bool m_depthTestEnabled = true;
-
-            };
-
-        } // namespace pnkr::renderer::debug
-
-        
+        // Configuration
+        bool m_depthTestEnabled = true;
+    };
+} // namespace pnkr::renderer::debug

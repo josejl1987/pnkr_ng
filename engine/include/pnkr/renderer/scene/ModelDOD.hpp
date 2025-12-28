@@ -6,8 +6,10 @@
 #include "pnkr/renderer/scene/Animation.hpp"
 #include "pnkr/renderer/scene/GltfCamera.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
+#include "pnkr/renderer/geometry/GeometryUtils.hpp"
 #include <filesystem>
 #include <vector>
+#include <memory>
 
 namespace pnkr::renderer::scene
 {
@@ -54,6 +56,9 @@ namespace pnkr::renderer::scene
     class ModelDOD
     {
     public:
+        ModelDOD();
+        ~ModelDOD();
+
         static std::unique_ptr<ModelDOD> load(RHIRenderer& renderer, const std::filesystem::path& path,
                                               bool vertexPulling = false);
 
@@ -62,7 +67,6 @@ namespace pnkr::renderer::scene
 
         // Assets
         const std::vector<MaterialData>& materials() const { return m_materials; }
-        const std::vector<Light>& lights() const { return m_lights; }
         const std::vector<TextureHandle>& textures() const { return m_textures; }
         const std::vector<MeshDOD>& meshes() const { return m_meshes; }
         const std::vector<BoundingBox>& meshBounds() const { return m_meshBounds; }
@@ -79,16 +83,29 @@ namespace pnkr::renderer::scene
         const AnimationState& animationState() const { return m_animState; }
 
         std::vector<MaterialData>& materialsMutable() { return m_materials; }
-        std::vector<Light>& lightsMutable() { return m_lights; }
         std::vector<TextureHandle>& texturesMutable() { return m_textures; }
         std::vector<MeshDOD>& meshesMutable() { return m_meshes; }
+
+        uint32_t addPrimitiveToScene(RHIRenderer& renderer,
+                                     const geometry::MeshData& primitiveData,
+                                     uint32_t materialIndex = 0,
+                                     const glm::mat4& transform = glm::mat4(1.0f),
+                                     const std::string& name = "Primitive");
+        void addPrimitiveMeshes(RHIRenderer& renderer,
+                                const std::vector<geometry::MeshData>& primitives,
+                                const std::vector<std::string>& names,
+                                uint32_t materialIndex = 0);
+        void dropCpuGeometry();
+
+        int32_t addLight(const Light& light, const glm::mat4& transform = glm::mat4(1.0f), const std::string& name = "Light");
+        void removeLight(int32_t lightIndex);
 
         const std::vector<MaterialCPU>& materialsCPU() const { return m_materialsCPU; }
         const std::vector<std::string>& textureFiles() const { return m_textureFiles; }
 
         // The DOD Scene
-        SceneGraphDOD& scene() { return m_scene; }
-        const SceneGraphDOD& scene() const { return m_scene; }
+        SceneGraphDOD& scene() { return *m_scene; }
+        const SceneGraphDOD& scene() const { return *m_scene; }
 
         // Unified GPU Buffers for geometry
         BufferHandle vertexBuffer = INVALID_BUFFER_HANDLE;
@@ -99,9 +116,12 @@ namespace pnkr::renderer::scene
         friend class ModelDODLoader; // Allowing loader access to private members for loading
 
     private:
+        uint32_t appendPrimitiveMeshData(const geometry::MeshData& primitiveData,
+                                         uint32_t materialIndex,
+                                         const std::string& name);
+        void uploadUnifiedBuffers(RHIRenderer& renderer);
         std::vector<TextureHandle> m_textures;
         std::vector<MaterialData> m_materials;
-        std::vector<Light> m_lights;
         std::vector<MeshDOD> m_meshes;
         std::vector<Skin> m_skins;
         std::vector<Animation> m_animations;
@@ -114,7 +134,9 @@ namespace pnkr::renderer::scene
         std::vector<std::string> m_textureFiles;
         std::vector<uint8_t> m_textureIsSrgb;
 
-        SceneGraphDOD m_scene;
+        std::unique_ptr<SceneGraphDOD> m_scene;
         std::vector<BoundingBox> m_meshBounds;
+        std::vector<Vertex> m_cpuVertices;
+        std::vector<uint32_t> m_cpuIndices;
     };
 } // namespace pnkr::renderer::scene

@@ -303,6 +303,11 @@ namespace pnkr::renderer::rhi::vulkan
         m_commandBuffer.setScissor(0, VulkanUtils::toVkRect2D(scissor));
     }
 
+    void VulkanRHICommandBuffer::setDepthBias(float constantFactor, float clamp, float slopeFactor)
+    {
+        m_commandBuffer.setDepthBias(constantFactor, clamp, slopeFactor);
+    }
+
     void VulkanRHICommandBuffer::setCullMode(CullMode mode)
     {
         m_commandBuffer.setCullMode(VulkanUtils::toVkCullMode(mode));
@@ -501,9 +506,9 @@ namespace pnkr::renderer::rhi::vulkan
                     vkBarrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
                 }
 
-                vkBarrier.subresourceRange.baseMipLevel = 0;
+                vkBarrier.subresourceRange.baseMipLevel = barrier.texture->baseMipLevel();
                 vkBarrier.subresourceRange.levelCount = std::max(1U, barrier.texture->mipLevels());
-                vkBarrier.subresourceRange.baseArrayLayer = 0;
+                vkBarrier.subresourceRange.baseArrayLayer = barrier.texture->baseArrayLayer();
                 vkBarrier.subresourceRange.layerCount = std::max(1U, barrier.texture->arrayLayers());
 
                 imageBarriers.push_back(vkBarrier);

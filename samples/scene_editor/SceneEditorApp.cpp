@@ -11,6 +11,7 @@
 
 using namespace pnkr;
 using namespace pnkr::renderer;
+using namespace pnkr::renderer::scene;
 
 namespace {
 
@@ -166,25 +167,29 @@ void SceneEditorApp::onUpdate(float dt) {
         const glm::vec3 allColor(1.0f, 0.0f, 0.0f);
         const glm::vec3 selectedColor(0.0f, 1.0f, 0.0f);
 
-        for (size_t nodeId = 0; nodeId < scene.meshIndex.size(); ++nodeId) {
-            int32_t meshIdx = scene.meshIndex[nodeId];
-            if (meshIdx < 0 || static_cast<size_t>(meshIdx) >= bounds.size()) continue;
+        auto meshView = scene.registry.view<MeshRenderer, WorldTransform>();
+        meshView.each([&](ecs::Entity nodeId, MeshRenderer& mr, WorldTransform& world) {
+            int32_t meshIdx = mr.meshID;
+            if (meshIdx < 0 || static_cast<size_t>(meshIdx) >= bounds.size()) return;
 
             const auto& box = bounds[meshIdx];
             const glm::vec3 size = box.m_max - box.m_min;
             const glm::vec3 center = (box.m_min + box.m_max) * 0.5f;
-            glm::mat4 boxTransform = scene.global[nodeId] * glm::translate(glm::mat4(1.0f), center);
+            glm::mat4 boxTransform = world.matrix * glm::translate(glm::mat4(1.0f), center);
             m_debugLines->box(boxTransform, size, allColor);
-        }
+        });
 
-        if (m_selectedNode >= 0 && static_cast<size_t>(m_selectedNode) < scene.meshIndex.size()) {
-            int32_t meshIdx = scene.meshIndex[m_selectedNode];
-            if (meshIdx >= 0 && static_cast<size_t>(meshIdx) < bounds.size()) {
-                const auto& box = bounds[meshIdx];
-                const glm::vec3 size = box.m_max - box.m_min;
-                const glm::vec3 center = (box.m_min + box.m_max) * 0.5f;
-                glm::mat4 boxTransform = scene.global[m_selectedNode] * glm::translate(glm::mat4(1.0f), center);
-                m_debugLines->box(boxTransform, size, selectedColor);
+        if (m_selectedNode >= 0) {
+            ecs::Entity selectedEntity = static_cast<ecs::Entity>(m_selectedNode);
+            if (scene.registry.has<MeshRenderer>(selectedEntity) && scene.registry.has<WorldTransform>(selectedEntity)) {
+                int32_t meshIdx = scene.registry.get<MeshRenderer>(selectedEntity).meshID;
+                if (meshIdx >= 0 && static_cast<size_t>(meshIdx) < bounds.size()) {
+                    const auto& box = bounds[meshIdx];
+                    const glm::vec3 size = box.m_max - box.m_min;
+                    const glm::vec3 center = (box.m_min + box.m_max) * 0.5f;
+                    glm::mat4 boxTransform = scene.registry.get<WorldTransform>(selectedEntity).matrix * glm::translate(glm::mat4(1.0f), center);
+                    m_debugLines->box(boxTransform, size, selectedColor);
+                }
             }
         }
 
@@ -218,19 +223,29 @@ void SceneEditorApp::onImGui() {
 
     // Scene Graph
     ImGui::Begin("Scene Graph");
-    int newSelection = ui::renderSceneTree(m_model->scene(), m_model->scene().root, m_selectedNode);
+    int newSelection = -1;
+    for (auto root : m_model->scene().roots) {
+        int sel = ui::renderSceneTree(m_model->scene(), static_cast<uint32_t>(root), m_selectedNode);
+        if (sel != -1) newSelection = sel;
+    }
     if (newSelection != -1) m_selectedNode = newSelection;
     ImGui::End();
 
     // Inspector
     ImGui::Begin("Inspector");
     if (m_selectedNode != -1) {
+        ecs::Entity selectedEntity = static_cast<ecs::Entity>(m_selectedNode);
+        auto& scene = m_model->scene();
+        
         // Calculate center offset for the gizmo (AABB center)
         glm::vec3 centerOffset(0.0f);
-        int32_t meshIdx = m_model->scene().meshIndex[m_selectedNode];
-        if (meshIdx >= 0 && (size_t)meshIdx < m_model->meshBounds().size()) {
-            const auto& box = m_model->meshBounds()[meshIdx];
-            centerOffset = (box.m_min + box.m_max) * 0.5f;
+        int32_t meshIdx = -1;
+        if (scene.registry.has<MeshRenderer>(selectedEntity)) {
+            meshIdx = scene.registry.get<MeshRenderer>(selectedEntity).meshID;
+            if (meshIdx >= 0 && (size_t)meshIdx < m_model->meshBounds().size()) {
+                const auto& box = m_model->meshBounds()[meshIdx];
+                centerOffset = (box.m_min + box.m_max) * 0.5f;
+            }
         }
 
         // Transform Editor
@@ -283,7 +298,7 @@ void SceneEditorApp::onImGui() {
 void SceneEditorApp::onRecord(const renderer::RHIFrameContext& ctx) {
     if (!m_model) return;
 
-    m_indirectRenderer->draw(ctx.commandBuffer, m_camera);
+    m_indirectRenderer->draw(ctx.commandBuffer, m_camera, ctx.backBuffer->extent().width, ctx.backBuffer->extent().height);
     if (m_debugLines) {
         m_debugLines->render(ctx, m_camera.viewProj());
     }
@@ -315,14 +330,16 @@ void SceneEditorApp::tryPick() {
     float bestT = std::numeric_limits<float>::infinity();
 
     // Iterate nodes that have meshes
-    for (size_t nodeId = 0; nodeId < scene.meshIndex.size(); ++nodeId) {
-        int32_t meshIdx = scene.meshIndex[nodeId];
-        if (meshIdx < 0 || (size_t)meshIdx >= bounds.size()) continue;
+    auto meshView = scene.registry.view<MeshRenderer, WorldTransform>();
+
+    meshView.each([&](ecs::Entity nodeId, MeshRenderer& mr, WorldTransform& world) {
+        int32_t meshIdx = mr.meshID;
+        if (meshIdx < 0 || static_cast<size_t>(meshIdx) >= bounds.size()) return;
 
         const auto& box = bounds[meshIdx];
 
         glm::vec3 wmin, wmax;
-        transformAABB(box.m_min, box.m_max, scene.global[nodeId], wmin, wmax);
+        transformAABB(box.m_min, box.m_max, world.matrix, wmin, wmax);
 
         float t = 0.0f;
         if (intersectRayAABB(ray.origin, ray.dir, wmin, wmax, t)) {
@@ -331,7 +348,7 @@ void SceneEditorApp::tryPick() {
                 bestNode = (int)nodeId;
             }
         }
-    }
+    });
 
     if (bestNode != -1) {
         m_selectedNode = bestNode;

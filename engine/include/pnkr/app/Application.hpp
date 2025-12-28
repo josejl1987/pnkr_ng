@@ -226,8 +226,8 @@ namespace pnkr::app
                 }
             }
 
-            if (m_renderer) m_imgui.shutdown();
             onShutdown();
+            if (m_renderer) m_imgui.shutdown();
             return 0;
         }
         catch (const cpptrace::exception& e)

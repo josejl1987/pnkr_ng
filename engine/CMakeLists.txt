@@ -7,6 +7,8 @@ add_library(pnkr_engine STATIC
         include/pnkr/renderer/vulkan/vma.cpp
         include/pnkr/renderer/geometry/Vertex.h
         include/pnkr/renderer/geometry/VertexInputDescription.h
+        include/pnkr/renderer/geometry/GeometryUtils.hpp
+        src/renderer/geometry/GeometryUtils.cpp
         include/pnkr/renderer/pipeline/Pipeline.h
         include/pnkr/core/Handle.h
         include/pnkr/renderer/scene/camera.hpp
@@ -74,6 +76,11 @@ add_library(pnkr_engine STATIC
         src/renderer/debug/LineCanvas3D.cpp
         include/pnkr/renderer/debug/DebugLayer.hpp
         src/renderer/debug/DebugLayer.cpp
+
+        # FullScreenPass
+        include/pnkr/renderer/utils/FullScreenPass.hpp
+        src/renderer/utils/FullScreenPass.cpp
+
         src/renderer/debug/shaders/line_canvas.vert
         src/renderer/debug/shaders/line_canvas.frag)
 
@@ -350,7 +357,16 @@ add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 add_shader_target("shaders/renderer/indirect/indirect.frag")
 add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 
+add_shader_target("shaders/renderer/indirect/shadow.vert")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/renderer/indirect/shadow.frag")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
 add_shader_target("shaders/renderer/indirect/skinning.comp")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/fullscreen.vert")
 add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 
 # Include generated headers

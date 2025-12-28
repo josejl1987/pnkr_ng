@@ -145,6 +145,11 @@ namespace pnkr::renderer::rhi {
         return *this;
     }
 
+    RHIPipelineBuilder& RHIPipelineBuilder::setDepthBiasEnable(bool enable) {
+        m_gfxDesc.rasterization.depthBiasEnable = enable;
+        return *this;
+    }
+
     RHIPipelineBuilder& RHIPipelineBuilder::enableDepthTest(bool writeEnable, CompareOp op, bool isDynamic) {
         m_gfxDesc.depthStencil.depthTestEnable = true;
         m_gfxDesc.depthStencil.depthWriteEnable = writeEnable;

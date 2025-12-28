@@ -436,6 +436,7 @@ namespace pnkr::renderer::rhi::vulkan
     {
         switch (op)
         {
+        case CompareOp::None: return vk::CompareOp::eAlways;
         case CompareOp::Never: return vk::CompareOp::eNever;
         case CompareOp::Less: return vk::CompareOp::eLess;
         case CompareOp::Equal: return vk::CompareOp::eEqual;

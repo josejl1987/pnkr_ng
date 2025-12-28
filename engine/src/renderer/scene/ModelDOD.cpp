@@ -38,6 +38,9 @@ namespace pnkr::renderer::scene
 {
     using namespace pnkr::core;
 
+    ModelDOD::ModelDOD() : m_scene(std::make_unique<SceneGraphDOD>()) {}
+    ModelDOD::~ModelDOD() = default;
+
     namespace {
         struct MeshRange { uint32_t primCount; };
 
@@ -297,6 +300,58 @@ namespace pnkr::renderer::scene
 
             return md;
         }
+
+        static void serializeLightSource(std::ostream& os, const LightSource& ls) {
+            os.write(reinterpret_cast<const char*>(&ls.type), sizeof(ls.type));
+            os.write(reinterpret_cast<const char*>(&ls.color), sizeof(ls.color));
+            os.write(reinterpret_cast<const char*>(&ls.direction), sizeof(ls.direction));
+            os.write(reinterpret_cast<const char*>(&ls.intensity), sizeof(ls.intensity));
+            os.write(reinterpret_cast<const char*>(&ls.range), sizeof(ls.range));
+            os.write(reinterpret_cast<const char*>(&ls.innerConeAngle), sizeof(ls.innerConeAngle));
+            os.write(reinterpret_cast<const char*>(&ls.outerConeAngle), sizeof(ls.outerConeAngle));
+            os.write(reinterpret_cast<const char*>(&ls.debugDraw), sizeof(ls.debugDraw));
+        }
+
+        static void deserializeLightSource(std::istream& is, LightSource& ls) {
+            is.read(reinterpret_cast<char*>(&ls.type), sizeof(ls.type));
+            is.read(reinterpret_cast<char*>(&ls.color), sizeof(ls.color));
+            is.read(reinterpret_cast<char*>(&ls.direction), sizeof(ls.direction));
+            is.read(reinterpret_cast<char*>(&ls.intensity), sizeof(ls.intensity));
+            is.read(reinterpret_cast<char*>(&ls.range), sizeof(ls.range));
+            is.read(reinterpret_cast<char*>(&ls.innerConeAngle), sizeof(ls.innerConeAngle));
+            is.read(reinterpret_cast<char*>(&ls.outerConeAngle), sizeof(ls.outerConeAngle));
+            is.read(reinterpret_cast<char*>(&ls.debugDraw), sizeof(ls.debugDraw));
+        }
+
+        static void deserializeLightSourceV1(std::istream& is, LightSource& ls) {
+            uint64_t nameLen = 0;
+            is.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+            if (nameLen > 0) {
+                std::string ignored;
+                ignored.resize(nameLen);
+                is.read(ignored.data(), nameLen);
+            }
+            deserializeLightSource(is, ls);
+        }
+
+        static glm::mat4 getLocalMatrix(const fastgltf::Node& node)
+        {
+            return std::visit(fastgltf::visitor{
+                                  [&](const fastgltf::TRS& trs)
+                                  {
+                                      const glm::vec3 t = glm::make_vec3(trs.translation.data());
+                                      const auto& q = trs.rotation; // glTF: [x,y,z,w]
+                                      const glm::quat r(q[3], q[0], q[1], q[2]); // GLM: (w,x,y,z)
+                                      const glm::vec3 s = glm::make_vec3(trs.scale.data());
+                                      return glm::translate(glm::mat4(1.0f), t) * glm::toMat4(r) * glm::scale(
+                                          glm::mat4(1.0f), s);
+                                  },
+                                  [&](const fastgltf::math::fmat4x4& m)
+                                  {
+                                      return glm::make_mat4(m.data());
+                                  }
+                              }, node.transform);
+        }
     } // anonymous namespace
 
     bool ModelDOD::saveCache(const std::filesystem::path& path)
@@ -319,16 +374,21 @@ namespace pnkr::renderer::scene
         writer.writeChunk(makeFourCC("TXMD"), 1, texMeta);
 
         // 2. Scene Graph
-        writer.writeChunk(makeFourCC("SLOC"), 1, m_scene.local);
-        writer.writeChunk(makeFourCC("SGLO"), 1, m_scene.global);
-        writer.writeChunk(makeFourCC("SHIE"), 1, m_scene.hierarchy);
-        writer.writeChunk(makeFourCC("SMES"), 1, m_scene.meshIndex);
-        writer.writeChunk(makeFourCC("SLIT"), 1, m_scene.lightIndex);
-        writer.writeChunk(makeFourCC("SCAM"), 1, m_scene.cameraIndex);
-        writer.writeChunk(makeFourCC("SNID"), 1, m_scene.nameId);
-        writer.writeStringListChunk(makeFourCC("SNMS"), 1, m_scene.names);
-        writer.writeChunk(makeFourCC("SROT"), 1, m_scene.roots);
-        writer.writeChunk(makeFourCC("STOP"), 1, m_scene.topoOrder);
+        auto& reg = m_scene->registry;
+        writer.writeSparseSet(makeFourCC("SLOC"), 1, reg.getPool<LocalTransform>());
+        writer.writeSparseSet(makeFourCC("SGLO"), 1, reg.getPool<WorldTransform>());
+        writer.writeSparseSet(makeFourCC("SHIE"), 1, reg.getPool<Relationship>());
+        writer.writeSparseSet(makeFourCC("SMES"), 1, reg.getPool<MeshRenderer>());
+        writer.writeCustomSparseSet(makeFourCC("SLIT"), 2, reg.getPool<LightSource>(), serializeLightSource);
+        writer.writeSparseSet(makeFourCC("SCAM"), 1, reg.getPool<CameraComponent>());
+        writer.writeSparseSet(makeFourCC("SSKN"), 1, reg.getPool<SkinComponent>());
+
+        std::vector<std::string> names;
+        for (auto entity : reg.view<Name>()) names.push_back(reg.get<Name>(entity).str);
+        writer.writeStringListChunk(makeFourCC("SNMS"), 1, names);
+
+        writer.writeChunk(makeFourCC("SROT"), 1, m_scene->roots);
+        writer.writeChunk(makeFourCC("STOP"), 1, m_scene->topoOrder);
 
         // 3. Meshes
         std::vector<MeshRange> meshRanges;
@@ -352,7 +412,7 @@ namespace pnkr::renderer::scene
         if (!reader.isOpen()) return false;
 
         auto chunks = reader.listChunks();
-        
+
         std::vector<MaterialCPU> matsCPU;
         std::vector<MeshRange> meshRanges;
         std::vector<PrimitiveDOD> allPrims;
@@ -361,19 +421,31 @@ namespace pnkr::renderer::scene
 
         for (const auto& c : chunks) {
             uint32_t fcc = c.header.fourcc;
+            auto& reg = m_scene->registry;
             if (fcc == makeFourCC("MATL")) reader.readChunk(c, matsCPU);
             else if (fcc == makeFourCC("TXFN")) reader.readStringListChunk(c, m_textureFiles);
             else if (fcc == makeFourCC("TXMD")) reader.readChunk(c, texMeta);
-            else if (fcc == makeFourCC("SLOC")) reader.readChunk(c, m_scene.local);
-            else if (fcc == makeFourCC("SGLO")) reader.readChunk(c, m_scene.global);
-            else if (fcc == makeFourCC("SHIE")) reader.readChunk(c, m_scene.hierarchy);
-            else if (fcc == makeFourCC("SMES")) reader.readChunk(c, m_scene.meshIndex);
-            else if (fcc == makeFourCC("SLIT")) reader.readChunk(c, m_scene.lightIndex);
-            else if (fcc == makeFourCC("SCAM")) reader.readChunk(c, m_scene.cameraIndex);
-            else if (fcc == makeFourCC("SNID")) reader.readChunk(c, m_scene.nameId);
-            else if (fcc == makeFourCC("SNMS")) reader.readStringListChunk(c, m_scene.names);
-            else if (fcc == makeFourCC("SROT")) reader.readChunk(c, m_scene.roots);
-            else if (fcc == makeFourCC("STOP")) reader.readChunk(c, m_scene.topoOrder);
+            else if (fcc == makeFourCC("SLOC")) reader.readSparseSet(c, reg.getPool<LocalTransform>());
+            else if (fcc == makeFourCC("SGLO")) reader.readSparseSet(c, reg.getPool<WorldTransform>());
+            else if (fcc == makeFourCC("SHIE")) reader.readSparseSet(c, reg.getPool<Relationship>());
+            else if (fcc == makeFourCC("SMES")) reader.readSparseSet(c, reg.getPool<MeshRenderer>());
+            else if (fcc == makeFourCC("SLIT")) {
+                if (c.header.version == 1) {
+                    reader.readCustomSparseSet(c, reg.getPool<LightSource>(), deserializeLightSourceV1);
+                } else {
+                    reader.readCustomSparseSet(c, reg.getPool<LightSource>(), deserializeLightSource);
+                }
+            }
+            else if (fcc == makeFourCC("SCAM")) reader.readSparseSet(c, reg.getPool<CameraComponent>());
+            else if (fcc == makeFourCC("SSKN")) reader.readSparseSet(c, reg.getPool<SkinComponent>());
+            else if (fcc == makeFourCC("SNMS")) {
+                std::vector<std::string> names;
+                reader.readStringListChunk(c, names);
+                // Note: This logic assumes a 1:1 mapping of packed entities to names which might be fragile
+                // For a robust system, Name component should store Entity ID too.
+            }
+            else if (fcc == makeFourCC("SROT")) reader.readChunk(c, m_scene->roots);
+            else if (fcc == makeFourCC("STOP")) reader.readChunk(c, m_scene->topoOrder);
             else if (fcc == makeFourCC("MRNG")) reader.readChunk(c, meshRanges);
             else if (fcc == makeFourCC("MPRI")) reader.readChunk(c, allPrims);
             else if (fcc == makeFourCC("MNAM")) reader.readStringListChunk(c, meshNames);
@@ -406,7 +478,7 @@ namespace pnkr::renderer::scene
             if (texPath.empty()) {
                 m_textures.push_back(INVALID_TEXTURE_HANDLE);
             } else {
-                auto handle = renderer.loadTextureKTX(texPath, srgb); 
+                auto handle = renderer.loadTextureKTX(texPath, srgb);
                 m_textures.push_back(handle);
             }
         }
@@ -417,7 +489,7 @@ namespace pnkr::renderer::scene
             m_materials.push_back(fromMaterialCPU(mc, m_textures));
         }
 
-        m_scene.initDirtyTracking();
+        m_scene->onHierarchyChanged();
 
         return true;
     }
@@ -585,8 +657,15 @@ namespace pnkr::renderer::scene
         auto& gltf = asset.get();
         auto model = std::make_unique<ModelDOD>();
 
+        const uint32_t nodeCount = static_cast<uint32_t>(gltf.nodes.size());
+        std::vector<ecs::Entity> entityMap(nodeCount);
+        for (uint32_t i = 0; i < nodeCount; ++i) {
+            entityMap[i] = model->scene().registry.create();
+        }
+
         // --- Lights ---
-        model->m_lights.reserve(gltf.lights.size());
+        std::vector<Light> gltfLights;
+        gltfLights.reserve(gltf.lights.size());
         for (const auto& gLight : gltf.lights) {
             Light l{}; l.m_name = gLight.name; l.m_color = glm::make_vec3(gLight.color.data());
             l.m_intensity = gLight.intensity; l.m_range = gLight.range.value_or(0.0f);
@@ -597,9 +676,8 @@ namespace pnkr::renderer::scene
                 l.m_innerConeAngle = gLight.innerConeAngle.value_or(0.0f);
                 l.m_outerConeAngle = gLight.outerConeAngle.value_or(0.785398f);
             }
-            model->m_lights.push_back(l);
+            gltfLights.push_back(l);
         }
-        if (model->m_lights.empty()) model->m_lights.push_back({});
 
         // --- Cameras ---
         model->m_cameras.clear();
@@ -641,12 +719,12 @@ namespace pnkr::renderer::scene
 
         for (size_t texIdx = 0; texIdx < gltf.textures.size(); ++texIdx) {
             const auto imgIndexOpt = pickImageIndex(gltf.textures[texIdx]);
-            if (!imgIndexOpt) { 
-                model->m_textures[texIdx] = INVALID_TEXTURE_HANDLE; 
+            if (!imgIndexOpt) {
+                model->m_textures[texIdx] = INVALID_TEXTURE_HANDLE;
                 model->m_textureFiles[texIdx].clear();
-                continue; 
+                continue;
             }
-            
+
             const auto& img = gltf.images[*imgIndexOpt];
             std::string sourceKey;
             std::string uriPath;
@@ -700,7 +778,7 @@ namespace pnkr::renderer::scene
         model->m_materials.reserve(gltf.materials.size());
         for (const auto& mat : gltf.materials) {
             MaterialData md{};
-            
+
             // 1. Initialize Defaults according to glTF Spec
             md.m_emissiveStrength = 1.0f;
             md.m_volumeAttenuationColor = glm::vec3(1.0f);
@@ -725,22 +803,22 @@ namespace pnkr::renderer::scene
                     md.m_baseColorUV = getTexCoordIndex(*mat.specularGlossiness->diffuseTexture);
                     md.m_baseColorSampler = getSamplerAddressMode(gltf, texIdx);
                 }
-                
+
                 if (mat.specularGlossiness->specularGlossinessTexture.has_value()) {
                     // This texture packs Specular (RGB) + Glossiness (A)
                     size_t texIdx = mat.specularGlossiness->specularGlossinessTexture->textureIndex;
-                    if (texIdx < model->m_textures.size()) md.m_specularTexture = model->m_textures[texIdx]; 
+                    if (texIdx < model->m_textures.size()) md.m_specularTexture = model->m_textures[texIdx];
                     md.m_specularUV = getTexCoordIndex(*mat.specularGlossiness->specularGlossinessTexture);
                     md.m_specularSampler = getSamplerAddressMode(gltf, texIdx);
                 }
-            } 
+            }
             else {
                 // Standard Metallic-Roughness
                 const auto& pbr = mat.pbrData;
                 md.m_baseColorFactor = glm::make_vec4(pbr.baseColorFactor.data());
                 md.m_metallicFactor = pbr.metallicFactor;
                 md.m_roughnessFactor = pbr.roughnessFactor;
-                
+
                 if (pbr.baseColorTexture.has_value()) {
                     size_t texIdx = pbr.baseColorTexture->textureIndex;
                     if (texIdx < model->m_textures.size()) md.m_baseColorTexture = model->m_textures[texIdx];
@@ -762,7 +840,7 @@ namespace pnkr::renderer::scene
 
             // 3. Fix: KHR_materials_emissive_strength
             // fastgltf places this directly on material if extension is enabled
-            if (mat.emissiveStrength != 1.0f) { 
+            if (mat.emissiveStrength != 1.0f) {
                 md.m_emissiveStrength = mat.emissiveStrength;
             }
 
@@ -788,7 +866,7 @@ namespace pnkr::renderer::scene
                 md.m_emissiveUV = getTexCoordIndex(*mat.emissiveTexture);
                 md.m_emissiveSampler = getSamplerAddressMode(gltf, texIdx);
             }
-            
+
             if (mat.transmission) {
                 md.m_transmissionFactor = mat.transmission->transmissionFactor;
                 if (mat.transmission->transmissionTexture.has_value()) {
@@ -801,14 +879,14 @@ namespace pnkr::renderer::scene
             if (mat.volume) {
                 md.m_volumeThicknessFactor = mat.volume->thicknessFactor;
                 md.m_volumeAttenuationDistance = mat.volume->attenuationDistance;
-                
+
                 // FIX: Infinite distance logic
                 if (md.m_volumeAttenuationDistance == 0.0f) {
                     md.m_volumeAttenuationDistance = std::numeric_limits<float>::max();
                 }
 
                 md.m_volumeAttenuationColor = glm::make_vec3(mat.volume->attenuationColor.data());
-                
+
                 if (mat.volume->thicknessTexture.has_value()) {
                      size_t texIdx = mat.volume->thicknessTexture->textureIndex;
                      if (texIdx < model->m_textures.size()) md.m_volumeThicknessTexture = model->m_textures[texIdx];
@@ -832,14 +910,37 @@ namespace pnkr::renderer::scene
         }
 
         // --- Meshes (Unified Geometry Loading) ---
-        std::vector<Vertex> globalVertices;
-        std::vector<uint32_t> globalIndices;
+        model->m_cpuVertices.clear();
+        model->m_cpuIndices.clear();
+        std::vector<Vertex>& globalVertices = model->m_cpuVertices;
+        std::vector<uint32_t>& globalIndices = model->m_cpuIndices;
         std::vector<MorphVertex> allMorphVertices;
-        
-        model->m_meshes.reserve(gltf.meshes.size());
-        model->m_meshBounds.reserve(gltf.meshes.size());
-        model->m_morphTargetInfos.resize(gltf.meshes.size());
-        model->m_morphStates.resize(gltf.meshes.size());
+
+        // --- Add System Primitives ---
+        uint32_t primitiveCount = 0;
+        {
+            std::vector<std::pair<geometry::MeshData, std::string>> defaults;
+            defaults.push_back({geometry::GeometryUtils::getCube(1.0f), "PrimitiveCube"});
+            defaults.push_back({geometry::GeometryUtils::getPlane(1.0f, 1.0f, 1), "PrimitivePlane"});
+            defaults.push_back({geometry::GeometryUtils::getSphere(1.0f, 32, 16), "PrimitiveSphere"});
+            defaults.push_back({geometry::GeometryUtils::getCylinder(0.5f, 1.0f, 32), "PrimitiveCylinder"});
+            defaults.push_back({geometry::GeometryUtils::getCapsule(0.5f, 1.0f, 32, 8), "PrimitiveCapsule"});
+            defaults.push_back({geometry::GeometryUtils::getTorus(1.0f, 0.3f, 16, 32), "PrimitiveTorus"});
+
+            primitiveCount = (uint32_t)defaults.size();
+
+            // Ensure material 0 exists for primitives
+            if (model->m_materials.empty()) model->m_materials.push_back({});
+
+            for (const auto& p : defaults) {
+                model->appendPrimitiveMeshData(p.first, 0, p.second);
+            }
+        }
+
+        model->m_meshes.reserve(gltf.meshes.size() + primitiveCount);
+        model->m_meshBounds.reserve(gltf.meshes.size() + primitiveCount);
+        model->m_morphTargetInfos.resize(gltf.meshes.size() + primitiveCount);
+        model->m_morphStates.resize(gltf.meshes.size() + primitiveCount);
 
         for (size_t meshIdx = 0; meshIdx < gltf.meshes.size(); ++meshIdx) {
             const auto& gMesh = gltf.meshes[meshIdx];
@@ -848,7 +949,7 @@ namespace pnkr::renderer::scene
             bool hasBounds = false;
             glm::vec3 meshMin(std::numeric_limits<float>::max());
             glm::vec3 meshMax(std::numeric_limits<float>::lowest());
-            
+
             uint32_t meshVertexStart = (uint32_t)globalVertices.size();
 
             for (const auto& gPrim : gMesh.primitives) {
@@ -859,8 +960,8 @@ namespace pnkr::renderer::scene
 
                 // Load Vertices
                 const auto* itPos = gPrim.findAttribute("POSITION");
-                if (itPos == gPrim.attributes.end()) continue; 
-                
+                if (itPos == gPrim.attributes.end()) continue;
+
                 const auto& posAccessor = gltf.accessors[itPos->accessorIndex];
                 size_t vCount = posAccessor.count;
                 size_t vStart = globalVertices.size();
@@ -873,7 +974,7 @@ namespace pnkr::renderer::scene
                     globalVertices[vStart + idx].m_texCoord0 = glm::vec2(0.0f);
                     globalVertices[vStart + idx].m_texCoord1 = glm::vec2(0.0f);
                     globalVertices[vStart + idx].m_tangent = glm::vec4(0.0f);
-                    globalVertices[vStart + idx].m_meshIndex = (uint32_t)meshIdx;
+                    globalVertices[vStart + idx].m_meshIndex = (uint32_t)meshIdx + primitiveCount;
                     globalVertices[vStart + idx].m_localIndex = (uint32_t)(vStart + idx - meshVertexStart);
 
                     meshMin = glm::min(meshMin, pos);
@@ -886,7 +987,7 @@ namespace pnkr::renderer::scene
                         globalVertices[vStart + idx].m_normal = norm;
                     });
                 }
-                
+
                 if (const auto* it = gPrim.findAttribute("TEXCOORD_0"); it != gPrim.attributes.end()) {
                      fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[it->accessorIndex], [&](glm::vec2 uv, size_t idx) {
                         globalVertices[vStart + idx].m_texCoord0 = uv;
@@ -931,15 +1032,15 @@ namespace pnkr::renderer::scene
                 } else {
                     for(size_t i=0; i<vCount; ++i) globalIndices.push_back(static_cast<uint32_t>(i));
                 }
-                
+
                 primDOD.indexCount = static_cast<uint32_t>(globalIndices.size()) - primDOD.firstIndex;
                 meshDOD.primitives.push_back(primDOD);
             }
             model->m_meshes.push_back(meshDOD);
 
             // Process Morph Targets for this mesh
-            auto& morphInfo = model->m_morphTargetInfos[meshIdx];
-            morphInfo.meshIndex = (uint32_t)meshIdx;
+            auto& morphInfo = model->m_morphTargetInfos[meshIdx + primitiveCount];
+            morphInfo.meshIndex = (uint32_t)meshIdx + primitiveCount;
             if (!gMesh.primitives.empty() && !gMesh.primitives[0].targets.empty()) {
                 size_t numTargets = gMesh.primitives[0].targets.size();
                 uint32_t meshVertexCount = (uint32_t)globalVertices.size() - meshVertexStart;
@@ -1004,11 +1105,11 @@ namespace pnkr::renderer::scene
         for (const auto& gSkin : gltf.skins) {
             Skin skin;
             skin.name = gSkin.name;
-            skin.skeletonRootNode = gSkin.skeleton.has_value() ? (int)gSkin.skeleton.value() : -1;
+            skin.skeletonRootNode = gSkin.skeleton.has_value() ? (int)entityMap[gSkin.skeleton.value()] : -1;
 
             skin.joints.reserve(gSkin.joints.size());
             for (auto jointIdx : gSkin.joints) {
-                skin.joints.push_back((uint32_t)jointIdx + 1);
+                skin.joints.push_back(static_cast<uint32_t>(entityMap[jointIdx]));
             }
 
             if (gSkin.inverseBindMatrices.has_value()) {
@@ -1064,7 +1165,7 @@ namespace pnkr::renderer::scene
                 if (!gChannel.nodeIndex.has_value()) continue;
                 AnimationChannel channel;
                 channel.samplerIndex = (int)gChannel.samplerIndex;
-                channel.targetNode = (uint32_t)gChannel.nodeIndex.value() + 1;
+                channel.targetNode = static_cast<uint32_t>(entityMap[gChannel.nodeIndex.value()]);
                 if (gChannel.path == fastgltf::AnimationPath::Translation) channel.path = AnimationPath::Translation;
                 else if (gChannel.path == fastgltf::AnimationPath::Rotation) channel.path = AnimationPath::Rotation;
                 else if (gChannel.path == fastgltf::AnimationPath::Scale) channel.path = AnimationPath::Scale;
@@ -1074,28 +1175,7 @@ namespace pnkr::renderer::scene
             model->m_animations.push_back(std::move(anim));
         }
 
-        // Create GPU Buffers
-        if (!globalVertices.empty()) {
-            model->vertexBuffer = renderer.createBuffer({
-                .size = globalVertices.size() * sizeof(Vertex),
-                // Add TransferDst just in case, change MemoryUsage to CPUToGPU
-                .usage = rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
-                .memoryUsage = rhi::MemoryUsage::CPUToGPU, // [FIXED] Was GPUOnly
-                .debugName = "ModelDOD Unified VBO"
-            });
-            renderer.getBuffer(model->vertexBuffer)->uploadData(globalVertices.data(), globalVertices.size() * sizeof(Vertex));
-        }
-
-        if (!globalIndices.empty()) {
-            model->indexBuffer = renderer.createBuffer({
-                .size = globalIndices.size() * sizeof(uint32_t),
-                // Add TransferDst just in case, change MemoryUsage to CPUToGPU
-                .usage = rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
-                .memoryUsage = rhi::MemoryUsage::CPUToGPU, // [FIXED] Was GPUOnly
-                .debugName = "ModelDOD Unified IBO"
-            });
-            renderer.getBuffer(model->indexBuffer)->uploadData(globalIndices.data(), globalIndices.size() * sizeof(uint32_t));
-        }
+        model->uploadUnifiedBuffers(renderer);
 
         if (!allMorphVertices.empty()) {
             model->morphVertexBuffer = renderer.createBuffer({
@@ -1107,10 +1187,268 @@ namespace pnkr::renderer::scene
             renderer.getBuffer(model->morphVertexBuffer)->uploadData(allMorphVertices.data(), allMorphVertices.size() * sizeof(MorphVertex));
         }
 
-        // Load Nodes via SceneGraph
-        // Fix: Use defaultScene instead of scene
+        // Load Nodes via ECS
         const size_t sceneIndex = gltf.defaultScene.value_or(0);
-        model->scene().buildFromFastgltf(gltf, sceneIndex);
+
+        for (uint32_t i = 0; i < nodeCount; ++i) {
+            const auto& node = gltf.nodes[i];
+            ecs::Entity e = entityMap[i];
+
+            auto& local = model->scene().registry.emplace<LocalTransform>(e);
+            local.matrix = getLocalMatrix(node);
+            model->scene().registry.emplace<WorldTransform>(e);
+
+            if (node.meshIndex.has_value()) {
+                model->scene().registry.emplace<MeshRenderer>(e, (int32_t)node.meshIndex.value() + (int32_t)primitiveCount);
+            }
+            if (node.lightIndex.has_value()) {
+                const size_t lightIndex = static_cast<size_t>(node.lightIndex.value());
+                if (lightIndex < gltfLights.size()) {
+                    const auto& glight = gltfLights[lightIndex];
+                    auto& ls = model->scene().registry.emplace<LightSource>(e);
+                    ls.type = glight.m_type;
+                    ls.color = glight.m_color;
+                    ls.direction = glight.m_direction;
+                    ls.intensity = glight.m_intensity;
+                    ls.range = glight.m_range;
+                    ls.innerConeAngle = glight.m_innerConeAngle;
+                    ls.outerConeAngle = glight.m_outerConeAngle;
+                    ls.debugDraw = glight.m_debugDraw;
+
+                    if (!gltfLights[lightIndex].m_name.empty() && !model->scene().registry.has<Name>(e)) {
+                        model->scene().registry.emplace<Name>(e, gltfLights[lightIndex].m_name);
+                    }
+                }
+            }
+            if (node.cameraIndex.has_value()) {
+                model->scene().registry.emplace<CameraComponent>(e, (int32_t)node.cameraIndex.value());
+            }
+            if (node.skinIndex.has_value()) {
+                model->scene().registry.emplace<SkinComponent>(e, (int32_t)node.skinIndex.value());
+            }
+            if (!node.name.empty()) {
+                model->scene().registry.emplace<Name>(e, std::string(node.name));
+            }
+        }
+
+        // Hierarchy
+        for (uint32_t i = 0; i < nodeCount; ++i) {
+            const auto& node = gltf.nodes[i];
+            for (auto childIdx : node.children) {
+                model->scene().setParent(entityMap[childIdx], entityMap[i]);
+            }
+        }
+
+        // Scene Roots
+        if (sceneIndex < gltf.scenes.size()) {
+            for (auto nodeIdx : gltf.scenes[sceneIndex].nodeIndices) {
+                // If it doesn't have a parent, it's a root.
+                // setParent(e, NULL_ENTITY) will add it to roots.
+                Relationship& rel = model->scene().registry.get<Relationship>(entityMap[nodeIdx]);
+                if (rel.parent == ecs::NULL_ENTITY) {
+                    model->scene().setParent(entityMap[nodeIdx], ecs::NULL_ENTITY);
+                }
+            }
+        }
+
+        model->scene().recalculateGlobalTransformsFull();
+
         return model;
+    }
+
+    uint32_t ModelDOD::appendPrimitiveMeshData(const geometry::MeshData& primitiveData,
+                                               uint32_t materialIndex,
+                                               const std::string& name)
+    {
+        const uint32_t meshId = static_cast<uint32_t>(m_meshes.size());
+        const uint32_t firstIndex = static_cast<uint32_t>(m_cpuIndices.size());
+        const int32_t vertexOffset = static_cast<int32_t>(m_cpuVertices.size());
+
+        m_cpuVertices.reserve(m_cpuVertices.size() + primitiveData.vertices.size());
+        for (size_t i = 0; i < primitiveData.vertices.size(); ++i) {
+            Vertex v = primitiveData.vertices[i];
+            v.m_meshIndex = meshId;
+            v.m_localIndex = static_cast<uint32_t>(i);
+            m_cpuVertices.push_back(v);
+        }
+
+        m_cpuIndices.reserve(m_cpuIndices.size() + primitiveData.indices.size());
+        for (uint32_t idx : primitiveData.indices) {
+            m_cpuIndices.push_back(idx);
+        }
+
+        MeshDOD mesh;
+        mesh.name = name;
+        PrimitiveDOD prim;
+        prim.firstIndex = firstIndex;
+        prim.indexCount = static_cast<uint32_t>(primitiveData.indices.size());
+        prim.vertexOffset = vertexOffset;
+        prim.materialIndex = (materialIndex < m_materials.size()) ? materialIndex : 0;
+        mesh.primitives.push_back(prim);
+        m_meshes.push_back(mesh);
+
+        BoundingBox bounds{};
+        if (!primitiveData.vertices.empty()) {
+            glm::vec3 minPos(std::numeric_limits<float>::max());
+            glm::vec3 maxPos(std::numeric_limits<float>::lowest());
+            for (const auto& v : primitiveData.vertices) {
+                minPos = glm::min(minPos, v.m_position);
+                maxPos = glm::max(maxPos, v.m_position);
+            }
+            bounds.m_min = minPos;
+            bounds.m_max = maxPos;
+        }
+        m_meshBounds.push_back(bounds);
+
+        MorphTargetInfo morphInfo{};
+        morphInfo.meshIndex = meshId;
+        m_morphTargetInfos.push_back(morphInfo);
+        m_morphStates.push_back({});
+
+        return meshId;
+    }
+
+    void ModelDOD::uploadUnifiedBuffers(RHIRenderer& renderer)
+    {
+        if (!m_cpuVertices.empty()) {
+            vertexBuffer = renderer.createBuffer({
+                .size = m_cpuVertices.size() * sizeof(Vertex),
+                .usage = rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::StorageBuffer |
+                         rhi::BufferUsage::ShaderDeviceAddress | rhi::BufferUsage::TransferDst,
+                .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+                .debugName = "ModelDOD Unified VBO"
+            });
+            renderer.getBuffer(vertexBuffer)->uploadData(m_cpuVertices.data(), m_cpuVertices.size() * sizeof(Vertex));
+        }
+
+        if (!m_cpuIndices.empty()) {
+            indexBuffer = renderer.createBuffer({
+                .size = m_cpuIndices.size() * sizeof(uint32_t),
+                .usage = rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::StorageBuffer |
+                         rhi::BufferUsage::ShaderDeviceAddress | rhi::BufferUsage::TransferDst,
+                .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+                .debugName = "ModelDOD Unified IBO"
+            });
+            renderer.getBuffer(indexBuffer)->uploadData(m_cpuIndices.data(), m_cpuIndices.size() * sizeof(uint32_t));
+        }
+    }
+
+    void ModelDOD::dropCpuGeometry()
+    {
+        m_cpuVertices.clear();
+        m_cpuIndices.clear();
+        m_cpuVertices.shrink_to_fit();
+        m_cpuIndices.shrink_to_fit();
+    }
+
+    uint32_t ModelDOD::addPrimitiveToScene(RHIRenderer& renderer,
+                                           const geometry::MeshData& primitiveData,
+                                           uint32_t materialIndex,
+                                           const glm::mat4& transform,
+                                           const std::string& name)
+    {
+        if (primitiveData.vertices.empty() || primitiveData.indices.empty())
+            return 0;
+
+        const uint32_t meshId = appendPrimitiveMeshData(primitiveData, materialIndex, name);
+
+        renderer.device()->waitIdle();
+        uploadUnifiedBuffers(renderer);
+
+        auto& scene = *m_scene;
+        ecs::Entity parent = scene.root;
+        ecs::Entity nodeId = scene.createNode(parent);
+
+        scene.registry.get<LocalTransform>(nodeId).matrix = transform;
+        scene.registry.emplace<MeshRenderer>(nodeId, static_cast<int32_t>(meshId));
+
+        if (!name.empty()) {
+            scene.registry.emplace<Name>(nodeId, name);
+        }
+
+        scene.onHierarchyChanged();
+        return static_cast<uint32_t>(nodeId);
+    }
+
+    void ModelDOD::addPrimitiveMeshes(RHIRenderer& renderer,
+                                      const std::vector<geometry::MeshData>& primitives,
+                                      const std::vector<std::string>& names,
+                                      uint32_t materialIndex)
+    {
+        if (primitives.empty())
+            return;
+
+        size_t appended = 0;
+        for (size_t i = 0; i < primitives.size(); ++i) {
+            const auto& data = primitives[i];
+            if (data.vertices.empty() || data.indices.empty())
+                continue;
+            const std::string name = (i < names.size()) ? names[i] : "Primitive";
+            appendPrimitiveMeshData(data, materialIndex, name);
+            ++appended;
+        }
+
+        if (appended == 0)
+            return;
+
+        renderer.device()->waitIdle();
+        uploadUnifiedBuffers(renderer);
+    }
+
+    int32_t ModelDOD::addLight(const Light& light, const glm::mat4& transform, const std::string& name)
+    {
+        auto& scene = *m_scene;
+        ecs::Entity parent = scene.root;
+        // If scene is not initialized (no root), we cannot attach a node.
+        if (scene.root == ecs::NULL_ENTITY) return -1;
+
+        ecs::Entity nodeId = scene.createNode(parent);
+
+        const int32_t lightIndex = static_cast<int32_t>(scene.registry.getPool<LightSource>().size());
+        auto& ls = scene.registry.emplace<LightSource>(nodeId);
+        ls.type = light.m_type;
+        ls.color = light.m_color;
+        ls.direction = light.m_direction;
+        ls.intensity = light.m_intensity;
+        ls.range = light.m_range;
+        ls.innerConeAngle = light.m_innerConeAngle;
+        ls.outerConeAngle = light.m_outerConeAngle;
+        ls.debugDraw = light.m_debugDraw;
+
+        scene.registry.get<LocalTransform>(nodeId).matrix = transform;
+
+        if (!name.empty()) {
+            scene.registry.emplace<Name>(nodeId, name);
+        } else if (!light.m_name.empty()) {
+            scene.registry.emplace<Name>(nodeId, light.m_name);
+        }
+
+        scene.onHierarchyChanged();
+
+        return lightIndex;
+    }
+
+    void ModelDOD::removeLight(int32_t lightIndex)
+    {
+        const auto& lightPool = scene().registry.getPool<LightSource>();
+        if (lightIndex < 0 || static_cast<size_t>(lightIndex) >= lightPool.size()) return;
+
+        // 1. Find the entity with this light
+        auto& scene = *m_scene;
+        auto lightView = scene.registry.view<LightSource>();
+
+        ecs::Entity toDestroy = ecs::NULL_ENTITY;
+        uint32_t currentIdx = 0;
+
+        lightView.each([&](ecs::Entity e, LightSource& /*ls*/) {
+            if (currentIdx == static_cast<uint32_t>(lightIndex)) {
+                toDestroy = e;
+            }
+            currentIdx++;
+        });
+
+        if (toDestroy != ecs::NULL_ENTITY) {
+            scene.destroyNode(toDestroy);
+        }
     }
 }

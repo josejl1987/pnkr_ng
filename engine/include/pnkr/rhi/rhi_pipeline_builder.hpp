@@ -40,6 +40,7 @@ namespace pnkr::renderer::rhi
         RHIPipelineBuilder& setPolygonMode(PolygonMode mode);
         RHIPipelineBuilder& setCullMode(CullMode mode, bool frontFaceCCW = false, bool isDynamic = false);
         RHIPipelineBuilder& setLineWidth(float width, bool isDynamic = false);
+        RHIPipelineBuilder& setDepthBiasEnable(bool enable);
 
         // --- Depth / Stencil ---
         RHIPipelineBuilder& enableDepthTest(bool writeEnable = true, CompareOp op = CompareOp::Less, bool isDynamic = false);

@@ -26,6 +26,7 @@ namespace pnkr::renderer::rhi
         CullMode cullMode = CullMode::Back;
         bool frontFaceCCW = true;
         float lineWidth = 1.0f;
+        bool depthBiasEnable = false;
     };
 
     // Depth/stencil state

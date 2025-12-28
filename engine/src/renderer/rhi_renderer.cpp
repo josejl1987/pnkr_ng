@@ -141,6 +141,15 @@ namespace pnkr::renderer
             m_repeatSamplerNearestIndex = m_device->registerBindlessSampler(m_repeatSamplerNearest.get()).index;
             m_clampSamplerNearestIndex = m_device->registerBindlessSampler(m_clampSamplerNearest.get()).index;
             m_mirrorSamplerNearestIndex = m_device->registerBindlessSampler(m_mirrorSamplerNearest.get()).index;
+
+            m_shadowSampler = m_device->createSampler(
+                rhi::Filter::Linear,
+                rhi::Filter::Linear,
+                rhi::SamplerAddressMode::ClampToBorder,
+                rhi::CompareOp::LessOrEqual
+            );
+            m_shadowSamplerIndex = m_device->registerBindlessShadowSampler(m_shadowSampler.get()).index;
+            m_shadowSampler->setBindlessHandle({m_shadowSamplerIndex});
         }
 
         // Create render targets
@@ -554,12 +563,13 @@ namespace pnkr::renderer
             return INVALID_TEXTURE_HANDLE;
         }
 
-        auto texture = m_device->createTexture(
+        auto textureUnique = m_device->createTexture(
             rhi::Extent3D{.width = u32(width), .height = u32(height), .depth = 1},
             format,
             rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
             1, 1
         );
+        std::shared_ptr<rhi::RHITexture> texture = std::move(textureUnique);
 
         // Upload texture data
         uint64_t imageSize = static_cast<uint64_t>(width * height * channels);
@@ -587,7 +597,8 @@ namespace pnkr::renderer
 
     TextureHandle RHIRenderer::createTexture(const rhi::TextureDescriptor& desc)
     {
-        auto texture = m_device->createTexture(desc);
+        auto textureUnique = m_device->createTexture(desc);
+        std::shared_ptr<rhi::RHITexture> texture = std::move(textureUnique);
 
         if (m_useBindless && m_device)
         {
@@ -606,6 +617,37 @@ namespace pnkr::renderer
 
         core::Logger::info("Created texture (desc): {}x{} mips={}", desc.extent.width, desc.extent.height,
                            desc.mipLevels);
+
+        return handle;
+    }
+
+    TextureHandle RHIRenderer::createTextureView(TextureHandle parent, const rhi::TextureViewDescriptor& desc)
+    {
+        if (parent.id >= m_textures.size() || !m_textures[parent.id].texture)
+        {
+            return INVALID_TEXTURE_HANDLE;
+        }
+        auto parentShared = m_textures[parent.id].texture;
+        auto* parentTex = parentShared.get();
+
+        auto textureUnique = m_device->createTextureView(parentTex, desc);
+        std::shared_ptr<rhi::RHITexture> texture = std::move(textureUnique);
+        texture->setParent(parentShared);
+
+        if (m_useBindless && m_device)
+        {
+            auto bindlessHandle = m_device->registerBindlessTexture2D(
+                texture.get()
+            );
+            texture->setBindlessHandle(bindlessHandle);
+        }
+
+        TextureData texData{};
+        texData.texture = std::move(texture);
+        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
+
+        TextureHandle handle{u32(m_textures.size())};
+        m_textures.push_back(std::move(texData));
 
         return handle;
     }
@@ -697,7 +739,8 @@ namespace pnkr::renderer
             return INVALID_TEXTURE_HANDLE;
         }
 
-        auto texture = m_device->createTexture(desc);
+        auto textureUnique = m_device->createTexture(desc);
+        std::shared_ptr<rhi::RHITexture> texture = std::move(textureUnique);
 
         if (!texture)
         {

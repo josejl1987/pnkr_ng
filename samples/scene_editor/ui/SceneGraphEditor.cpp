@@ -5,15 +5,19 @@
 
 namespace pnkr::ui {
 
+using namespace renderer::scene;
+
 int renderSceneTree(renderer::scene::SceneGraphDOD& scene, uint32_t nodeIndex, int currentSelection) {
+    if (nodeIndex == ecs::NULL_ENTITY) return -1;
+    ecs::Entity entity = static_cast<ecs::Entity>(nodeIndex);
     std::string name = "Node " + std::to_string(nodeIndex);
-    int32_t nameId = scene.nameId[nodeIndex];
-    if (nameId >= 0 && (size_t)nameId < scene.names.size()) {
-        name = scene.names[nameId];
+    if (scene.registry.has<Name>(entity)) {
+        name = scene.registry.get<Name>(entity).str;
     }
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow;
-    if (scene.hierarchy[nodeIndex].firstChild < 0) flags |= ImGuiTreeNodeFlags_Leaf;
+    const auto& rel = scene.registry.get<Relationship>(entity);
+    if (rel.firstChild == ecs::NULL_ENTITY) flags |= ImGuiTreeNodeFlags_Leaf;
     if ((int)nodeIndex == currentSelection) flags |= ImGuiTreeNodeFlags_Selected;
 
     bool isOpen = ImGui::TreeNodeEx((void*)(uintptr_t)nodeIndex, flags, "%s", name.c_str());
@@ -22,11 +26,11 @@ int renderSceneTree(renderer::scene::SceneGraphDOD& scene, uint32_t nodeIndex, i
     if (ImGui::IsItemClicked()) clickedNode = nodeIndex;
 
     if (isOpen) {
-        int32_t child = scene.hierarchy[nodeIndex].firstChild;
-        while (child >= 0) {
-            int subSelect = renderSceneTree(scene, (uint32_t)child, currentSelection);
+        ecs::Entity child = rel.firstChild;
+        while (child != ecs::NULL_ENTITY) {
+            int subSelect = renderSceneTree(scene, static_cast<uint32_t>(child), currentSelection);
             if (subSelect != -1) clickedNode = subSelect;
-            child = scene.hierarchy[child].nextSibling;
+            child = scene.registry.get<Relationship>(child).nextSibling;
         }
         ImGui::TreePop();
     }
@@ -38,14 +42,19 @@ int renderSceneTree(renderer::scene::SceneGraphDOD& scene, uint32_t nodeIndex, i
 static glm::mat4 computeGlobalMatrix(const renderer::scene::SceneGraphDOD& scene, int32_t nodeIndex) {
     if (nodeIndex < 0) return glm::mat4(1.0f);
     
-    glm::mat4 global = scene.local[nodeIndex];
-    int32_t parent = scene.hierarchy[nodeIndex].parent;
+    ecs::Entity entity = static_cast<ecs::Entity>(nodeIndex);
+    if (!scene.registry.has<LocalTransform>(entity)) return glm::mat4(1.0f);
+
+    glm::mat4 global = scene.registry.get<LocalTransform>(entity).matrix;
+    ecs::Entity parent = scene.registry.get<Relationship>(entity).parent;
     
     // Walk up the tree to multiply parents
-    while (parent >= 0) {
+    while (parent != ecs::NULL_ENTITY) {
         // Pre-multiply parent: Parent * Child
-        global = scene.local[parent] * global;
-        parent = scene.hierarchy[parent].parent;
+        if (scene.registry.has<LocalTransform>(parent)) {
+            global = scene.registry.get<LocalTransform>(parent).matrix * global;
+        }
+        parent = scene.registry.get<Relationship>(parent).parent;
     }
     return global;
 }
@@ -103,15 +112,12 @@ bool editTransformUI(const renderer::scene::Camera& camera, renderer::scene::Sce
         global = pivotGlobal * glm::translate(glm::mat4(1.0f), -centerOffset);
 
         // --- Apply Changes back to Local ---
-        // We use the "Parent Inverse" method which is safer for deep hierarchies than the delta method
-        int32_t parent = scene.hierarchy[selectedNode].parent;
-        glm::mat4 parentGlobal = computeGlobalMatrix(scene, parent); // Returns identity if no parent
+        ecs::Entity entity = static_cast<ecs::Entity>(selectedNode);
+        ecs::Entity parent = scene.registry.get<Relationship>(entity).parent;
+        glm::mat4 parentGlobal = computeGlobalMatrix(scene, (parent == ecs::NULL_ENTITY) ? -1 : (int32_t)parent);
         
-        // newLocal = inv(ParentGlobal) * newGlobal
-        scene.local[selectedNode] = glm::inverse(parentGlobal) * global;
-        
-        // Update the global cache immediately so AABBs/Rendering don't lag
-        scene.global[selectedNode] = global;
+        scene.registry.get<LocalTransform>(entity).matrix = glm::inverse(parentGlobal) * global;
+        scene.registry.get<WorldTransform>(entity).matrix = global;
         
         return true;
     }

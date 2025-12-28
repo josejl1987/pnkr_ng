@@ -68,10 +68,9 @@ public:
 
     static std::string getNodeLabel(const SceneGraphDOD& scene, uint32_t nodeId)
     {
-        if (nodeId < scene.nameId.size()) {
-            const int32_t nameId = scene.nameId[nodeId];
-            if (nameId >= 0 && static_cast<size_t>(nameId) < scene.names.size())
-                return scene.names[static_cast<size_t>(nameId)];
+        ecs::Entity entity = static_cast<ecs::Entity>(nodeId);
+        if (scene.registry.has<Name>(entity)) {
+            return scene.registry.get<Name>(entity).str;
         }
         return "Node " + std::to_string(nodeId);
     }
@@ -94,8 +93,11 @@ public:
     void updateEulerFromLocal(uint32_t nodeId)
     {
         const auto& scene = m_ctx.model->scene();
-        TRSUI trs = decomposeTRS(scene.local[nodeId]);
-        m_currentEulerRotation = glm::degrees(glm::eulerAngles(trs.r));
+        ecs::Entity entity = static_cast<ecs::Entity>(nodeId);
+        if (scene.registry.has<LocalTransform>(entity)) {
+            TRSUI trs = decomposeTRS(scene.registry.get<LocalTransform>(entity).matrix);
+            m_currentEulerRotation = glm::degrees(glm::eulerAngles(trs.r));
+        }
     }
 
     void onInit() override {
@@ -207,7 +209,8 @@ public:
             // 2. Selected Node Transform Editor
             if (m_selectedNodeIndex >= 0) {
                 const auto& scene = m_ctx.model->scene();
-                if (static_cast<size_t>(m_selectedNodeIndex) >= scene.hierarchy.size()) {
+                ecs::Entity entity = static_cast<ecs::Entity>(m_selectedNodeIndex);
+                if (!scene.registry.has<Relationship>(entity)) {
                     ImGui::Text("Invalid node index.");
                     ImGui::End();
                     return;
@@ -229,10 +232,12 @@ public:
 
     void drawNodeTree(int nodeIndex) {
         const uint32_t nodeId = static_cast<uint32_t>(nodeIndex);
+        ecs::Entity entity = static_cast<ecs::Entity>(nodeId);
         const auto& scene = m_ctx.model->scene();
 
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
-        const bool isLeaf = scene.hierarchy[nodeId].firstChild < 0;
+        const auto& rel = scene.registry.get<Relationship>(entity);
+        const bool isLeaf = rel.firstChild == ecs::NULL_ENTITY;
         if (isLeaf) flags |= ImGuiTreeNodeFlags_Leaf;
         if (m_selectedNodeIndex == nodeIndex) flags |= ImGuiTreeNodeFlags_Selected;
 
@@ -246,16 +251,20 @@ public:
         }
 
         if (open) {
-            for (int32_t ch = scene.hierarchy[nodeId].firstChild; ch != -1; ch = scene.hierarchy[(uint32_t)ch].nextSibling)
-                drawNodeTree((uint32_t)ch);
+            ecs::Entity ch = rel.firstChild;
+            while (ch != ecs::NULL_ENTITY) {
+                drawNodeTree(static_cast<int>(ch));
+                ch = scene.registry.get<Relationship>(ch).nextSibling;
+            }
             ImGui::TreePop();
         }
     }
 
     void drawNodeTransformEditor(int nodeIndex) {
         const uint32_t nodeId = static_cast<uint32_t>(nodeIndex);
+        ecs::Entity entity = static_cast<ecs::Entity>(nodeId);
         auto& scene = m_ctx.model->scene();
-        TRSUI trs = decomposeTRS(scene.local[nodeId]);
+        TRSUI trs = decomposeTRS(scene.registry.get<LocalTransform>(entity).matrix);
         bool dirty = false;
 
         // Translation
@@ -273,22 +282,23 @@ public:
         if (ImGui::DragFloat3("Scale", &trs.s.x, 0.01f)) dirty = true;
 
         if (dirty) {
-            scene.local[nodeId] = composeTRS(trs);
-            scene.markAsChanged(nodeId); // mark node + descendants for next recalc
-            scene.recalculateGlobalTransformsDirty();
+            scene.registry.get<LocalTransform>(entity).matrix = composeTRS(trs);
+            scene.markAsChanged(entity); // mark node + descendants for next recalc
+            scene.updateTransforms();
             GLTFUnifiedDOD::buildDrawLists(m_ctx, m_camera.position());
         }
     }
 
     void drawNodeMaterialEditor(int nodeIndex) {
         const uint32_t nodeId = static_cast<uint32_t>(nodeIndex);
+        ecs::Entity entity = static_cast<ecs::Entity>(nodeId);
         auto& scene = m_ctx.model->scene();
-        if (nodeId >= scene.meshIndex.size() || scene.meshIndex[nodeId] < 0) {
+        if (!scene.registry.has<MeshRenderer>(entity)) {
             ImGui::Text("No mesh primitives on this node.");
             return;
         }
 
-        const uint32_t meshId = static_cast<uint32_t>(scene.meshIndex[nodeId]);
+        const uint32_t meshId = static_cast<uint32_t>(scene.registry.get<MeshRenderer>(entity).meshID);
         const auto& meshes = m_ctx.model->meshes();
         if (meshId >= meshes.size()) {
             ImGui::Text("Invalid mesh index.");
@@ -372,7 +382,7 @@ public:
 
          // 1. Setup Scene
          auto& scene = m_ctx.model->scene();
-         scene.recalculateGlobalTransformsDirty();
+         scene.updateTransforms();
 
          uploadLights(m_ctx);
          GLTFUnifiedDOD::buildDrawLists(m_ctx, m_camera.position());

@@ -127,6 +127,7 @@ namespace pnkr::renderer::rhi
         // Dynamic state
         virtual void setViewport(const Viewport& viewport) = 0;
         virtual void setScissor(const Rect2D& scissor) = 0;
+        virtual void setDepthBias(float constantFactor, float clamp, float slopeFactor) = 0;
 
         // Extended Dynamic State
         virtual void setCullMode(CullMode mode) = 0;

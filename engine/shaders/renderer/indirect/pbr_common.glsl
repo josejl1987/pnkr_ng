@@ -158,14 +158,8 @@ layout(std430, buffer_reference) readonly buffer LightBuffer {
 struct PerDrawData {
     mat4 view;
     mat4 proj;
-    uint64_t instanceBufferPtr;
     uint64_t vertexBufferPtr;
-    uint64_t _padModel0;
-    uint64_t _padModel1;
-    uint64_t _padModel2;
-    uint64_t _padModel3;
-    uint64_t _padModel4;
-    uint64_t _padModel5;
+    uint64_t shadowDataPtr;
     vec4 cameraPos;
     uint64_t transformBufferPtr;
     uint64_t materialBufferPtr;
@@ -175,6 +169,20 @@ struct PerDrawData {
     uint envId;
     uint transmissionFramebuffer;
     uint transmissionFramebufferSampler;
+};
+
+struct ShadowDataGPU {
+    mat4 lightViewProjRaw;
+    mat4 lightViewProjBiased;
+    uint shadowMapTexture;
+    uint shadowMapSampler;
+    vec2 shadowMapTexelSize;
+    float shadowBias;
+    float _pad;
+};
+
+layout(buffer_reference, scalar) readonly buffer ShadowBuffer {
+    ShadowDataGPU data;
 };
 
 layout(push_constant) uniform PerFrameData {

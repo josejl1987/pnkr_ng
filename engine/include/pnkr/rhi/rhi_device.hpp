@@ -101,6 +101,10 @@ namespace pnkr::renderer::rhi
 
         virtual std::unique_ptr<RHITexture> createTexture(const TextureDescriptor& desc) = 0;
 
+        virtual std::unique_ptr<RHITexture> createTextureView(
+            RHITexture* parent,
+            const TextureViewDescriptor& desc) = 0;
+
         virtual std::unique_ptr<RHITexture> createTexture(
             const Extent3D& extent,
             Format format,
@@ -117,7 +121,8 @@ namespace pnkr::renderer::rhi
         virtual std::unique_ptr<RHISampler> createSampler(
             Filter minFilter,
             Filter magFilter,
-            SamplerAddressMode addressMode) = 0;
+            SamplerAddressMode addressMode,
+            CompareOp compareOp = CompareOp::None) = 0;
 
         virtual std::unique_ptr<RHICommandBuffer> createCommandBuffer() = 0;
 
@@ -166,14 +171,18 @@ namespace pnkr::renderer::rhi
         virtual BindlessHandle registerBindlessTexture2D(RHITexture* texture) = 0;
         virtual BindlessHandle registerBindlessCubemapImage(RHITexture* texture) = 0;
         virtual BindlessHandle registerBindlessSampler(RHISampler* sampler) = 0;
+        virtual BindlessHandle registerBindlessShadowSampler(RHISampler* sampler) = 0;
         virtual BindlessHandle registerBindlessStorageImage(RHITexture* texture) = 0;
         virtual BindlessHandle registerBindlessBuffer(RHIBuffer* buffer) = 0;
+        virtual BindlessHandle registerBindlessShadowTexture2D(RHITexture* texture) = 0;
 
         virtual void releaseBindlessTexture(BindlessHandle handle) = 0;
         virtual void releaseBindlessCubemap(BindlessHandle handle) = 0;
         virtual void releaseBindlessSampler(BindlessHandle handle) = 0;
+        virtual void releaseBindlessShadowSampler(BindlessHandle handle) = 0;
         virtual void releaseBindlessStorageImage(BindlessHandle handle) = 0;
         virtual void releaseBindlessBuffer(BindlessHandle handle) = 0;
+        virtual void releaseBindlessShadowTexture2D(BindlessHandle handle) = 0;
 
         // To bind the global set to a command buffer
         virtual RHIDescriptorSet* getBindlessDescriptorSet() = 0; 

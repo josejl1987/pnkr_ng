@@ -95,6 +95,10 @@ namespace pnkr::renderer::rhi::vulkan
 
         std::unique_ptr<RHITexture> createTexture(const TextureDescriptor& desc) override;
 
+        std::unique_ptr<RHITexture> createTextureView(
+            RHITexture* parent,
+            const TextureViewDescriptor& desc) override;
+
         std::unique_ptr<RHITexture> createTexture(
             const Extent3D& extent,
             Format format,
@@ -107,7 +111,8 @@ namespace pnkr::renderer::rhi::vulkan
         std::unique_ptr<RHISampler> createSampler(
             Filter minFilter,
             Filter magFilter,
-            SamplerAddressMode addressMode) override;
+            SamplerAddressMode addressMode,
+            CompareOp compareOp = CompareOp::None) override;
 
         std::unique_ptr<RHICommandBuffer> createCommandBuffer() override;
 
@@ -163,14 +168,18 @@ namespace pnkr::renderer::rhi::vulkan
         BindlessHandle registerBindlessTexture2D(RHITexture* texture) override;
         BindlessHandle registerBindlessCubemapImage(RHITexture* texture) override;
         BindlessHandle registerBindlessSampler(RHISampler* sampler) override;
+        BindlessHandle registerBindlessShadowSampler(RHISampler* sampler) override;
         BindlessHandle registerBindlessBuffer(RHIBuffer* buffer) override;
         BindlessHandle registerBindlessStorageImage(RHITexture* texture) override;
+        BindlessHandle registerBindlessShadowTexture2D(RHITexture* texture) override;
 
         void releaseBindlessTexture(BindlessHandle handle) override;
         void releaseBindlessCubemap(BindlessHandle handle) override;
         void releaseBindlessSampler(BindlessHandle handle) override;
+        void releaseBindlessShadowSampler(BindlessHandle handle) override;
         void releaseBindlessStorageImage(BindlessHandle handle) override;
         void releaseBindlessBuffer(BindlessHandle handle) override;
+        void releaseBindlessShadowTexture2D(BindlessHandle handle) override;
 
         // To bind the global set to a command buffer
         RHIDescriptorSet* getBindlessDescriptorSet() override;
@@ -199,6 +208,10 @@ namespace pnkr::renderer::rhi::vulkan
         void destroyShaderModule(vk::ShaderModule module);
 
     private:
+        std::unique_ptr<VulkanRHIPhysicalDevice> m_physicalDevice;
+        vk::Device m_device;
+        VmaAllocator m_allocator{};
+
         void initBindless(); // Called during device creation
 
         vk::DescriptorPool m_bindlessPool;
@@ -208,16 +221,14 @@ namespace pnkr::renderer::rhi::vulkan
     
         BindlessResourceManager m_textureManager;
         BindlessResourceManager m_samplerManager;
+        BindlessResourceManager m_shadowTextureManager;
+        BindlessResourceManager m_shadowSamplerManager;
         BindlessResourceManager m_bufferManager;
         BindlessResourceManager m_cubemapManager;
         BindlessResourceManager m_storageImageManager;
     
         static constexpr uint32_t MAX_BINDLESS_RESOURCES = 100000;
         static constexpr uint32_t MAX_SAMPLERS = 200;
-
-        std::unique_ptr<VulkanRHIPhysicalDevice> m_physicalDevice;
-        vk::Device m_device;
-        VmaAllocator m_allocator{};
 
         // Queue families and queues
         uint32_t m_graphicsQueueFamily = VK_QUEUE_FAMILY_IGNORED;

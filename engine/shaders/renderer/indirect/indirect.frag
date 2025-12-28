@@ -67,6 +67,51 @@ mat4 getModelFromInputsOrFallback()
     return mat4(1.0);
 }
 
+float calculateShadow(vec3 worldPos, vec3 n, vec3 l)
+{
+    if (perFrame.drawable.shadowDataPtr == 0) {
+        return 1.0;
+    }
+
+    ShadowBuffer shadowBuf = ShadowBuffer(perFrame.drawable.shadowDataPtr);
+    ShadowDataGPU shadowData = shadowBuf.data;
+
+    if (shadowData.shadowMapTexture == 0xFFFFFFFFu) {
+        return 1.0;
+    }
+
+    vec4 shadowCoord = shadowData.lightViewProjBiased * vec4(worldPos, 1.0);
+    shadowCoord /= shadowCoord.w;
+    shadowCoord.y = 1-shadowCoord.y;
+    if (shadowCoord.z > 1.0 ||
+        shadowCoord.x < 0.0 || shadowCoord.x > 1.0 ||
+        shadowCoord.y < 0.0 || shadowCoord.y > 1.0) {
+        return 1.0;
+    }
+
+    float bias = max(shadowData.shadowBias * (1.0 - dot(n, l)), 0.0);
+
+    uint texID = shadowData.shadowMapTexture;
+    uint sampID = shadowData.shadowMapSampler;
+    vec2 texelSize = shadowData.shadowMapTexelSize;
+
+    vec2 offsets[4] = vec2[](
+        vec2(-0.5, -0.5),
+        vec2(0.5, -0.5),
+        vec2(-0.5, 0.5),
+        vec2(0.5, 0.5)
+    );
+
+    float shadow = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        vec2 offset = offsets[i] * texelSize;
+        shadow += textureBindless2DShadow(texID, sampID,
+                                          vec3(shadowCoord.xy + offset, shadowCoord.z - bias));
+    }
+
+    return shadow * 0.25;
+}
+
 void main()
 {
     // ------------------------------------------------------------------------
@@ -241,6 +286,9 @@ void main()
         if (NdotL > 0.0 || NdotV > 0.0)
         {
             vec3 intensity = getLightIntensity(light, pointToLight);
+            if (light.type == LightType_Directional || light.type == LightType_Spot) {
+                intensity *= calculateShadow(inWorldPos, n, l);
+            }
 
             lights_diffuse  += intensity * NdotL *
             getBRDFLambertian(

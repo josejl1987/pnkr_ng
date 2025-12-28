@@ -6,12 +6,14 @@
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
-#include "pnkr/renderer/geometry/Vertex.h"
+
 #include <algorithm>
-#include <cstddef>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <cstring>
+#include <glm/gtc/matrix_inverse.hpp>
+#include <glm/gtc/constants.hpp>
 
 using namespace pnkr::util;
 
@@ -30,7 +32,8 @@ namespace pnkr::renderer::debug
         m_renderer = renderer;
 
         // Reserve vertex storage
-        m_vertices.reserve(m_maxVertices);
+        m_verticesPending.reserve(m_maxVertices);
+        m_verticesRender.reserve(m_maxVertices);
 
         createPipeline();
         allocateBuffer(m_maxVertices);
@@ -40,9 +43,11 @@ namespace pnkr::renderer::debug
 
     bool DebugLayer::hasCapacity(size_t additionalVertices)
     {
-        if (m_vertices.size() + additionalVertices > m_maxVertices) {
+        if (m_verticesPending.size() + additionalVertices > m_maxVertices)
+        {
             static bool warned = false;
-            if (!warned) {
+            if (!warned)
+            {
                 core::Logger::warn("[DebugLayer] Max vertex capacity reached!");
                 warned = true;
             }
@@ -51,180 +56,209 @@ namespace pnkr::renderer::debug
         return true;
     }
 
-    // Scene integration methods removed for simplicity - DebugLayer can work standalone or with scenes
-
     void DebugLayer::clear()
     {
-        m_vertices.clear();
+        m_verticesPending.clear();
+        m_verticesRender.clear();
     }
 
     void DebugLayer::line(const glm::vec3& start, const glm::vec3& end, const glm::vec3& color)
     {
-        if (!hasCapacity(2)) { return;
-}
+        if (!hasCapacity(2)) return;
 
-        m_vertices.push_back({.position=start, .color=color});
-        m_vertices.push_back({.position=end, .color=color});
+        m_verticesPending.push_back({.position = start, .color = color});
+        m_verticesPending.push_back({.position = end, .color = color});
     }
 
     void DebugLayer::box(const glm::vec3& min, const glm::vec3& max, const glm::vec3& color)
     {
-        if (!hasCapacity(24)) { return; // 12 edges * 2 vertices per edge
-}
+        if (!hasCapacity(24)) return;
 
-        glm::vec3 corners[8] = {
-            glm::vec3(min.x, min.y, min.z),
-            glm::vec3(max.x, min.y, min.z),
-            glm::vec3(max.x, max.y, min.z),
-            glm::vec3(min.x, max.y, min.z),
-            glm::vec3(min.x, min.y, max.z),
-            glm::vec3(max.x, min.y, max.z),
-            glm::vec3(max.x, max.y, max.z),
-            glm::vec3(min.x, max.y, max.z)
+        // Axis Aligned Box
+        glm::vec3 pts[8] = {
+            glm::vec3(max.x, max.y, max.z), glm::vec3(max.x, max.y, min.z),
+            glm::vec3(max.x, min.y, max.z), glm::vec3(max.x, min.y, min.z),
+            glm::vec3(min.x, max.y, max.z), glm::vec3(min.x, max.y, min.z),
+            glm::vec3(min.x, min.y, max.z), glm::vec3(min.x, min.y, min.z),
         };
 
-        // Bottom edges
-        line(corners[0], corners[1], color);
-        line(corners[1], corners[2], color);
-        line(corners[2], corners[3], color);
-        line(corners[3], corners[0], color);
+        // Connect edges
+        line(pts[0], pts[1], color);
+        line(pts[2], pts[3], color);
+        line(pts[4], pts[5], color);
+        line(pts[6], pts[7], color);
 
-        // Top edges
-        line(corners[4], corners[5], color);
-        line(corners[5], corners[6], color);
-        line(corners[6], corners[7], color);
-        line(corners[7], corners[4], color);
+        line(pts[0], pts[2], color);
+        line(pts[1], pts[3], color);
+        line(pts[4], pts[6], color);
+        line(pts[5], pts[7], color);
 
-        // Vertical edges
-        line(corners[0], corners[4], color);
-        line(corners[1], corners[5], color);
-        line(corners[2], corners[6], color);
-        line(corners[3], corners[7], color);
+        line(pts[0], pts[4], color);
+        line(pts[1], pts[5], color);
+        line(pts[2], pts[6], color);
+        line(pts[3], pts[7], color);
     }
 
     void DebugLayer::box(const glm::mat4& transform, const glm::vec3& size, const glm::vec3& color)
     {
-        if (!hasCapacity(24)) { return; // 12 edges * 2 vertices per edge
-}
+        if (!hasCapacity(24)) return;
 
-        glm::vec3 halfSize = size * 0.5F;
-        glm::vec3 min = -halfSize;
-        glm::vec3 max = halfSize;
+        glm::vec3 halfSize = size * 0.5f;
 
-        glm::vec3 corners[8] = {
-            glm::vec3(transform * glm::vec4(min.x, min.y, min.z, 1.0F)),
-            glm::vec3(transform * glm::vec4(max.x, min.y, min.z, 1.0F)),
-            glm::vec3(transform * glm::vec4(max.x, max.y, min.z, 1.0F)),
-            glm::vec3(transform * glm::vec4(min.x, max.y, min.z, 1.0F)),
-            glm::vec3(transform * glm::vec4(min.x, min.y, max.z, 1.0F)),
-            glm::vec3(transform * glm::vec4(max.x, min.y, max.z, 1.0F)),
-            glm::vec3(transform * glm::vec4(max.x, max.y, max.z, 1.0F)),
-            glm::vec3(transform * glm::vec4(min.x, max.y, max.z, 1.0F))
+        glm::vec3 pts[8] = {
+            glm::vec3(+halfSize.x, +halfSize.y, +halfSize.z), glm::vec3(+halfSize.x, +halfSize.y, -halfSize.z),
+            glm::vec3(+halfSize.x, -halfSize.y, +halfSize.z), glm::vec3(+halfSize.x, -halfSize.y, -halfSize.z),
+            glm::vec3(-halfSize.x, +halfSize.y, +halfSize.z), glm::vec3(-halfSize.x, +halfSize.y, -halfSize.z),
+            glm::vec3(-halfSize.x, -halfSize.y, +halfSize.z), glm::vec3(-halfSize.x, -halfSize.y, -halfSize.z),
         };
 
-        // Bottom edges
-        line(corners[0], corners[1], color);
-        line(corners[1], corners[2], color);
-        line(corners[2], corners[3], color);
-        line(corners[3], corners[0], color);
+        for (auto& p : pts)
+        {
+            p = glm::vec3(transform * glm::vec4(p, 1.f));
+        }
 
-        // Top edges
-        line(corners[4], corners[5], color);
-        line(corners[5], corners[6], color);
-        line(corners[6], corners[7], color);
-        line(corners[7], corners[4], color);
+        // Connect edges
+        line(pts[0], pts[1], color);
+        line(pts[2], pts[3], color);
+        line(pts[4], pts[5], color);
+        line(pts[6], pts[7], color);
 
-        // Vertical edges
-        line(corners[0], corners[4], color);
-        line(corners[1], corners[5], color);
-        line(corners[2], corners[6], color);
-        line(corners[3], corners[7], color);
+        line(pts[0], pts[2], color);
+        line(pts[1], pts[3], color);
+        line(pts[4], pts[6], color);
+        line(pts[5], pts[7], color);
+
+        line(pts[0], pts[4], color);
+        line(pts[1], pts[5], color);
+        line(pts[2], pts[6], color);
+        line(pts[3], pts[7], color);
     }
 
     void DebugLayer::plane(const glm::vec3& origin, const glm::vec3& v1, const glm::vec3& v2,
                            int segments1, int segments2, const glm::vec3& color)
     {
-        if (segments1 <= 0 || segments2 <= 0) { return;
-}
+        // Estimate vertices: (segments1 + 1) * 2 + (segments2 + 1) * 2
+        // If segments are 0, it draws at least the outline
+        int count1 = std::max(1, segments1);
+        int count2 = std::max(1, segments2);
 
-        // Draw grid lines parallel to v1, distributed along v2
-        for (int i = 0; i <= segments2; ++i)
+        if (!hasCapacity((count1 + 1 + count2 + 1) * 2)) return;
+
+        // Draw Outline
+        line(origin - 0.5f * v1 - 0.5f * v2, origin - 0.5f * v1 + 0.5f * v2, color);
+        line(origin + 0.5f * v1 - 0.5f * v2, origin + 0.5f * v1 + 0.5f * v2, color);
+        line(origin - 0.5f * v1 + 0.5f * v2, origin + 0.5f * v1 + 0.5f * v2, color);
+        line(origin - 0.5f * v1 - 0.5f * v2, origin + 0.5f * v1 - 0.5f * v2, color);
+
+        // Inner lines along V1 direction
+        for (int i = 1; i < count1; i++)
         {
-            // Map i from [0, segments2] to [-0.5, 0.5]
-            float t = (toFloat(i) / toFloat(segments2)) - 0.5F;
-            glm::vec3 offset = v2 * t;
-            glm::vec3 start = origin + offset - (v1 * 0.5F);
-            glm::vec3 end   = origin + offset + (v1 * 0.5F);
-            line(start, end, color);
+            float t = ((float)i - (float)count1 / 2.0f) / (float)count1;
+            const glm::vec3 o1 = origin + t * v1;
+            line(o1 - 0.5f * v2, o1 + 0.5f * v2, color);
         }
 
-        // Draw grid lines parallel to v2, distributed along v1
-        for (int i = 0; i <= segments1; ++i)
+        // Inner lines along V2 direction
+        for (int i = 1; i < count2; i++)
         {
-            // Map i from [0, segments1] to [-0.5, 0.5]
-            float t = (toFloat(i) / toFloat(segments1)) - 0.5F;
-            glm::vec3 offset = v1 * t;
-            glm::vec3 start = origin + offset - (v2 * 0.5F);
-            glm::vec3 end   = origin + offset + (v2 * 0.5F);
-            line(start, end, color);
+            float t = ((float)i - (float)count2 / 2.0f) / (float)count2;
+            const glm::vec3 o2 = origin + t * v2;
+            line(o2 - 0.5f * v1, o2 + 0.5f * v1, color);
         }
     }
 
-    void DebugLayer::frustum(const glm::mat4& viewProj, const glm::vec3& color)
+    void DebugLayer::frustum(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& color)
     {
-        // Define frustum corners in NDC space
-        glm::vec3 corners[8] = {
-            glm::vec3(-1, -1, -1),
-            glm::vec3( 1, -1, -1),
-            glm::vec3( 1,  1, -1),
-            glm::vec3(-1,  1, -1),
-            glm::vec3(-1, -1,  1),
-            glm::vec3( 1, -1,  1),
-            glm::vec3( 1,  1,  1),
-            glm::vec3(-1,  1,  1)
+        // Outline (12 lines) + Grid lines (20 * 4 = 80 lines) -> ~184 vertices
+        if (!hasCapacity(200)) return;
+
+        // FIX: Vulkan Clip Space Z is [0, 1], not [-1, 1]
+        const glm::vec3 corners[] = {
+            glm::vec3(-1, -1, 0), glm::vec3(+1, -1, 0), glm::vec3(+1, +1, 0), glm::vec3(-1, +1, 0),
+            glm::vec3(-1, -1, 1), glm::vec3(+1, -1, 1), glm::vec3(+1, +1, 1), glm::vec3(-1, +1, 1)
         };
 
-        glm::mat4 invViewProj = glm::inverse(viewProj);
+        glm::vec3 pp[8];
+        glm::mat4 invVP = glm::inverse(proj * view);
 
-        // Transform corners to world space
-        for (auto & i : corners)
+        m_lastFrustumCorners.clear();
+        for (int i = 0; i < 8; i++)
         {
-            glm::vec4 corner = invViewProj * glm::vec4(i, 1.0F);
-            i = glm::vec3(corner.x / corner.w, corner.y / corner.w, corner.z / corner.w);
+            glm::vec4 q = invVP * glm::vec4(corners[i], 1.0f);
+            pp[i] = glm::vec3(q.x / q.w, q.y / q.w, q.z / q.w);
+            m_lastFrustumCorners.push_back(pp[i]);
         }
 
-        // Near plane
-        line(corners[0], corners[1], color);
-        line(corners[1], corners[2], color);
-        line(corners[2], corners[3], color);
-        line(corners[3], corners[0], color);
+        // Outline
+        line(pp[0], pp[4], color);
+        line(pp[1], pp[5], color);
+        line(pp[2], pp[6], color);
+        line(pp[3], pp[7], color);
+        line(pp[0], pp[1], color);
+        line(pp[1], pp[2], color);
+        line(pp[2], pp[3], color);
+        line(pp[3], pp[0], color);
+        line(pp[4], pp[5], color);
+        line(pp[5], pp[6], color);
+        line(pp[6], pp[7], color);
+        line(pp[7], pp[4], color);
 
-        // Far plane
-        line(corners[4], corners[5], color);
-        line(corners[5], corners[6], color);
-        line(corners[6], corners[7], color);
-        line(corners[7], corners[4], color);
+        // Grid Lines on frustum faces (matching LineCanvas3D logic)
+        const glm::vec3 gridColor = color * 0.7f;
+        const int gridLines = 20;
 
-        // Connecting edges
-        line(corners[0], corners[4], color);
-        line(corners[1], corners[5], color);
-        line(corners[2], corners[6], color);
-        line(corners[3], corners[7], color);
+        auto drawGridFace = [&](glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3)
+        {
+            // Vertical lines
+            {
+                glm::vec3 start = p0;
+                glm::vec3 end = p3;
+                const glm::vec3 stepStart = (p1 - p0) / (float)gridLines;
+                const glm::vec3 stepEnd = (p2 - p3) / (float)gridLines;
+
+                for (int i = 0; i < gridLines; ++i)
+                {
+                    start += stepStart;
+                    end += stepEnd;
+                    line(start, end, gridColor);
+                }
+            }
+            // Horizontal lines
+            {
+                glm::vec3 start = p0;
+                glm::vec3 end = p1;
+                const glm::vec3 stepStart = (p3 - p0) / (float)gridLines;
+                const glm::vec3 stepEnd = (p2 - p1) / (float)gridLines;
+
+                for (int i = 0; i < gridLines; ++i)
+                {
+                    start += stepStart;
+                    end += stepEnd;
+                    line(start, end, gridColor);
+                }
+            }
+        };
+
+        drawGridFace(pp[0], pp[1], pp[5], pp[4]); // Bottom
+        drawGridFace(pp[3], pp[2], pp[6], pp[7]); // Top
+        drawGridFace(pp[0], pp[3], pp[7], pp[4]); // Left
+        drawGridFace(pp[1], pp[2], pp[6], pp[5]); // Right
     }
 
-    void DebugLayer::circle(const glm::vec3& center, float radius, const glm::vec3& normal, const glm::vec3& color, int segments)
+    void DebugLayer::circle(const glm::vec3& center, float radius, const glm::vec3& normal, const glm::vec3& color,
+                            int segments)
     {
-        if (!hasCapacity(static_cast<size_t>(segments * 2))) { return;
-}
+        if (!hasCapacity(static_cast<size_t>(segments * 2))) return;
         segments = std::max(segments, 3);
 
-        // Build orthonormal basis for the circle orientation
-        glm::vec3 up = std::abs(normal.z) < 0.999F ? glm::vec3(0,0,1) : glm::vec3(1,0,0);
+        // Build orthonormal basis
+        glm::vec3 up = std::abs(normal.z) < 0.999f ? glm::vec3(0, 0, 1) : glm::vec3(1, 0, 0);
         glm::vec3 right = glm::normalize(glm::cross(up, normal));
         glm::vec3 tangent = glm::cross(normal, right);
 
         float step = glm::two_pi<float>() / (float)segments;
-        for (int i = 0; i < segments; ++i) {
+        for (int i = 0; i < segments; ++i)
+        {
             float a1 = i * step;
             float a2 = (i + 1) * step;
 
@@ -236,70 +270,54 @@ namespace pnkr::renderer::debug
 
     void DebugLayer::sphere(const glm::vec3& center, float radius, const glm::vec3& color, int segments)
     {
+        // 3 major circles (XY, YZ, XZ)
         segments = std::max(segments, 3);
+        if (!hasCapacity(static_cast<size_t>(segments * 6))) return;
 
-        // Estimate vertex count: (segments + 1) * segments * 2 lines for latitude +
-        // segments * segments lines for longitude = approximately segments * (segments + 3) * 2 vertices
-        size_t estimatedVertices = static_cast<size_t>(segments * (segments + 3) * 2);
-        if (!hasCapacity(estimatedVertices)) { return;
-}
+        float angleStep = 2.0f * glm::pi<float>() / toFloat(segments);
 
-        // Draw latitude circles
-        for (int lat = 0; lat <= segments; ++lat)
+        auto drawCircle = [&](int axis)
         {
-            float theta = glm::pi<float>() * toFloat(lat) / toFloat(segments);
-            float sinTheta = glm::sin(theta);
-            float cosTheta = glm::cos(theta);
+            glm::vec3 prev(0.f);
+            if (axis == 0) prev = center + glm::vec3(radius, 0, 0); // XY
+            if (axis == 1) prev = center + glm::vec3(0, radius, 0); // YZ
+            if (axis == 2) prev = center + glm::vec3(radius, 0, 0); // XZ
 
-            glm::vec3 prevPoint = center + glm::vec3(radius * sinTheta, radius * cosTheta, 0);
-
-            for (int lon = 1; lon <= segments; ++lon)
+            for (int i = 1; i <= segments; ++i)
             {
-                float phi = 2.0F * glm::pi<float>() * toFloat(lon) / toFloat(segments);
-                float sinPhi = glm::sin(phi);
-                float cosPhi = glm::cos(phi);
+                float a = toFloat(i) * angleStep;
+                float c = glm::cos(a) * radius;
+                float s = glm::sin(a) * radius;
+                glm::vec3 curr(0.f);
 
-                glm::vec3 currPoint = center + glm::vec3(
-                    radius * sinTheta * cosPhi,
-                    radius * cosTheta,
-                    radius * sinTheta * sinPhi
-                );
+                if (axis == 0) curr = center + glm::vec3(c, s, 0);
+                if (axis == 1) curr = center + glm::vec3(0, c, s);
+                if (axis == 2) curr = center + glm::vec3(c, 0, s);
 
-                line(prevPoint, currPoint, color);
-                prevPoint = currPoint;
+                line(prev, curr, color);
+                prev = curr;
             }
-        }
+        };
 
-        // Draw longitude circles
-        for (int lon = 0; lon < segments; ++lon)
-        {
-            float phi = 2.0F * glm::pi<float>() * toFloat(lon) / toFloat(segments);
-            float sinPhi = glm::sin(phi);
-            float cosPhi = glm::cos(phi);
-
-            glm::vec3 prevPoint = center + glm::vec3(0, radius, 0);
-
-            for (int lat = 1; lat <= segments; ++lat)
-            {
-                float theta = glm::pi<float>() * toFloat(lat) / toFloat(segments);
-                float sinTheta = glm::sin(theta);
-                float cosTheta = glm::cos(theta);
-
-                glm::vec3 currPoint = center + glm::vec3(
-                    radius * sinTheta * cosPhi,
-                    radius * cosTheta,
-                    radius * sinTheta * sinPhi
-                );
-
-                line(prevPoint, currPoint, color);
-                prevPoint = currPoint;
-            }
-        }
+        drawCircle(0);
+        drawCircle(1);
+        drawCircle(2);
     }
 
     void DebugLayer::render(const pnkr::renderer::RHIFrameContext& ctx, const glm::mat4& viewProj)
     {
-        if (!m_initialized || m_vertices.empty())
+        if (!m_initialized)
+        {
+            return;
+        }
+
+        if (!m_verticesPending.empty())
+        {
+            m_verticesRender.swap(m_verticesPending);
+            m_verticesPending.clear();
+        }
+
+        if (m_verticesRender.empty())
         {
             return;
         }
@@ -309,57 +327,104 @@ namespace pnkr::renderer::debug
         uint64_t offset = u64(frameSlot * m_maxVertices) * sizeof(LineVertex);
 
         // 2. Upload
-        m_vertexBuffer->uploadData(m_vertices.data(), m_vertices.size() * sizeof(LineVertex), offset);
+        m_vertexBuffer->uploadData(m_verticesRender.data(), m_verticesRender.size() * sizeof(LineVertex), offset);
 
         // 3. Record Commands
         auto* cmd = ctx.commandBuffer;
-        
-        // Use dynamic depth state
+
+        // Use dynamic depth state based on config
         cmd->setDepthTestEnable(m_depthTestEnabled);
-        cmd->setDepthWriteEnable(m_depthTestEnabled);
+        cmd->setDepthWriteEnable(false); // Debug lines usually shouldn't write depth
         cmd->setDepthCompareOp(rhi::CompareOp::LessOrEqual);
 
         m_renderer->bindPipeline(cmd, m_pipeline);
 
         cmd->bindVertexBuffer(0, m_vertexBuffer.get(), offset);
 
-        PushConstants pc { viewProj };
+        PushConstants pc{viewProj};
         m_renderer->pushConstants(cmd, m_pipeline, rhi::ShaderStage::Vertex, pc);
 
-        cmd->draw(static_cast<uint32_t>(m_vertices.size()));
+        cmd->draw(static_cast<uint32_t>(m_verticesRender.size()));
 
-        // Restore default state
+        // Restore default state if necessary, though command buffer resets usually handle this
         cmd->setDepthTestEnable(true);
         cmd->setDepthWriteEnable(true);
 
-        // 4. Immediate Clear (ready for next frame's logic)
-        m_vertices.clear();
+        // 4. Clear for next frame (Immediate Mode)
+        m_verticesRender.clear();
     }
 
     void DebugLayer::createPipeline()
     {
-        // Try to load compiled SPIR-V shaders from build directory first
-        std::filesystem::path shaderDir = std::filesystem::current_path() / "shaders";
-        if (!std::filesystem::exists(shaderDir / "line_canvas.vert.spv")) {
-            // Fallback to binary shaders directory
-            shaderDir = std::filesystem::current_path() / "bin" / "shaders";
-        }
+        // Try to load compiled SPIR-V shaders
+        std::filesystem::path shaderDir = "shaders";
 
-        auto vert = rhi::Shader::load(rhi::ShaderStage::Vertex, shaderDir / "line_canvas.vert.spv");
-        auto frag = rhi::Shader::load(rhi::ShaderStage::Fragment, shaderDir / "line_canvas.frag.spv");
+        auto loadSpirvShader = [](const std::filesystem::path& shaderPath, rhi::ShaderStage stage)
+        {
+            std::ifstream file(shaderPath, std::ios::binary);
+            if (!file.is_open())
+            {
+                // Fallback attempt
+                std::filesystem::path alt = std::filesystem::path("bin") / shaderPath;
+                file.open(alt, std::ios::binary);
+                if (!file.is_open())
+                    throw std::runtime_error("Failed to open SPIR-V shader file: " + shaderPath.string());
+            }
 
-        rhi::RHIPipelineBuilder builder;
-        builder.setShaders(vert.get(), frag.get(), nullptr)
-               .useVertexType<LineVertex>() // Uses the static layout we defined
-               .setTopology(rhi::PrimitiveTopology::LineList)
-               .setLineWidth(1.0F)
-               .setNoBlend()
-               .setColorFormat(m_renderer->getDrawColorFormat())
-               .setDepthFormat(m_renderer->getDrawDepthFormat())
-               .enableDepthTest(true, rhi::CompareOp::LessOrEqual, true) // TRUE for isDynamic
-               .setName("DebugLinePipeline");
+            std::vector<uint32_t> spirv;
+            file.seekg(0, std::ios::end);
+            size_t fileSize = file.tellg();
+            file.seekg(0, std::ios::beg);
 
-        m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+            spirv.resize(fileSize / sizeof(uint32_t));
+            file.read(reinterpret_cast<char*>(spirv.data()), fileSize);
+
+            return rhi::ShaderModuleDescriptor{.stage = stage, .spirvCode = spirv, .entryPoint = "main"};
+        };
+
+        auto vert = loadSpirvShader(shaderDir / "line_canvas.vert.spv", rhi::ShaderStage::Vertex);
+        auto frag = loadSpirvShader(shaderDir / "line_canvas.frag.spv", rhi::ShaderStage::Fragment);
+
+        rhi::GraphicsPipelineDescriptor desc{};
+        desc.shaders = {vert, frag};
+
+        // Define vertex input (reusing LineVertex layout)
+        desc.vertexBindings = {{.binding = 0, .stride = sizeof(LineVertex), .inputRate = rhi::VertexInputRate::Vertex}};
+        desc.vertexAttributes = {
+            {
+                .location = 0, .binding = 0, .format = rhi::Format::R32G32B32_SFLOAT,
+                .offset = offsetof(LineVertex, position), .semantic = rhi::VertexSemantic::Position
+            },
+            {
+                .location = 1, .binding = 0, .format = rhi::Format::R32G32B32_SFLOAT,
+                .offset = offsetof(LineVertex, color), .semantic = rhi::VertexSemantic::Color
+            }
+        };
+
+        desc.topology = rhi::PrimitiveTopology::LineList;
+        desc.rasterization.polygonMode = rhi::PolygonMode::Fill;
+        desc.rasterization.cullMode = rhi::CullMode::None;
+        desc.rasterization.lineWidth = 1.0f;
+
+        // Depth/Stencil (dynamic)
+        desc.depthStencil.depthTestEnable = true;
+        desc.depthStencil.depthWriteEnable = false;
+        desc.depthStencil.depthCompareOp = rhi::CompareOp::LessOrEqual;
+
+        desc.blend.attachments = {{.blendEnable = false}};
+        desc.colorFormats = {m_renderer->getDrawColorFormat()};
+        desc.depthFormat = m_renderer->getDrawDepthFormat();
+
+        // Push constants
+        desc.pushConstants = {{.stages = rhi::ShaderStage::Vertex, .offset = 0, .size = sizeof(PushConstants)}};
+
+        desc.dynamicStates = {
+            rhi::DynamicState::Viewport, rhi::DynamicState::Scissor,
+            rhi::DynamicState::DepthTestEnable, rhi::DynamicState::DepthWriteEnable, rhi::DynamicState::DepthCompareOp
+        };
+        desc.debugName = "DebugLayerPipeline";
+
+        m_pipeline = m_renderer->createGraphicsPipeline(desc);
     }
 
     void DebugLayer::allocateBuffer(uint64_t vertexCount)

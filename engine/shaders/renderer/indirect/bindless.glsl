@@ -29,6 +29,9 @@ float textureBindless2DShadow(uint textureid, uint samplerid, vec3 uvw) {
 ivec2 textureBindlessSize2D(uint textureid) {
     return textureSize(nonuniformEXT(bindlessTextures[textureid]), 0);
 }
+ivec2 textureBindlessSize2DShadow(uint textureid) {
+    return textureSize(nonuniformEXT(bindlessTexturesShadow[textureid]), 0);
+}
 vec4 textureBindlessCube(uint textureid, uint samplerid, vec3 uvw) {
     return texture(nonuniformEXT(samplerCube(bindlessCubemaps[textureid], bindlessSamplers[samplerid])), uvw);
 }

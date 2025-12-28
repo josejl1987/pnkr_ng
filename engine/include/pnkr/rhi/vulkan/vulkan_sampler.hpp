@@ -15,7 +15,8 @@ namespace pnkr::renderer::rhi::vulkan
         VulkanRHISampler(VulkanRHIDevice* device,
                         Filter minFilter,
                         Filter magFilter,
-                        SamplerAddressMode addressMode);
+                        SamplerAddressMode addressMode,
+                        CompareOp compareOp = CompareOp::None);
         ~VulkanRHISampler() override;
 
         // Disable copy
@@ -37,6 +38,7 @@ namespace pnkr::renderer::rhi::vulkan
     private:
         VulkanRHIDevice* m_device;
         vk::Sampler m_sampler;
+        bool m_isShadowSampler = false;
     };
 
 } // namespace pnkr::renderer::rhi::vulkan

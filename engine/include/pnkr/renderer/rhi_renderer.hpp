@@ -68,6 +68,8 @@ namespace pnkr::renderer
 
         TextureHandle createTexture(const rhi::TextureDescriptor& desc);
 
+        TextureHandle createTextureView(TextureHandle parent, const rhi::TextureViewDescriptor& desc);
+
         TextureHandle loadTexture(const std::filesystem::path& filepath,
                                  bool srgb = true);
 
@@ -125,6 +127,7 @@ namespace pnkr::renderer
         // New API: select filtering + address mode (for sprites / pixel art / UI)
         [[nodiscard]] uint32_t getBindlessSamplerIndex(rhi::Filter filter,
                                                       rhi::SamplerAddressMode addressMode) const;
+        [[nodiscard]] uint32_t getShadowSamplerIndex() const { return m_shadowSamplerIndex; }
 
         // Buffer access
         [[nodiscard]] rhi::RHIBuffer* getBuffer(BufferHandle handle) const;
@@ -181,6 +184,7 @@ namespace pnkr::renderer
         std::unique_ptr<rhi::RHISampler> m_repeatSampler;
         std::unique_ptr<rhi::RHISampler> m_clampSampler;
         std::unique_ptr<rhi::RHISampler> m_mirrorSampler;
+        std::unique_ptr<rhi::RHISampler> m_shadowSampler;
 
         std::unique_ptr<rhi::RHISampler> m_repeatSamplerNearest;
         std::unique_ptr<rhi::RHISampler> m_clampSamplerNearest;
@@ -189,6 +193,7 @@ namespace pnkr::renderer
         uint32_t m_repeatSamplerIndex = 0xFFFFFFFF;
         uint32_t m_clampSamplerIndex = 0xFFFFFFFF;
         uint32_t m_mirrorSamplerIndex = 0xFFFFFFFF;
+        uint32_t m_shadowSamplerIndex = 0xFFFFFFFF;
 
         uint32_t m_repeatSamplerNearestIndex = 0xFFFFFFFF;
         uint32_t m_clampSamplerNearestIndex = 0xFFFFFFFF;
@@ -205,7 +210,7 @@ namespace pnkr::renderer
         std::vector<MeshData> m_meshes;
 
         struct TextureData {
-            std::unique_ptr<rhi::RHITexture> texture;
+            std::shared_ptr<rhi::RHITexture> texture;
             uint32_t bindlessIndex;
         };
         std::vector<TextureData> m_textures;

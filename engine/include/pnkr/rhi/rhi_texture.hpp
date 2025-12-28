@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rhi_types.hpp"
+#include <memory>
 
 namespace pnkr::renderer::rhi
 {
@@ -21,6 +22,15 @@ namespace pnkr::renderer::rhi
         uint32_t mipLevels = 1;
         uint32_t arrayLayers = 1;
         const char* debugName = nullptr;
+    };
+
+    struct TextureViewDescriptor
+    {
+        uint32_t mipLevel = 0;
+        uint32_t mipCount = 1;
+        uint32_t arrayLayer = 0;
+        uint32_t layerCount = 1;
+        Format format = Format::Undefined; // If Undefined, use parent format
     };
 
     struct TextureSubresource
@@ -51,10 +61,17 @@ namespace pnkr::renderer::rhi
         virtual uint32_t arrayLayers() const = 0;
         virtual TextureUsage usage() const = 0;
 
+        // Virtual accessors for View offsets
+        // Default implementation returns 0 for standard textures/swapchain images
+        virtual uint32_t baseMipLevel() const { return 0; }
+        virtual uint32_t baseArrayLayer() const { return 0; }
+
         // Backend-specific handle
         virtual void* nativeHandle() const = 0;
         virtual void* nativeView() const = 0;  // Image view
         virtual void* nativeView(uint32_t mipLevel, uint32_t arrayLayer) const = 0;
+
+        virtual void setParent(std::shared_ptr<RHITexture> parent) { (void)parent; }
 
         void setBindlessHandle(BindlessHandle handle) { m_bindlessHandle = handle; }
         BindlessHandle getBindlessHandle() const { return m_bindlessHandle; }

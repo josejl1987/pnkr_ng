@@ -1,418 +1,237 @@
 #include "pnkr/renderer/scene/SceneGraph.hpp"
-#include "pnkr/core/common.hpp"
-
-#include <numeric>
 #include <algorithm>
-#include <fastgltf/types.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/quaternion.hpp>
+#include <stack>
 
-namespace pnkr::renderer::scene
-{
-    void SceneGraphDOD::appendChild(uint32_t parent, uint32_t child)
-    {
-        auto& ph = hierarchy[parent];
+namespace pnkr::renderer::scene {
 
-        hierarchy[child].parent = (int32_t)parent;
-        hierarchy[child].nextSibling = -1;
+    ecs::Entity SceneGraphDOD::createNode(ecs::Entity parent) {
+        ecs::Entity entity = registry.create();
+        if (root == ecs::NULL_ENTITY) root = entity; // Compatibility: first node is root
 
-        if (ph.firstChild < 0)
-        {
-            ph.firstChild = (int32_t)child;
-            ph.lastChild = (int32_t)child;
-        }
-        else
-        {
-            hierarchy[(uint32_t)ph.lastChild].nextSibling = (int32_t)child;
-            ph.lastChild = (int32_t)child;
-        }
-    }
-
-    static glm::mat4 getLocalMatrix(const fastgltf::Node& node)
-    {
-        return std::visit(fastgltf::visitor{
-                              [&](const fastgltf::TRS& trs)
-                              {
-                                  const glm::vec3 t = glm::make_vec3(trs.translation.data());
-                                  const auto& q = trs.rotation; // glTF: [x,y,z,w]
-                                  const glm::quat r(q[3], q[0], q[1], q[2]); // GLM: (w,x,y,z)
-                                  const glm::vec3 s = glm::make_vec3(trs.scale.data());
-                                  return glm::translate(glm::mat4(1.0f), t) * glm::toMat4(r) * glm::scale(
-                                      glm::mat4(1.0f), s);
-                              },
-                              [&](const fastgltf::math::fmat4x4& m)
-                              {
-                                  return glm::make_mat4(m.data());
-                              }
-                          }, node.transform);
-    }
-
-
-    void SceneGraphDOD::buildFromFastgltf(const fastgltf::Asset& gltf, size_t sceneIndex)
-    {
-        clear();
-
-        const uint32_t N = (uint32_t)gltf.nodes.size();
-        const uint32_t ROOT = 0; // synthetic root
-        const uint32_t BASE = 1; // glTF node i -> (BASE + i)
-
-        root = ROOT;
-
-        // Allocate fixed-size arrays
-        local.resize(N + 1, glm::mat4(1.0f));
-        global.resize(N + 1, glm::mat4(1.0f));
-        hierarchy.assign(N + 1, HierarchyDOD{});
-
-        meshIndex.assign(N + 1, -1);
-        lightIndex.assign(N + 1, -1);
-        cameraIndex.assign(N + 1, -1);
-        skinIndex.assign(N + 1, -1);
-        nameId.assign(N + 1, -1);
-
-        // Root defaults
-        hierarchy[ROOT] = {};
-        hierarchy[ROOT].parent = -1;
-        hierarchy[ROOT].level = 0;
-
-        // 1) Fill per-node components
-        for (uint32_t i = 0; i < N; ++i)
-        {
-            const auto& n = gltf.nodes[i];
-            const uint32_t id = BASE + i;
-
-            local[id] = getLocalMatrix(n);
-
-            if (n.meshIndex.has_value())
-                meshIndex[id] = (int32_t)n.meshIndex.value();
-
-            if (n.lightIndex.has_value())
-                lightIndex[id] = (int32_t)n.lightIndex.value();
-
-            if (n.cameraIndex.has_value())
-                cameraIndex[id] = (int32_t)n.cameraIndex.value();
-
-            if (n.skinIndex.has_value())
-                skinIndex[id] = (int32_t)n.skinIndex.value();
-
-            if (!n.name.empty())
-            {
-                const int32_t sid = (int32_t)names.size();
-                names.emplace_back(n.name);
-                nameId[id] = sid;
-            }
-        }
-
-        // 2) Wire parent/children using glTF children lists (stable order)
-        for (uint32_t p = 0; p < N; ++p)
-        {
-            const uint32_t pid = BASE + p;
-            const auto& children = gltf.nodes[p].children;
-            if (children.empty()) continue;
-
-            for (auto childIdx : children)
-            {
-                const uint32_t cid = BASE + (uint32_t)childIdx;
-                appendChild(pid, cid);
-            }
-        }
-
-        // 3) Attach glTF scene roots under synthetic root
-        if (sceneIndex >= gltf.scenes.size()) sceneIndex = 0;
-        const auto& sc = gltf.scenes[sceneIndex];
-
-        roots.clear();
-        roots.reserve(sc.nodeIndices.size());
-
-        for (size_t r = 0; r < sc.nodeIndices.size(); ++r)
-        {
-            const uint32_t gltfRoot = (uint32_t)sc.nodeIndices[r];
-            const uint32_t rid = BASE + gltfRoot;
-            roots.push_back(rid);
-            appendChild(ROOT, rid);
-        }
-
-        // 4) Build topoOrder + levels via BFS from ROOT
-        topoOrder.clear();
-        topoOrder.reserve(N + 1);
-
-        std::vector<uint32_t> queue;
-        queue.reserve(N + 1);
-        queue.push_back(ROOT);
-        hierarchy[ROOT].level = 0;
-
-        for (size_t qi = 0; qi < queue.size(); ++qi)
-        {
-            const uint32_t n = queue[qi];
-            topoOrder.push_back(n);
-
-            const uint16_t nextLevel = (uint16_t)(hierarchy[n].level + 1);
-            for (int32_t ch = hierarchy[n].firstChild; ch != -1; ch = hierarchy[(uint32_t)ch].nextSibling)
-            {
-                hierarchy[(uint32_t)ch].level = nextLevel;
-                queue.push_back((uint32_t)ch);
-            }
-        }
-
-        // 5) Compute globals once
-        recalculateGlobalTransformsFull();
-        initDirtyTracking();
-    }
-
-
-    void SceneGraphDOD::recalculateGlobalTransformsFull()
-    {
-        if (local.size() != global.size() || hierarchy.size() != local.size()) return;
-        if (topoOrder.empty()) return;
-
-        // Ensure first is root if the builder is used
-        global[root] = local[root];
-
-        for (size_t k = 1; k < topoOrder.size(); ++k) {
-            const uint32_t n = topoOrder[k];
-            const int32_t p  = hierarchy[n].parent;
-            if (p < 0) { global[n] = local[n]; continue; } // defensive
-            global[n] = global[(uint32_t)p] * local[n];
-        }
-    }
-
-    void SceneGraphDOD::initDirtyTracking()
-    {
-        // Determine maxLevel (already computed in buildFromFastgltf() usually).
-        maxLevel = 0;
-        for (const auto& h : hierarchy) maxLevel = std::max<uint16_t>(maxLevel, h.level);
-
-        changedAtThisFrame.clear();
-        changedAtThisFrame.resize((size_t)maxLevel + 1);
-
-        dirtyFlag.assign(hierarchy.size(), 0);
-        dirtyNodes.clear();
-        dirtyNodes.reserve(hierarchy.size());
-        maxDirtyLevelThisFrame = 0;
-    }
-
-    void SceneGraphDOD::beginFrameDirty()
-    {
-        // Reset flags from last frame cheaply (no O(N) clear).
-        for (uint32_t n : dirtyNodes) dirtyFlag[n] = 0;
-        dirtyNodes.clear();
-
-        // Clear per-level lists scaling with what changed.
-        const uint16_t lim = std::min<uint16_t>(
-            maxDirtyLevelThisFrame,
-            changedAtThisFrame.empty() ? (uint16_t)0 : (uint16_t)(changedAtThisFrame.size() - 1));
+        registry.emplace<LocalTransform>(entity);
+        registry.emplace<WorldTransform>(entity);
+        Relationship& rel = registry.emplace<Relationship>(entity);
         
-        for (uint16_t i = 0; i <= lim && i < changedAtThisFrame.size(); ++i)
-            changedAtThisFrame[i].clear();
-
-        maxDirtyLevelThisFrame = 0;
+        if (parent != ecs::NULL_ENTITY) {
+            rel.parent = parent;
+            Relationship& parentRel = registry.get<Relationship>(parent);
+            rel.level = parentRel.level + 1;
+            
+            if (parentRel.firstChild == ecs::NULL_ENTITY) {
+                parentRel.firstChild = entity;
+                parentRel.lastChild = entity;
+            } else {
+                ecs::Entity lastChild = parentRel.lastChild;
+                registry.get<Relationship>(lastChild).nextSibling = entity;
+                rel.prevSibling = lastChild;
+                parentRel.lastChild = entity;
+            }
+        } else {
+            roots.push_back(entity);
+            rel.level = 0;
+        }
+        
+        hierarchyDirty = true;
+        return entity;
     }
 
-    void SceneGraphDOD::markAsChanged(uint32_t node)
-    {
-        if (node >= hierarchy.size()) return;
-        if (changedAtThisFrame.empty()) initDirtyTracking();
+    void SceneGraphDOD::destroyNode(ecs::Entity entity) {
+        if (!registry.has<Relationship>(entity)) return;
 
-        // Iterative DFS: mark node + descendants.
-        std::vector<uint32_t> stack;
-        stack.push_back(node);
+        Relationship& rel = registry.get<Relationship>(entity);
+        
+        // Recursively destroy children
+        ecs::Entity child = rel.firstChild;
+        while (child != ecs::NULL_ENTITY) {
+            ecs::Entity next = registry.get<Relationship>(child).nextSibling;
+            destroyNode(child);
+            child = next;
+        }
+        
+        // Remove from parent's list
+        if (rel.parent != ecs::NULL_ENTITY) {
+            Relationship& parentRel = registry.get<Relationship>(rel.parent);
+            if (parentRel.firstChild == entity) {
+                parentRel.firstChild = rel.nextSibling;
+            }
+            if (parentRel.lastChild == entity) {
+                parentRel.lastChild = rel.prevSibling;
+            }
+        } else {
+            // Remove from roots
+            auto it = std::find(roots.begin(), roots.end(), entity);
+            if (it != roots.end()) roots.erase(it);
+        }
+        
+        // Fix siblings
+        if (rel.prevSibling != ecs::NULL_ENTITY) {
+            registry.get<Relationship>(rel.prevSibling).nextSibling = rel.nextSibling;
+        }
+        if (rel.nextSibling != ecs::NULL_ENTITY) {
+            registry.get<Relationship>(rel.nextSibling).prevSibling = rel.prevSibling;
+        }
+        
+        if (root == entity) root = ecs::NULL_ENTITY;
+
+        registry.destroy(entity);
+        hierarchyDirty = true;
+    }
+
+    void SceneGraphDOD::updateTopoOrder() {
+        topoOrder.clear();
+        std::stack<ecs::Entity> stack;
+        for (auto it = roots.rbegin(); it != roots.rend(); ++it) {
+            stack.push(*it);
+        }
 
         while (!stack.empty()) {
-            const uint32_t n = stack.back();
-            stack.pop_back();
-
-            if (n >= hierarchy.size()) continue;
-            if (dirtyFlag[n]) continue;
-
-            dirtyFlag[n] = 1;
-            dirtyNodes.push_back(n);
-
-            const uint16_t lvl = hierarchy[n].level;
-            if ((size_t)lvl >= changedAtThisFrame.size()) {
-                // Defensive: if level is out-of-range, expand.
-                changedAtThisFrame.resize((size_t)lvl + 1);
+            ecs::Entity e = stack.top();
+            stack.pop();
+            topoOrder.push_back(e);
+            
+            Relationship& rel = registry.get<Relationship>(e);
+            
+            ecs::Entity child = rel.firstChild;
+            std::vector<ecs::Entity> children;
+            while (child != ecs::NULL_ENTITY) {
+                children.push_back(child);
+                child = registry.get<Relationship>(child).nextSibling;
             }
-            changedAtThisFrame[lvl].push_back(n);
-            maxDirtyLevelThisFrame = std::max(maxDirtyLevelThisFrame, lvl);
-
-            for (int32_t ch = hierarchy[n].firstChild; ch != -1; ch = hierarchy[(uint32_t)ch].nextSibling) {
-                stack.push_back((uint32_t)ch);
+            for (auto it = children.rbegin(); it != children.rend(); ++it) {
+                stack.push(*it);
             }
         }
-    }
-
-    void SceneGraphDOD::recalculateGlobalTransformsDirty()
-    {
-        if (changedAtThisFrame.empty()) return;
-        if (local.size() != global.size() || hierarchy.size() != local.size()) return;
-
-        // Always ensure root is correct (future-proof if root becomes editable).
-        global[root] = local[root];
-
-        // Level 0: roots (synthetic root is usually the only one at level 0).
-        if (!changedAtThisFrame[0].empty()) {
-            for (uint32_t c : changedAtThisFrame[0]) {
-                global[c] = local[c];
-            }
-            changedAtThisFrame[0].clear();
-        }
-
-        // IMPORTANT: do NOT break on first empty level (gaps are legal).
-        for (uint16_t lvl = 1; lvl <= maxDirtyLevelThisFrame && (size_t)lvl < changedAtThisFrame.size(); ++lvl) {
-            auto& list = changedAtThisFrame[lvl];
-            if (list.empty()) continue;
-
-            for (uint32_t c : list) {
-                const int32_t p = hierarchy[c].parent;
-                if (p < 0) { global[c] = local[c]; continue; }
-                global[c] = global[(uint32_t)p] * local[c];
-            }
-            list.clear();
-        }
-
-        // Clear dirty flags now (so multiple recalc calls in same frame still work).
-        for (uint32_t n : dirtyNodes) dirtyFlag[n] = 0;
-        dirtyNodes.clear();
-        maxDirtyLevelThisFrame = 0;
-    }
-
-    void SceneGraphDOD::onHierarchyChanged()
-    {
-        // Recompute levels + topoOrder from current hierarchy (BFS from root).
-        topoOrder.clear();
-        topoOrder.reserve(hierarchy.size());
-
-        std::vector<uint32_t> queue;
-        queue.reserve(hierarchy.size());
-        queue.push_back(root);
-        hierarchy[root].level = 0;
-
-        maxLevel = 0;
-
-        for (size_t qi = 0; qi < queue.size(); ++qi)
-        {
-            const uint32_t n = queue[qi];
-            topoOrder.push_back(n);
-
-            const uint16_t nextLevel = (uint16_t)(hierarchy[n].level + 1);
-            for (int32_t ch = hierarchy[n].firstChild; ch != -1; ch = hierarchy[(uint32_t)ch].nextSibling)
-            {
-                hierarchy[(uint32_t)ch].level = nextLevel;
-                maxLevel = std::max<uint16_t>(maxLevel, nextLevel);
-                queue.push_back((uint32_t)ch);
-            }
-        }
-
-        recalculateGlobalTransformsFull();
-        initDirtyTracking();
         hierarchyDirty = false;
     }
 
-    uint32_t SceneGraphDOD::addNode(uint32_t parentIndex, uint32_t level)
-    {
-        uint32_t id = (uint32_t)hierarchy.size();
-        local.push_back(glm::mat4(1.0f));
-        global.push_back(glm::mat4(1.0f));
-        hierarchy.push_back({.parent = (int32_t)parentIndex, .level = (uint16_t)level});
-        meshIndex.push_back(-1);
-        lightIndex.push_back(-1);
-        cameraIndex.push_back(-1);
-        skinIndex.push_back(-1);
-        nameId.push_back(-1);
+    void SceneGraphDOD::recalculateGlobalTransformsFull() {
+        if (hierarchyDirty) updateTopoOrder();
         
-        // Update parent's children links
-        if (parentIndex < hierarchy.size()) {
-            appendChild(parentIndex, id);
-        }
-        
-        return id;
-    }
-
-    // --- Deletion Logic ---
-
-    static void addUniqueIdx(std::vector<uint32_t>& v, uint32_t index) {
-        if (std::find(v.begin(), v.end(), index) == v.end()) {
-            v.push_back(index);
+        for (ecs::Entity e : topoOrder) {
+            const Relationship& rel = registry.get<Relationship>(e);
+            const glm::mat4& local = registry.get<LocalTransform>(e).matrix;
+            
+            if (rel.parent != ecs::NULL_ENTITY) {
+                registry.get<WorldTransform>(e).matrix = registry.get<WorldTransform>(rel.parent).matrix * local;
+            } else {
+                registry.get<WorldTransform>(e).matrix = local;
+            }
+            registry.remove<TransformDirtyTag>(e);
         }
     }
 
-    static void collectNodesToDelete(const SceneGraphDOD& scene, uint32_t node, std::vector<uint32_t>& nodes) {
-        if (node >= scene.hierarchy.size()) return;
-        
-        for (int32_t child = scene.hierarchy[node].firstChild; child != -1; child = scene.hierarchy[child].nextSibling) {
-            addUniqueIdx(nodes, (uint32_t)child);
-            collectNodesToDelete(scene, (uint32_t)child, nodes);
-        }
-    }
-
-    static int32_t findLastNonDeletedItem(const SceneGraphDOD& scene, const std::vector<int32_t>& newIndices, int32_t node) {
-        if (node == -1) return -1;
-        // If current node is deleted (newIndex == -1), search its sibling
-        return (newIndices[node] == -1) ?
-            findLastNonDeletedItem(scene, newIndices, scene.hierarchy[node].nextSibling) :
-            newIndices[node];
-    }
-
-    void deleteSceneNodes(SceneGraphDOD& scene, const std::vector<uint32_t>& nodesToDeleteInput)
-    {
-        // 1. Gather all children of deleted nodes
-        auto nodesToDelete = nodesToDeleteInput;
-        // Ensure strictly sorted for binary_search used in unique check and eraseSelected
-        std::sort(nodesToDelete.begin(), nodesToDelete.end());
-        
-        // Recursively add children (copying input to avoid invalidating iterator if we used referenced input)
-        // We use an index-based loop because nodesToDelete grows
-        for (size_t i = 0; i < nodesToDelete.size(); ++i) {
-            collectNodesToDelete(scene, nodesToDelete[i], nodesToDelete);
-        }
-        
-        // Final sort for eraseSelected
-        std::sort(nodesToDelete.begin(), nodesToDelete.end());
-        nodesToDelete.erase(std::unique(nodesToDelete.begin(), nodesToDelete.end()), nodesToDelete.end());
-
-        if (nodesToDelete.empty()) return;
-
-        // 2. Build Mapping Table (Old Index -> New Index)
-        // Create full list of indices 0..N
-        std::vector<uint32_t> allIndices(scene.hierarchy.size());
-        std::iota(allIndices.begin(), allIndices.end(), 0);
-
-        // Remove deleted indices from this list to determine who survives
-        util::eraseSelected(allIndices, nodesToDelete);
-
-        // Map: Old -> New (-1 if deleted)
-        std::vector<int32_t> newIndices(scene.hierarchy.size(), -1);
-        for (size_t i = 0; i < allIndices.size(); ++i) {
-            newIndices[allIndices[i]] = (int32_t)i;
+    void SceneGraphDOD::updateTransforms() {
+        if (hierarchyDirty) {
+            recalculateGlobalTransformsFull();
+            return;
         }
 
-        // 3. Remap Hierarchy Links (Parent, Child, Sibling)
-        // We modify the data IN PLACE before erasing. 
-        // When eraseSelected runs, it will move these valid (modified) structs to the front.
-        for (size_t i = 0; i < scene.hierarchy.size(); ++i) {
-            // If this node is being deleted, we don't care what we write to it, 
-            // but we must process the survivors.
-            if (newIndices[i] != -1) {
-                auto& h = scene.hierarchy[i];
-                h.parent = (h.parent != -1) ? newIndices[h.parent] : -1;
-                h.firstChild = findLastNonDeletedItem(scene, newIndices, h.firstChild);
-                h.nextSibling = findLastNonDeletedItem(scene, newIndices, h.nextSibling);
-                // lastChild isn't strictly maintained in the provided HierarchyDOD struct (it has first/next), 
-                // but if it exists in your version:
-                h.lastChild = findLastNonDeletedItem(scene, newIndices, h.lastChild);
+        // 1. Identify if anything is dirty
+        if (registry.getPool<TransformDirtyTag>().size() == 0) return;
+
+        for (ecs::Entity e : topoOrder) {
+            Relationship& rel = registry.get<Relationship>(e);
+            bool isDirty = registry.has<TransformDirtyTag>(e);
+            
+            if (!isDirty && rel.parent != ecs::NULL_ENTITY) {
+                if (registry.has<TransformDirtyTag>(rel.parent)) {
+                    registry.emplace<TransformDirtyTag>(e);
+                    isDirty = true;
+                }
+            }
+
+            if (isDirty) {
+                const glm::mat4& local = registry.get<LocalTransform>(e).matrix;
+                if (rel.parent != ecs::NULL_ENTITY) {
+                    registry.get<WorldTransform>(e).matrix = registry.get<WorldTransform>(rel.parent).matrix * local;
+                } else {
+                    registry.get<WorldTransform>(e).matrix = local;
+                }
             }
         }
 
-        // 4. Erase Data from Parallel Arrays
-        util::eraseSelected(scene.local, nodesToDelete);
-        util::eraseSelected(scene.global, nodesToDelete);
-        util::eraseSelected(scene.hierarchy, nodesToDelete);
-        util::eraseSelected(scene.meshIndex, nodesToDelete);
-        util::eraseSelected(scene.lightIndex, nodesToDelete);
-        util::eraseSelected(scene.cameraIndex, nodesToDelete);
-        util::eraseSelected(scene.skinIndex, nodesToDelete);
-        util::eraseSelected(scene.nameId, nodesToDelete);
-
-        // 5. Rebuild Roots & Topology
-        scene.onHierarchyChanged();
+        // 2. Clear all dirty tags
+        registry.getPool<TransformDirtyTag>().clear();
     }
-} // namespace pnkr::renderer::scene
+
+    void SceneGraphDOD::markAsChanged(ecs::Entity entity) {
+        if (!registry.has<TransformDirtyTag>(entity)) {
+            registry.emplace<TransformDirtyTag>(entity);
+        }
+    }
+
+    void SceneGraphDOD::onHierarchyChanged() {
+        hierarchyDirty = true;
+        updateTopoOrder();
+    }
+
+    void SceneGraphDOD::setParent(ecs::Entity entity, ecs::Entity parent) {
+        if (entity == parent) return;
+        if (parent != ecs::NULL_ENTITY && registry.getPool<Relationship>().has(parent)) {
+            ecs::Entity current = parent;
+            while (current != ecs::NULL_ENTITY) {
+                if (current == entity) return;
+                Relationship& rel = registry.get<Relationship>(current);
+                current = rel.parent;
+            }
+        }
+        Relationship& rel = registry.getPool<Relationship>().has(entity) ? 
+            registry.get<Relationship>(entity) : 
+            registry.emplace<Relationship>(entity);
+            
+        // Remove from old parent if any
+        if (rel.parent != ecs::NULL_ENTITY) {
+            Relationship& oldParentRel = registry.get<Relationship>(rel.parent);
+            if (oldParentRel.firstChild == entity) oldParentRel.firstChild = rel.nextSibling;
+            if (oldParentRel.lastChild == entity) oldParentRel.lastChild = rel.prevSibling;
+            
+            if (rel.prevSibling != ecs::NULL_ENTITY) registry.get<Relationship>(rel.prevSibling).nextSibling = rel.nextSibling;
+            if (rel.nextSibling != ecs::NULL_ENTITY) registry.get<Relationship>(rel.nextSibling).prevSibling = rel.prevSibling;
+        } else {
+            auto it = std::find(roots.begin(), roots.end(), entity);
+            if (it != roots.end()) roots.erase(it);
+        }
+
+        rel.parent = parent;
+        if (parent != ecs::NULL_ENTITY) {
+            Relationship& parentRel = registry.getPool<Relationship>().has(parent) ? 
+                registry.get<Relationship>(parent) : 
+                registry.emplace<Relationship>(parent);
+            
+            rel.level = parentRel.level + 1;
+            rel.nextSibling = ecs::NULL_ENTITY;
+            rel.prevSibling = parentRel.lastChild;
+
+            if (parentRel.firstChild == ecs::NULL_ENTITY) {
+                parentRel.firstChild = entity;
+                parentRel.lastChild = entity;
+            } else {
+                registry.get<Relationship>(parentRel.lastChild).nextSibling = entity;
+                parentRel.lastChild = entity;
+            }
+        } else {
+            rel.level = 0;
+            rel.nextSibling = ecs::NULL_ENTITY;
+            rel.prevSibling = ecs::NULL_ENTITY;
+            roots.push_back(entity);
+        }
+        hierarchyDirty = true;
+
+        std::vector<ecs::Entity> stack;
+        stack.push_back(entity);
+        while (!stack.empty()) {
+            ecs::Entity current = stack.back();
+            stack.pop_back();
+            if (!registry.has<TransformDirtyTag>(current)) {
+                registry.emplace<TransformDirtyTag>(current);
+            }
+
+            if (!registry.has<Relationship>(current)) continue;
+            ecs::Entity child = registry.get<Relationship>(current).firstChild;
+            while (child != ecs::NULL_ENTITY) {
+                stack.push_back(child);
+                child = registry.get<Relationship>(child).nextSibling;
+            }
+        }
+    }
+}

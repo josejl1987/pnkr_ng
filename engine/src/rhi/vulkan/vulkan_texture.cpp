@@ -36,8 +36,47 @@ namespace pnkr::renderer::rhi::vulkan
           , m_type(desc.type)
           , m_mipLevels(desc.mipLevels)
           , m_arrayLayers(desc.arrayLayers)
+          , m_ownsImage(true)
+          , m_baseMipLevel(0)
+          , m_baseArrayLayer(0)
     {
         createImage(desc);
+        createImageView(desc);
+    }
+
+        VulkanRHITexture::VulkanRHITexture(VulkanRHIDevice* device, VulkanRHITexture* parent, const TextureViewDescriptor& desc)
+
+            : m_device(device)
+
+            , m_image(parent->image())
+
+            , m_allocation(nullptr)
+
+            , m_usage(parent->usage())
+
+            , m_type(TextureType::Texture2D)
+
+            , m_ownsImage(false)
+
+            , m_baseMipLevel(parent->baseMipLevel() + desc.mipLevel)
+
+            , m_baseArrayLayer(parent->baseArrayLayer() + desc.arrayLayer)
+
+            , m_currentLayout(parent->currentLayout())
+
+        {
+
+    
+                  Extent3D parentExtent = parent->extent();
+          
+        m_extent.width = std::max(1u, parentExtent.width >> desc.mipLevel);
+        m_extent.height = std::max(1u, parentExtent.height >> desc.mipLevel);
+        m_extent.depth = std::max(1u, parentExtent.depth >> desc.mipLevel);
+
+        m_format = (desc.format != Format::Undefined) ? desc.format : parent->format();
+        m_mipLevels = desc.mipCount;
+        m_arrayLayers = desc.layerCount;
+
         createImageView(desc);
     }
 
@@ -45,11 +84,16 @@ namespace pnkr::renderer::rhi::vulkan
     {
         if (m_bindlessHandle.isValid())
         {
-            if (static_cast<bool>(m_usage & TextureUsage::Storage)) {
+            if (static_cast<bool>(m_usage & TextureUsage::Storage))
+            {
                 m_device->releaseBindlessStorageImage(m_bindlessHandle);
-            } else if (m_type == TextureType::TextureCube) {
+            }
+            else if (m_type == TextureType::TextureCube)
+            {
                 m_device->releaseBindlessCubemap(m_bindlessHandle);
-            } else {
+            }
+            else
+            {
                 m_device->releaseBindlessTexture(m_bindlessHandle);
             }
         }
@@ -65,7 +109,7 @@ namespace pnkr::renderer::rhi::vulkan
             m_device->device().destroyImageView(m_imageView);
         }
 
-        if (m_image)
+        if (m_ownsImage && m_image)
         {
             vmaDestroyImage(m_device->allocator(),
                             m_image,
@@ -193,6 +237,44 @@ namespace pnkr::renderer::rhi::vulkan
         m_imageView = m_device->device().createImageView(viewInfo);
     }
 
+    void VulkanRHITexture::createImageView(const TextureViewDescriptor& desc)
+    {
+        vk::ImageViewCreateInfo viewInfo{};
+        viewInfo.image = m_image;
+        viewInfo.viewType = desc.layerCount > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D;
+        viewInfo.format = VulkanUtils::toVkFormat(m_format);
+
+        viewInfo.components.r = vk::ComponentSwizzle::eIdentity;
+        viewInfo.components.g = vk::ComponentSwizzle::eIdentity;
+        viewInfo.components.b = vk::ComponentSwizzle::eIdentity;
+        viewInfo.components.a = vk::ComponentSwizzle::eIdentity;
+
+        viewInfo.subresourceRange.baseMipLevel = m_baseMipLevel;
+        viewInfo.subresourceRange.levelCount = desc.mipCount;
+        viewInfo.subresourceRange.baseArrayLayer = m_baseArrayLayer;
+        viewInfo.subresourceRange.layerCount = desc.layerCount;
+
+        vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
+        if (vkFormat == vk::Format::eD16Unorm ||
+            vkFormat == vk::Format::eD32Sfloat ||
+            vkFormat == vk::Format::eD24UnormS8Uint ||
+            vkFormat == vk::Format::eD32SfloatS8Uint)
+        {
+            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
+            if (vkFormat == vk::Format::eD24UnormS8Uint ||
+                vkFormat == vk::Format::eD32SfloatS8Uint)
+            {
+                viewInfo.subresourceRange.aspectMask |= vk::ImageAspectFlagBits::eStencil;
+            }
+        }
+        else
+        {
+            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+        }
+
+        m_imageView = m_device->device().createImageView(viewInfo);
+    }
+
     void VulkanRHITexture::uploadData(
         const void* data,
         uint64_t dataSize,
@@ -207,7 +289,8 @@ namespace pnkr::renderer::rhi::vulkan
         const TextureSubresource& subresource)
     {
         auto* upload = m_device->uploadContext();
-        if (!upload) {
+        if (!upload)
+        {
             return;
         }
 

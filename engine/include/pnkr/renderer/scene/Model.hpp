@@ -3,6 +3,7 @@
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/transform.hpp"
 #include "pnkr/renderer/scene/Animation.hpp"
+#include "pnkr/renderer/scene/Components.hpp" // For LightType
 
 #include <vector>
 #include <string>
@@ -38,7 +39,7 @@ namespace pnkr::renderer::scene
 
         float specularFactorScalar = 1.0f;
         float specularColorFactor[3] = {1,1,1};
-        
+
         float sheenColorFactor[3] = {0,0,0};
         float sheenRoughnessFactor = 0.0f;
 
@@ -157,23 +158,18 @@ namespace pnkr::renderer::scene
         rhi::SamplerAddressMode m_volumeThicknessSampler{rhi::SamplerAddressMode::Repeat};
     };
 
-    enum class LightType
-    {
-        Directional = 0,
-        Point = 1,
-        Spot = 2
-    };
-
     struct Light
     {
         std::string m_name;
         LightType m_type = LightType::Directional;
         glm::vec3 m_color{1.0f};
         glm::vec3 m_direction{0.0f, 0.0f, -1.0f};
+        glm::vec3 m_position{0.0f, 0.0f, 0.0f};
         float m_intensity{1.0f};
         float m_range{0.0f}; // 0 = infinite
         float m_innerConeAngle{0.0f}; // Radians
         float m_outerConeAngle{0.785398f}; // Radians (45 degrees)
+        bool m_debugDraw = false;
     };
 
     struct MeshPrimitive

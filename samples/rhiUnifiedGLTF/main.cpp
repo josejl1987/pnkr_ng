@@ -301,7 +301,6 @@ public:
         if (ImGui::SliderFloat("Alpha Cutoff", &mat.m_alphaCutoff, 0.0f, 1.0f)) dirty = true;
         if (ImGui::SliderFloat("Normal Scale", &mat.m_normalScale, 0.0f, 2.0f)) dirty = true;
         if (ImGui::SliderFloat("Occlusion Strength", &mat.m_occlusionStrength, 0.0f, 1.0f)) dirty = true;
-
         if (dirty) {
             uploadMaterials(m_ctx);
         }

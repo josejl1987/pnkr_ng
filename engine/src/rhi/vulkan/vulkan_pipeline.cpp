@@ -131,7 +131,7 @@ namespace pnkr::renderer::rhi::vulkan
         rasterizer.frontFace = desc.rasterization.frontFaceCCW
                                    ? vk::FrontFace::eCounterClockwise
                                    : vk::FrontFace::eClockwise;
-        rasterizer.depthBiasEnable = VK_FALSE;
+        rasterizer.depthBiasEnable = desc.rasterization.depthBiasEnable ? VK_TRUE : VK_FALSE;
         rasterizer.lineWidth = desc.rasterization.lineWidth;
 
         // Multisample state

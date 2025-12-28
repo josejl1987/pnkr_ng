@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.hpp>
 #include <vk_mem_alloc.h>
 #include <map>
+#include <memory>
 
 #include "pnkr/rhi/rhi_texture.hpp"
 
@@ -15,6 +16,7 @@ namespace pnkr::renderer::rhi::vulkan
     {
     public:
         VulkanRHITexture(VulkanRHIDevice* device, const TextureDescriptor& desc);
+        VulkanRHITexture(VulkanRHIDevice* device, VulkanRHITexture* parent, const TextureViewDescriptor& desc);
         ~VulkanRHITexture() override;
 
         // Disable copy
@@ -36,6 +38,9 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t arrayLayers() const override { return m_arrayLayers; }
         TextureUsage usage() const override { return m_usage; }
 
+        uint32_t baseMipLevel() const override { return m_baseMipLevel; }
+        uint32_t baseArrayLayer() const override { return m_baseArrayLayer; }
+
         void* nativeHandle() const override {
             return static_cast<VkImage>(m_image);
         }
@@ -43,6 +48,7 @@ namespace pnkr::renderer::rhi::vulkan
             return static_cast<VkImageView>(m_imageView);
         }
         void* nativeView(uint32_t mipLevel, uint32_t arrayLayer) const override;
+        void setParent(std::shared_ptr<RHITexture> parent) override { m_parent = std::move(parent); }
 
         // Vulkan-specific accessors
         vk::Image image() const { return m_image; }
@@ -71,13 +77,18 @@ namespace pnkr::renderer::rhi::vulkan
         TextureType m_type;
         uint32_t m_mipLevels = 1;
         uint32_t m_arrayLayers = 1;
+        bool m_ownsImage = true;
+        uint32_t m_baseMipLevel = 0;
+        uint32_t m_baseArrayLayer = 0;
 
         vk::ImageLayout m_currentLayout = vk::ImageLayout::eUndefined;
 
         mutable std::map<uint64_t, vk::ImageView> m_subresourceViews;
+        std::shared_ptr<RHITexture> m_parent;
 
         void createImage(const TextureDescriptor& desc);
         void createImageView(const TextureDescriptor& desc);
+        void createImageView(const TextureViewDescriptor& desc);
 
         // Helper for staging buffer upload
         void uploadDataInternal(const void* data, uint64_t dataSize,

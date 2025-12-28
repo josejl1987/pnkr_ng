@@ -1,89 +1,32 @@
 #pragma once
 
+#include <cstdint>
 #include <vector>
+
+#include <glm/glm.hpp>
+
 #include "pnkr/renderer/geometry/Vertex.h"
 
 namespace pnkr::renderer::geometry {
 
-struct MeshData {
-    std::vector<renderer::Vertex> vertices;
-    std::vector<uint32_t> indices;
-};
-
-struct GeometryUtils {
-    static MeshData getCube(float halfSize = 0.5F);
-    static MeshData getPlane(float halfExtent = 1.0F, float y = 0.0F);
-};
-
-inline MeshData GeometryUtils::getCube(float halfSize) {
-    const float h = halfSize;
-
-    MeshData data{};
-    // Vertex format: {Position}, {Color}, {Normal}, {UV}
-    data.vertices = {
-        // +X (right) - Normal (1,0,0)
-        {{+h, -h, -h}, {1,0,0}, {1,0,0}, {0, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, +h, -h}, {1,0,0}, {1,0,0}, {1, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, +h, +h}, {1,0,0}, {1,0,0}, {1, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, -h, +h}, {1,0,0}, {1,0,0}, {0, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-
-        // -X (left) - Normal (-1,0,0)
-        {{-h, -h, +h}, {0,1,0}, {-1,0,0}, {0, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{-h, +h, +h}, {0,1,0}, {-1,0,0}, {1, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{-h, +h, -h}, {0,1,0}, {-1,0,0}, {1, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{-h, -h, -h}, {0,1,0}, {-1,0,0}, {0, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-
-        // +Y (top) - Normal (0,1,0)
-        {{-h, +h, -h}, {0,0,1}, {0,1,0}, {0, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{-h, +h, +h}, {0,0,1}, {0,1,0}, {1, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, +h, +h}, {0,0,1}, {0,1,0}, {1, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, +h, -h}, {0,0,1}, {0,1,0}, {0, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-
-        // -Y (bottom) - Normal (0,-1,0)
-        {{-h, -h, +h}, {1,1,0}, {0,-1,0}, {0, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{-h, -h, -h}, {1,1,0}, {0,-1,0}, {1, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, -h, -h}, {1,1,0}, {0,-1,0}, {1, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, -h, +h}, {1,1,0}, {0,-1,0}, {0, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-
-        // +Z (front) - Normal (0,0,1)
-        {{-h, -h, +h}, {1,0,1}, {0,0,1}, {0, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, -h, +h}, {1,0,1}, {0,0,1}, {1, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, +h, +h}, {1,0,1}, {0,0,1}, {1, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{-h, +h, +h}, {1,0,1}, {0,0,1}, {0, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-
-        // -Z (back) - Normal (0,0,-1)
-        {{+h, -h, -h}, {0,1,1}, {0,0,-1}, {0, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{-h, -h, -h}, {0,1,1}, {0,0,-1}, {1, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{-h, +h, -h}, {0,1,1}, {0,0,-1}, {1, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, +h, -h}, {0,1,1}, {0,0,-1}, {0, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
+    struct MeshData {
+        std::vector<renderer::Vertex> vertices;
+        std::vector<uint32_t> indices;
     };
 
-    data.indices = {
-        0, 1, 2, 0, 2, 3,       // +X
-        4, 5, 6, 4, 6, 7,       // -X
-        8, 9, 10, 8, 10, 11,    // +Y
-        12, 13, 14, 12, 14, 15, // -Y
-        16, 17, 18, 16, 18, 19, // +Z
-        20, 21, 22, 20, 22, 23  // -Z
+    class GeometryUtils {
+    public:
+        static MeshData getCube(float size = 1.0f);
+        static MeshData getPlane(float width = 1.0f, float depth = 1.0f, uint32_t subdivisions = 1);
+
+        static MeshData getSphere(float radius = 1.0f, uint32_t segments = 32, uint32_t rings = 16);
+        static MeshData getCylinder(float radius = 0.5f, float height = 1.0f, uint32_t slices = 32);
+        static MeshData getCapsule(float radius = 0.5f, float height = 1.0f, uint32_t slices = 32, uint32_t stacks = 8);
+        static MeshData getTorus(float outerRadius = 1.0f, float innerRadius = 0.3f, uint32_t nsides = 16, uint32_t nrings = 32);
+
+    private:
+        static void pushVertex(MeshData& data, const glm::vec3& pos, const glm::vec3& norm, const glm::vec2& uv,
+                               const glm::vec4& tan);
     };
-
-    return data;
-}
-
-inline MeshData GeometryUtils::getPlane(float halfExtent, float y) {
-    const float h = halfExtent;
-    MeshData data{};
-    // Vertex format: {Position}, {Color}, {Normal}, {UV}
-    // Normal is Up (0, 1, 0)
-    data.vertices = {
-        {{-h, y, -h}, {1,1,1}, {0,1,0}, {0, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, y, -h}, {1,1,1}, {0,1,0}, {1, 0}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{+h, y, +h}, {1,1,1}, {0,1,0}, {1, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-        {{-h, y, +h}, {1,1,1}, {0,1,0}, {0, 1}, {0, 0}, {0,0,0,0}, {0,0,0,0}, {1,0,0,0}},
-    };
-
-    data.indices = {0, 2, 1, 2, 0, 3};
-    return data;
-}
 
 } // namespace pnkr::renderer::geometry

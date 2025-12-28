@@ -56,6 +56,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         void setViewport(const Viewport& viewport) override;
         void setScissor(const Rect2D& scissor) override;
+        void setDepthBias(float constantFactor, float clamp, float slopeFactor) override;
 
         void pipelineBarrier(
             ShaderStage srcStage,

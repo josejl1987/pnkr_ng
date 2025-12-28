@@ -26,7 +26,8 @@ namespace pnkr::core {
 
     class CacheWriter {
     public:
-        explicit CacheWriter(const std::string& path) : m_path(path) {
+        explicit CacheWriter(const std::string& path) {
+            m_path = path;
             m_file.open(path, std::ios::binary);
             if (m_file.is_open()) {
                 // Placeholder for header
@@ -61,6 +62,30 @@ namespace pnkr::core {
             m_header.chunkCount++;
         }
 
+        template <typename T>
+        void writeSparseSet(uint32_t fourcc, uint16_t version, const ecs::SparseSet<T>& ss) {
+            static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable for writeSparseSet");
+            
+            const auto& dense = ss.getDense();
+            const auto& packed = ss.entities();
+            
+            uint64_t denseSize = (uint64_t)dense.size();
+            uint64_t totalBytes = sizeof(uint64_t) + denseSize * sizeof(T) + denseSize * sizeof(ecs::Entity);
+
+            ChunkHeader chunk{};
+            chunk.fourcc = fourcc;
+            chunk.version = version;
+            chunk.sizeBytes = totalBytes;
+
+            m_file.write(reinterpret_cast<const char*>(&chunk), sizeof(ChunkHeader));
+            m_file.write(reinterpret_cast<const char*>(&denseSize), sizeof(denseSize));
+            if (denseSize > 0) {
+                m_file.write(reinterpret_cast<const char*>(dense.data()), denseSize * sizeof(T));
+                m_file.write(reinterpret_cast<const char*>(packed.data()), denseSize * sizeof(ecs::Entity));
+            }
+            m_header.chunkCount++;
+        }
+
         void writeStringListChunk(uint32_t fourcc, uint16_t version, const std::vector<std::string>& strings) {
             // First calculate total size
             uint64_t totalBytes = sizeof(uint64_t); // num strings
@@ -82,6 +107,35 @@ namespace pnkr::core {
                 m_file.write(reinterpret_cast<const char*>(&len), sizeof(len));
                 m_file.write(s.data(), len);
             }
+            m_header.chunkCount++;
+        }
+
+        template <typename T, typename Serializer>
+        void writeCustomSparseSet(uint32_t fourcc, uint16_t version, const ecs::SparseSet<T>& ss, Serializer serializer) {
+            const auto& dense = ss.getDense();
+            const auto& packed = ss.entities();
+            uint64_t denseSize = (uint64_t)dense.size();
+
+            ChunkHeader chunk{};
+            chunk.fourcc = fourcc;
+            chunk.version = version;
+            
+            size_t headerPos = m_file.tellp();
+            m_file.write(reinterpret_cast<const char*>(&chunk), sizeof(ChunkHeader));
+            
+            size_t dataStart = m_file.tellp();
+            m_file.write(reinterpret_cast<const char*>(&denseSize), sizeof(denseSize));
+            for (size_t i = 0; i < dense.size(); ++i) {
+                m_file.write(reinterpret_cast<const char*>(&packed[i]), sizeof(ecs::Entity));
+                serializer(m_file, dense[i]);
+            }
+            size_t dataEnd = m_file.tellp();
+            
+            chunk.sizeBytes = (uint64_t)(dataEnd - dataStart);
+            m_file.seekp(headerPos);
+            m_file.write(reinterpret_cast<const char*>(&chunk), sizeof(ChunkHeader));
+            m_file.seekp(dataEnd);
+
             m_header.chunkCount++;
         }
 
@@ -183,6 +237,29 @@ namespace pnkr::core {
             return true;
         }
 
+        template <typename T>
+        bool readSparseSet(const ChunkInfo& info, ecs::SparseSet<T>& ss) {
+            static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable for readSparseSet");
+            if (!m_valid || info.header.sizeBytes > kMaxChunkBytes) return false;
+            if (!canRead(info.offset + sizeof(ChunkHeader), info.header.sizeBytes)) return false;
+
+            m_file.seekg(info.offset + sizeof(ChunkHeader));
+            uint64_t denseSize = 0;
+            if (!m_file.read(reinterpret_cast<char*>(&denseSize), sizeof(denseSize))) return false;
+
+            if (denseSize > 0) {
+                std::vector<T> dense(denseSize);
+                std::vector<ecs::Entity> packed(denseSize);
+                if (!m_file.read(reinterpret_cast<char*>(dense.data()), denseSize * sizeof(T))) return false;
+                if (!m_file.read(reinterpret_cast<char*>(packed.data()), denseSize * sizeof(ecs::Entity))) return false;
+
+                for (size_t i = 0; i < denseSize; ++i) {
+                    ss.emplace(packed[i], dense[i]);
+                }
+            }
+            return true;
+        }
+
         bool readStringListChunk(const ChunkInfo& info, std::vector<std::string>& strings) {
             if (!m_valid || info.header.sizeBytes > kMaxChunkBytes) return false;
             if (!canRead(info.offset + sizeof(ChunkHeader), info.header.sizeBytes)) return false;
@@ -211,6 +288,24 @@ namespace pnkr::core {
                     return false;
                 }
                 bytesRead += len;
+            }
+            return true;
+        }
+
+        template <typename T, typename Deserializer>
+        bool readCustomSparseSet(const ChunkInfo& info, ecs::SparseSet<T>& ss, Deserializer deserializer) {
+            if (!m_valid) return false;
+            m_file.seekg(info.offset + sizeof(ChunkHeader));
+            
+            uint64_t denseSize = 0;
+            if (!m_file.read(reinterpret_cast<char*>(&denseSize), sizeof(denseSize))) return false;
+
+            for (size_t i = 0; i < denseSize; ++i) {
+                ecs::Entity e;
+                if (!m_file.read(reinterpret_cast<char*>(&e), sizeof(ecs::Entity))) return false;
+                T comp;
+                deserializer(m_file, comp);
+                ss.emplace(e, std::move(comp));
             }
             return true;
         }

@@ -185,70 +185,47 @@ namespace pnkr::renderer::scene
 
         std::vector<ShaderGen::gltf_frag::LightDataGPU> gpuLights;
         auto& scene = ctx.model->scene();
-        const auto& modelLights = ctx.model->lights();
 
-        for (uint32_t nodeId : scene.topoOrder)
-        {
-            if (nodeId >= scene.lightIndex.size()) continue;
-            const int32_t lightIdx = scene.lightIndex[nodeId];
-            if (lightIdx < 0 || static_cast<size_t>(lightIdx) >= modelLights.size()) continue;
-
-            const auto& lightDef = modelLights[static_cast<size_t>(lightIdx)];
+        auto lightView = scene.registry.view<LightSource, WorldTransform>();
+        lightView.each([&](ecs::Entity e, LightSource& ls, WorldTransform& world) {
             ShaderGen::gltf_frag::LightDataGPU l{};
 
-            const glm::mat4& M = scene.global[nodeId];
+            const glm::mat4& M = world.matrix;
 
-            l.direction = glm::normalize(glm::vec3(M * glm::vec4(lightDef.m_direction, 0.0f)));
-            l.range = lightDef.m_range == 0.0f ? 10000.0f : lightDef.m_range;
+            l.direction = glm::normalize(glm::vec3(M * glm::vec4(ls.direction, 0.0f)));
+            l.range = ls.range == 0.0f ? 10000.0f : ls.range;
 
-            l.color = lightDef.m_color;
-            l.intensity = lightDef.m_intensity;
+            l.color = ls.color;
+            l.intensity = ls.intensity;
 
             l.position = glm::vec3(M[3]);
-            l.innerConeCos = std::cos(lightDef.m_innerConeAngle);
-            l.outerConeCos = std::cos(lightDef.m_outerConeAngle);
+            l.innerConeCos = std::cos(ls.innerConeAngle);
+            l.outerConeCos = std::cos(ls.outerConeAngle);
 
-            l.type = static_cast<uint32_t>(lightDef.m_type);
-            l.nodeId = static_cast<int32_t>(nodeId);
+            l.type = static_cast<uint32_t>(ls.type);
+            l.nodeId = static_cast<int32_t>(e);
             l._pad = 0;
 
             gpuLights.push_back(l);
-        }
-
-        if (gpuLights.empty())
-        {
-            ShaderGen::gltf_frag::LightDataGPU l{};
-            l.direction = glm::vec3(0, 0, 1);
-            l.range = 10000;
-
-            l.color = glm::vec4(1, 1, 1, 1);
-            l.intensity = 1.0;
-
-            l.position = glm::vec3(0, 0, -5);
-            l.innerConeCos = 0;
-            l.outerConeCos = 0.78f;
-
-            l.type = util::u32(LightType::Directional);
-            l.nodeId = 0;
-            l._pad = 0;
-
-            gpuLights.push_back(l);
-        }
+        });
 
         ctx.activeLightCount = static_cast<uint32_t>(gpuLights.size());
         const size_t dataSize = gpuLights.size() * sizeof(ShaderGen::gltf_frag::LightDataGPU);
 
-        if (ctx.lightBuffer == INVALID_BUFFER_HANDLE || ctx.renderer->getBuffer(ctx.lightBuffer)->size() < dataSize)
+        if (dataSize > 0)
         {
-            ctx.lightBuffer = ctx.renderer->createBuffer({
-                .size = dataSize,
-                .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
-                .memoryUsage = rhi::MemoryUsage::CPUToGPU,
-                .debugName = "Scene Lights"
-            });
-        }
+            if (ctx.lightBuffer == INVALID_BUFFER_HANDLE || ctx.renderer->getBuffer(ctx.lightBuffer)->size() < dataSize)
+            {
+                ctx.lightBuffer = ctx.renderer->createBuffer({
+                    .size = dataSize,
+                    .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
+                    .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+                    .debugName = "Scene Lights"
+                });
+            }
 
-        ctx.renderer->getBuffer(ctx.lightBuffer)->uploadData(gpuLights.data(), dataSize);
+            ctx.renderer->getBuffer(ctx.lightBuffer)->uploadData(gpuLights.data(), dataSize);
+        }
     }
 
     void GLTFUnifiedDOD::buildDrawLists(GLTFUnifiedDODContext& ctx, const glm::vec3& cameraPos)
@@ -262,8 +239,6 @@ namespace pnkr::renderer::scene
         if (!ctx.model || !ctx.renderer) return;
 
         const auto& scene = ctx.model->scene();
-        const auto& globalTransforms = scene.global;
-        const auto& meshIndex = scene.meshIndex;
         const auto& meshes = ctx.model->meshes();
         const auto& materials = ctx.model->materials();
 
@@ -311,7 +286,6 @@ namespace pnkr::renderer::scene
         std::unordered_map<Key, std::vector<Instance>, KeyHash> groupsOpaque;
         std::unordered_map<Key, std::vector<Instance>, KeyHash> groupsTransmission;
         std::vector<Instance> transparentInstances;
-        transparentInstances.reserve(scene.topoOrder.size());
 
         auto classify = [&](uint32_t matIndex) -> SortingType
         {
@@ -328,18 +302,13 @@ namespace pnkr::renderer::scene
             return st;
         };
 
-        for (uint32_t nodeId : scene.topoOrder)
-        {
-            if (nodeId == scene.root) continue;
+        auto meshView = scene.registry.view<MeshRenderer, WorldTransform>();
+        meshView.each([&](ecs::Entity e, MeshRenderer& meshComp, WorldTransform& world) {
+            if (meshComp.meshID < 0 || static_cast<size_t>(meshComp.meshID) >= meshes.size()) return;
 
-            const int32_t mi = (nodeId < meshIndex.size()) ? meshIndex[nodeId] : -1;
-            if (mi < 0) continue;
-
-            const uint32_t meshId = static_cast<uint32_t>(mi);
-            if (meshId >= meshes.size()) continue;
-
+            const uint32_t meshId = static_cast<uint32_t>(meshComp.meshID);
             const auto& mesh = meshes[meshId];
-            const glm::mat4& M = globalTransforms[nodeId];
+            const glm::mat4& M = world.matrix;
             const glm::mat4 N = glm::inverseTranspose(M);
 
             for (size_t primId = 0; primId < mesh.primitives.size(); ++primId)
@@ -356,7 +325,7 @@ namespace pnkr::renderer::scene
                 inst.xf = {
                     .model = M,
                     .normalMatrix = N,
-                    .nodeIndex = nodeId,
+                    .nodeIndex = static_cast<uint32_t>(e),
                     .primIndex = static_cast<uint32_t>(primId),
                     .materialIndex = matIndex,
                     .sortingType = static_cast<uint32_t>(st),
@@ -401,7 +370,7 @@ namespace pnkr::renderer::scene
                         groupsOpaque[key].push_back(inst);
                 }
             }
-        }
+        });
 
         auto emitGroups = [&](auto& groups, std::vector<renderer::rhi::DrawIndexedIndirectCommand>& outCmds)
         {

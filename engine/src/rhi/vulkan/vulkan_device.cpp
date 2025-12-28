@@ -123,6 +123,11 @@ namespace pnkr::renderer::rhi::vulkan
             }
             m_device.waitIdle();
 
+            if (m_bindlessSetWrapper)
+            {
+                m_bindlessSetWrapper.reset();
+            }
+
             if (m_bindlessLayout)
             {
                 m_bindlessLayout.reset(); // This triggers the RHI destructor which calls Vulkan destroy
@@ -425,6 +430,15 @@ namespace pnkr::renderer::rhi::vulkan
         return std::make_unique<VulkanRHITexture>(this, desc);
     }
 
+    std::unique_ptr<RHITexture> VulkanRHIDevice::createTextureView(
+        RHITexture* parent,
+        const TextureViewDescriptor& desc)
+    {
+        auto* vkParent = dynamic_cast<VulkanRHITexture*>(parent);
+        if (!vkParent) return nullptr;
+        return std::make_unique<VulkanRHITexture>(this, vkParent, desc);
+    }
+
     std::unique_ptr<RHITexture> VulkanRHIDevice::createTexture(
         const Extent3D& extent,
         Format format,
@@ -462,9 +476,10 @@ namespace pnkr::renderer::rhi::vulkan
     std::unique_ptr<RHISampler> VulkanRHIDevice::createSampler(
         Filter minFilter,
         Filter magFilter,
-        SamplerAddressMode addressMode)
+        SamplerAddressMode addressMode,
+        CompareOp compareOp)
     {
-        return std::make_unique<VulkanRHISampler>(this, minFilter, magFilter, addressMode);
+        return std::make_unique<VulkanRHISampler>(this, minFilter, magFilter, addressMode, compareOp);
     }
 
     std::unique_ptr<RHICommandBuffer> VulkanRHIDevice::createCommandBuffer()
@@ -768,6 +783,8 @@ namespace pnkr::renderer::rhi::vulkan
 
         m_textureManager.init(maxSampledImages);
         m_samplerManager.init(maxSamplers);
+        m_shadowTextureManager.init(maxSampledImages);
+        m_shadowSamplerManager.init(maxSamplers);
         m_bufferManager.init(maxStorageBuffers);
         m_cubemapManager.init(maxSampledImages);
         m_storageImageManager.init(maxStorageImages);
@@ -1030,6 +1047,28 @@ namespace pnkr::renderer::rhi::vulkan
         return {index};
     }
 
+    BindlessHandle VulkanRHIDevice::registerBindlessShadowSampler(RHISampler* sampler)
+    {
+        auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
+        uint32_t index = m_shadowSamplerManager.allocate();
+        if (index == 0xFFFFFFFF) return {index};
+
+        vk::DescriptorImageInfo imageInfo{};
+        imageInfo.sampler = vkSamp->sampler();
+
+        vk::WriteDescriptorSet write{};
+        write.dstSet = m_bindlessSet;
+        write.dstBinding = 6;
+        write.dstArrayElement = index;
+        write.descriptorType = vk::DescriptorType::eSampler;
+        write.descriptorCount = 1;
+        write.pImageInfo = &imageInfo;
+
+        m_device.updateDescriptorSets(write, nullptr);
+
+        return {index};
+    }
+
     BindlessHandle VulkanRHIDevice::registerBindlessBuffer(RHIBuffer* buffer)
     {
         auto* vkBuf = dynamic_cast<VulkanRHIBuffer*>(buffer);
@@ -1078,6 +1117,29 @@ namespace pnkr::renderer::rhi::vulkan
         return {index};
     }
 
+    BindlessHandle VulkanRHIDevice::registerBindlessShadowTexture2D(RHITexture* texture)
+    {
+        auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+        uint32_t index = m_shadowTextureManager.allocate();
+        if (index == 0xFFFFFFFF) return {index};
+
+        vk::DescriptorImageInfo imageInfo{};
+        imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        imageInfo.imageView = vkTex->imageView();
+
+        vk::WriteDescriptorSet write{};
+        write.dstSet = m_bindlessSet;
+        write.dstBinding = 7;
+        write.dstArrayElement = index;
+        write.descriptorType = vk::DescriptorType::eSampledImage;
+        write.descriptorCount = 1;
+        write.pImageInfo = &imageInfo;
+
+        m_device.updateDescriptorSets(write, nullptr);
+
+        return {index};
+    }
+
     void VulkanRHIDevice::releaseBindlessTexture(BindlessHandle handle) {
         m_textureManager.free(handle.index);
     }
@@ -1087,11 +1149,17 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHIDevice::releaseBindlessSampler(BindlessHandle handle) {
         m_samplerManager.free(handle.index);
     }
+    void VulkanRHIDevice::releaseBindlessShadowSampler(BindlessHandle handle) {
+        m_shadowSamplerManager.free(handle.index);
+    }
     void VulkanRHIDevice::releaseBindlessStorageImage(BindlessHandle handle) {
         m_storageImageManager.free(handle.index);
     }
     void VulkanRHIDevice::releaseBindlessBuffer(BindlessHandle handle) {
         m_bufferManager.free(handle.index);
+    }
+    void VulkanRHIDevice::releaseBindlessShadowTexture2D(BindlessHandle handle) {
+        m_shadowTextureManager.free(handle.index);
     }
 
     class VulkanRHIUploadContext : public RHIUploadContext
@@ -1109,7 +1177,7 @@ namespace pnkr::renderer::rhi::vulkan
             m_mappedPtr = m_stagingBuffer->map();
             
             vk::CommandPoolCreateInfo poolInfo{};
-            poolInfo.queueFamilyIndex = m_device->transferQueueFamily();
+            poolInfo.queueFamilyIndex = m_device->graphicsQueueFamily();
             poolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
             m_pool = m_device->device().createCommandPool(poolInfo);
 
@@ -1201,7 +1269,7 @@ namespace pnkr::renderer::rhi::vulkan
             submitInfo.commandBufferCount = 1;
             submitInfo.pCommandBuffers = &m_cmd;
 
-            m_device->transferQueue().submit(submitInfo, m_fence);
+            m_device->graphicsQueue().submit(submitInfo, m_fence);
             
             auto result = m_device->device().waitForFences(1, &m_fence, VK_TRUE, UINT64_MAX);
             if (result != vk::Result::eSuccess) {

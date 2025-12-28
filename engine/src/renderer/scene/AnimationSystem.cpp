@@ -39,7 +39,7 @@ namespace pnkr::renderer::scene
         // 3. Mark hierarchy dirty so global transforms get recomputed
         for (const auto& ch : anim.channels)
         {
-            model.scene().markAsChanged(ch.targetNode);
+            model.scene().markAsChanged(static_cast<ecs::Entity>(ch.targetNode));
         }
         
         // Signal the scene that the hierarchy (transforms) has changed
@@ -72,12 +72,12 @@ namespace pnkr::renderer::scene
             const auto& animA = model.animations()[stateA.animIndex];
             advance(stateA, animA);
             applyAnimation(model, animA, stateA.currentTime);
-            for (const auto& ch : animA.channels) model.scene().markAsChanged(ch.targetNode);
+            for (const auto& ch : animA.channels) model.scene().markAsChanged(static_cast<ecs::Entity>(ch.targetNode));
         } else if (hasB) {
             const auto& animB = model.animations()[stateB.animIndex];
             advance(stateB, animB);
             applyAnimation(model, animB, stateB.currentTime);
-            for (const auto& ch : animB.channels) model.scene().markAsChanged(ch.targetNode);
+            for (const auto& ch : animB.channels) model.scene().markAsChanged(static_cast<ecs::Entity>(ch.targetNode));
         }
 
         model.scene().hierarchyDirty = true;
@@ -120,7 +120,9 @@ namespace pnkr::renderer::scene
         }
 
         for (uint32_t nodeIndex : affectedNodes) {
-            glm::mat4& localMat = scene.local[nodeIndex];
+            ecs::Entity entity = static_cast<ecs::Entity>(nodeIndex);
+            if (!scene.registry.has<LocalTransform>(entity)) continue;
+            glm::mat4& localMat = scene.registry.get<LocalTransform>(entity).matrix;
             
             glm::vec3 t; glm::quat r; glm::vec3 s;
             glm::vec3 skew; glm::vec4 perspective;
@@ -142,7 +144,7 @@ namespace pnkr::renderer::scene
             s = glm::mix(sA, sB, weight);
 
             localMat = glm::translate(glm::mat4(1.0f), t) * glm::toMat4(r) * glm::scale(glm::mat4(1.0f), s);
-            scene.markAsChanged(nodeIndex);
+            scene.markAsChanged(entity);
         }
     }
 
@@ -158,10 +160,10 @@ namespace pnkr::renderer::scene
         const auto& scene = model.scene();
         
         for (size_t i = 0; i < skin.joints.size(); ++i) {
-            uint32_t nodeIdx = skin.joints[i]; // Indices are already +1'd by loader
+            ecs::Entity entity = static_cast<ecs::Entity>(skin.joints[i]);
             
-            if (nodeIdx < scene.global.size()) {
-                jointMatrices[i] = scene.global[nodeIdx] * skin.inverseBindMatrices[i];
+            if (scene.registry.has<WorldTransform>(entity)) {
+                jointMatrices[i] = scene.registry.get<WorldTransform>(entity).matrix * skin.inverseBindMatrices[i];
             } else {
                 jointMatrices[i] = glm::mat4(1.0f);
             }
@@ -351,30 +353,34 @@ namespace pnkr::renderer::scene
         for (const auto& ch : anim.channels)
         {
             const auto& sampler = anim.samplers[ch.samplerIndex];
+            ecs::Entity entity = static_cast<ecs::Entity>(ch.targetNode);
 
             if (ch.path == AnimationPath::Weights)
             {
-                int32_t meshIdx = scene.meshIndex[ch.targetNode];
-                if (meshIdx >= 0 && (size_t)meshIdx < model.morphTargetInfos().size())
-                {
-                    const auto& info = model.morphTargetInfos()[meshIdx];
-                    auto& state = model.morphStates()[meshIdx];
-                    state.meshIndex = (uint32_t)meshIdx;
-
-                    uint32_t numTargets = (uint32_t)info.targetOffsets.size();
-                    std::vector<float> weights(numTargets);
-                    interpolateWeights(sampler, time, numTargets, weights.data());
-
-                    for (uint32_t i = 0; i < std::min(8u, numTargets); ++i)
+                if (scene.registry.has<MeshRenderer>(entity)) {
+                    int32_t meshIdx = scene.registry.get<MeshRenderer>(entity).meshID;
+                    if (meshIdx >= 0 && (size_t)meshIdx < model.morphTargetInfos().size())
                     {
-                        state.activeTargets[i] = info.targetOffsets[i];
-                        state.weights[i] = weights[i];
+                        const auto& info = model.morphTargetInfos()[meshIdx];
+                        auto& state = model.morphStates()[meshIdx];
+                        state.meshIndex = (uint32_t)meshIdx;
+
+                        uint32_t numTargets = (uint32_t)info.targetOffsets.size();
+                        std::vector<float> weights(numTargets);
+                        interpolateWeights(sampler, time, numTargets, weights.data());
+
+                        for (uint32_t i = 0; i < std::min(8u, numTargets); ++i)
+                        {
+                            state.activeTargets[i] = info.targetOffsets[i];
+                            state.weights[i] = weights[i];
+                        }
                     }
                 }
                 continue;
             }
 
-            glm::mat4& localMat = scene.local[ch.targetNode];
+            if (!scene.registry.has<LocalTransform>(entity)) continue;
+            glm::mat4& localMat = scene.registry.get<LocalTransform>(entity).matrix;
 
             glm::vec3 translation;
             glm::quat rotation;

@@ -198,6 +198,7 @@ namespace pnkr::renderer::rhi
     // Compare operations
     enum class CompareOp
     {
+        None,
         Never,
         Less,
         Equal,

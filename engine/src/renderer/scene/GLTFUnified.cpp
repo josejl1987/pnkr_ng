@@ -253,42 +253,26 @@ namespace pnkr::renderer::scene
             gpuLights.push_back(l);
         }
 
-        if (gpuLights.empty())
-        {
-            ShaderGen::gltf_frag::LightDataGPU l;
-            l.direction = glm::vec3(0,0,1);
-            l.range = 10000;
-
-            l.color = glm::vec4(1, 1, 1, 1  );
-            l.intensity =  1.0;
-
-            l.position = glm::vec3(0, 0, -5);
-            l.innerConeCos = 0;
-            l.outerConeCos = 0.78;
-
-            l.type = util::u32(LightType::Directional);
-            l.nodeId = static_cast<int32_t>(0);
-            l._pad=0;
-
-            gpuLights.push_back(l);
-        };
 
         ctx.activeLightCount = (uint32_t)gpuLights.size();
 
 
         size_t dataSize = gpuLights.size() * sizeof(ShaderGen::gltf_frag::LightDataGPU);
 
-        if (ctx.lightBuffer == INVALID_BUFFER_HANDLE || ctx.renderer->getBuffer(ctx.lightBuffer)->size() < dataSize)
+        if (dataSize > 0)
         {
-            ctx.lightBuffer = ctx.renderer->createBuffer({
-                .size = dataSize,
-                .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
-                .memoryUsage = rhi::MemoryUsage::CPUToGPU,
-                .debugName = "Scene Lights"
-            });
-        }
+            if (ctx.lightBuffer == INVALID_BUFFER_HANDLE || ctx.renderer->getBuffer(ctx.lightBuffer)->size() < dataSize)
+            {
+                ctx.lightBuffer = ctx.renderer->createBuffer({
+                    .size = dataSize,
+                    .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress,
+                    .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+                    .debugName = "Scene Lights"
+                });
+            }
 
-        ctx.renderer->getBuffer(ctx.lightBuffer)->uploadData(gpuLights.data(), dataSize);
+            ctx.renderer->getBuffer(ctx.lightBuffer)->uploadData(gpuLights.data(), dataSize);
+        }
     }
 
     void buildTransformsList(GLTFUnifiedContext& ctx)

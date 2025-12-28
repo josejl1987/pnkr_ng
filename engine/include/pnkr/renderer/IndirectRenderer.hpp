@@ -7,7 +7,6 @@
 
 #include "pnkr/renderer/scene/Camera.hpp"
 
-
 #include <span>
 #include "generated/indirect.frag.h"
 
@@ -42,6 +41,16 @@ namespace pnkr::renderer {
         uint32_t envMapTextureCharlieSampler;
     };
 
+    struct ShadowSettings {
+        float fov = 45.0f;
+        float orthoSize = 40.0f;
+        float nearPlane = 1.0f;
+        float farPlane = 100.0f;
+        float distFromCam = 20.0f;
+        float biasConst = 1.25f;
+        float biasSlope = 1.75f;
+    };
+
     struct FrameResources {
         BufferHandle indirectBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle instanceDataBuffer = INVALID_BUFFER_HANDLE;
@@ -50,6 +59,9 @@ namespace pnkr::renderer {
         BufferHandle jointMatricesBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle meshXformsBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle skinnedVertexBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle lightBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle shadowDataBuffer = INVALID_BUFFER_HANDLE;
+        void* mappedShadowData = nullptr;
 
         // Command buffers for separated passes
         BufferHandle indirectOpaqueBuffer = INVALID_BUFFER_HANDLE;
@@ -63,10 +75,15 @@ namespace pnkr::renderer {
         void* mappedJoints = nullptr;
         void* mappedJointMatrices = nullptr;
         void* mappedMeshXforms = nullptr;
+        void* mappedLights = nullptr;
+        uint32_t lightCount = 0;
+
+        BufferHandle materialBuffer = INVALID_BUFFER_HANDLE;
     };
 
     class IndirectRenderer {
     public:
+        ~IndirectRenderer();
         void init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model,
                   TextureHandle brdf = INVALID_TEXTURE_HANDLE, 
                   TextureHandle irradiance = INVALID_TEXTURE_HANDLE, 
@@ -86,11 +103,17 @@ namespace pnkr::renderer {
         std::span<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> materialsCPU();
         void uploadMaterialsToGPU();
         void repackMaterialsFromModel();
+        TextureHandle getShadowMapTexture() const { return m_shadowMap; }
+        uint32_t shadowMapBindlessIndex() const noexcept { return m_shadowMapBindlessIndex; }
+        uint32_t shadowMapDebugBindlessIndex() const noexcept { return m_shadowMapDebugBindlessIndex; }
+        void setShadowSettings(const ShadowSettings& settings) { m_shadowSettings = settings; }
+        int getShadowCasterIndex() const { return m_shadowCasterIndex; }
 
     private:
         void createPipeline();
         void createComputePipeline();
         void buildBuffers();
+        void updateLights();
         void uploadMaterialData();
         void uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
         void createOffscreenResources(uint32_t width, uint32_t height);
@@ -104,7 +127,6 @@ namespace pnkr::renderer {
         uint32_t m_currentFrameIndex = 0;
         
         // Scene data mirror (could be shared, but local for this sample)
-        BufferHandle m_materialBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle m_environmentBuffer = INVALID_BUFFER_HANDLE;
         std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> m_materialsCPU;
 
@@ -114,14 +136,25 @@ namespace pnkr::renderer {
         PipelineHandle m_pipeline = INVALID_PIPELINE_HANDLE; // Opaque
         PipelineHandle m_pipelineTransparent = INVALID_PIPELINE_HANDLE; // Transparent
         PipelineHandle m_pipelineWireframe = INVALID_PIPELINE_HANDLE;
-        
+        PipelineHandle m_shadowPipeline = INVALID_PIPELINE_HANDLE;
+
         bool m_drawWireframe = false;
 
         // Transmission / Offscreen Support
         TextureHandle m_sceneColor = INVALID_TEXTURE_HANDLE;
         TextureHandle m_transmissionTexture = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_shadowMap = INVALID_TEXTURE_HANDLE;
+        uint32_t m_shadowMapBindlessIndex = 0xFFFFFFFF;
+        uint32_t m_shadowMapDebugBindlessIndex = 0xFFFFFFFF;
+        rhi::ResourceLayout m_shadowLayout = rhi::ResourceLayout::Undefined;
         uint32_t m_width = 0;
         uint32_t m_height = 0;
+        uint32_t m_shadowDim = 2048;
+
+        // Shadow settings
+        ShadowSettings m_shadowSettings;
+        
+        int m_shadowCasterIndex = -1;
 
         // Track layouts to avoid redundant barriers or validation errors
         rhi::ResourceLayout m_sceneColorLayout = rhi::ResourceLayout::Undefined;

@@ -8,9 +8,12 @@ namespace pnkr::renderer::rhi::vulkan
     VulkanRHISampler::VulkanRHISampler(VulkanRHIDevice* device,
                                        Filter minFilter,
                                        Filter magFilter,
-                                       SamplerAddressMode addressMode)
+                                       SamplerAddressMode addressMode,
+                                       CompareOp compareOp)
         : m_device(device)
     {
+        m_isShadowSampler = (compareOp != CompareOp::None);
+
         vk::SamplerCreateInfo samplerInfo{};
         samplerInfo.magFilter = VulkanUtils::toVkFilter(magFilter);
         samplerInfo.minFilter = VulkanUtils::toVkFilter(minFilter);
@@ -23,14 +26,18 @@ namespace pnkr::renderer::rhi::vulkan
         samplerInfo.maxAnisotropy = 16.0F;
         
         // Border color
-        samplerInfo.borderColor = vk::BorderColor::eIntOpaqueBlack;
+        if (addressMode == SamplerAddressMode::ClampToBorder && compareOp != CompareOp::None) {
+            samplerInfo.borderColor = vk::BorderColor::eFloatOpaqueWhite;
+        } else {
+            samplerInfo.borderColor = vk::BorderColor::eIntOpaqueBlack;
+        }
         
         // Unnormalized coordinates
         samplerInfo.unnormalizedCoordinates = VK_FALSE;
         
         // Comparison
-        samplerInfo.compareEnable = VK_FALSE;
-        samplerInfo.compareOp = vk::CompareOp::eAlways;
+        samplerInfo.compareEnable = m_isShadowSampler ? VK_TRUE : VK_FALSE;
+        samplerInfo.compareOp = VulkanUtils::toVkCompareOp(compareOp);
         
         // Mipmapping
         samplerInfo.mipmapMode = minFilter == Filter::Linear 
@@ -46,7 +53,11 @@ namespace pnkr::renderer::rhi::vulkan
     VulkanRHISampler::~VulkanRHISampler()
     {
         if (m_bindlessHandle.isValid()) {
-            m_device->releaseBindlessSampler(m_bindlessHandle);
+            if (m_isShadowSampler) {
+                m_device->releaseBindlessShadowSampler(m_bindlessHandle);
+            } else {
+                m_device->releaseBindlessSampler(m_bindlessHandle);
+            }
         }
 
         if (m_sampler) {
