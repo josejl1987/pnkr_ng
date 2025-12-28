@@ -3,6 +3,10 @@
 #include "generated/indirect.frag.h"
 #include "generated/indirect.vert.h"
 #include "generated/skinning.comp.h"
+#include "generated/depth_resolve.comp.h"
+#include "generated/ssao.comp.h"
+#include "generated/blur.comp.h"
+#include "generated/composition.frag.h"
 
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
@@ -12,6 +16,7 @@
 #include "pnkr/renderer/geometry/GeometryUtils.hpp"
 
 #include <cmath>
+#include <random>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace pnkr::renderer
@@ -26,13 +31,23 @@ namespace pnkr::renderer
 
     IndirectRenderer::~IndirectRenderer()
     {
-        if (m_renderer && m_shadowMapBindlessIndex != 0xFFFFFFFF)
+        if (m_renderer)
         {
-            m_renderer->device()->releaseBindlessShadowTexture2D({m_shadowMapBindlessIndex});
-        }
-        if (m_renderer && m_shadowMapDebugBindlessIndex != 0xFFFFFFFF)
-        {
-            m_renderer->device()->releaseBindlessTexture({m_shadowMapDebugBindlessIndex});
+            auto* dev = m_renderer->device();
+            if (m_shadowMapBindlessIndex != 0xFFFFFFFF)
+            {
+                dev->releaseBindlessShadowTexture2D({m_shadowMapBindlessIndex});
+            }
+            if (m_shadowMapDebugBindlessIndex != 0xFFFFFFFF)
+            {
+                dev->releaseBindlessTexture({m_shadowMapDebugBindlessIndex});
+            }
+            
+            // Release SSAO storage indices
+            if (m_depthResolvedStorageIndex != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_depthResolvedStorageIndex});
+            if (m_ssaoRawStorageIndex != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_ssaoRawStorageIndex});
+            if (m_ssaoBlurStorageIndex != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_ssaoBlurStorageIndex});
+            if (m_ssaoFinalStorageIndex != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_ssaoFinalStorageIndex});
         }
         for (auto& frame : m_frames)
         {
@@ -41,6 +56,264 @@ namespace pnkr::renderer
             frame.mappedLights = nullptr;
             frame.lightCount = 0;
         }
+    }
+
+    void IndirectRenderer::initSSAO() {
+        // 1. Generate Noise Texture
+        std::uniform_real_distribution<float> randomFloats(0.0, 1.0);
+        std::default_random_engine generator;
+        std::vector<glm::vec4> ssaoNoise;
+        for (unsigned int i = 0; i < 16; i++) {
+            glm::vec3 noise(randomFloats(generator) * 2.0 - 1.0, randomFloats(generator) * 2.0 - 1.0, randomFloats(generator));
+            ssaoNoise.push_back(glm::vec4(glm::normalize(noise), 1.0f)); // Alpha 1.0
+        }
+
+        rhi::TextureDescriptor noiseDesc{};
+        noiseDesc.extent = {4, 4, 1};
+        noiseDesc.format = rhi::Format::R32G32B32A32_SFLOAT;
+        noiseDesc.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+        noiseDesc.debugName = "SSAONoise";
+        m_ssaoNoise = m_renderer->createTexture(noiseDesc);
+        m_renderer->getTexture(m_ssaoNoise)->uploadData(ssaoNoise.data(), ssaoNoise.size() * sizeof(glm::vec4));
+        m_ssaoNoiseIndex = m_renderer->getTextureBindlessIndex(m_ssaoNoise);
+
+        // Transition noise texture to ShaderReadOnly
+        m_renderer->device()->immediateSubmit([this](rhi::RHICommandBuffer* cmd) {
+            rhi::RHIMemoryBarrier bNoise{};
+            bNoise.texture = m_renderer->getTexture(m_ssaoNoise);
+            bNoise.oldLayout = rhi::ResourceLayout::TransferDst;
+            bNoise.newLayout = rhi::ResourceLayout::ShaderReadOnly;
+            bNoise.srcAccessStage = rhi::ShaderStage::Transfer;
+            bNoise.dstAccessStage = rhi::ShaderStage::Compute;
+            cmd->pipelineBarrier(rhi::ShaderStage::Transfer, rhi::ShaderStage::Compute, {bNoise});
+        });
+
+        // 2. Compile Pipelines
+        rhi::RHIPipelineBuilder builder;
+
+        // Depth Resolve
+        auto sResolve = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/depth_resolve.comp.spv");
+        m_depthResolvePipeline = m_renderer->createComputePipeline(
+            builder.setComputeShader(sResolve.get()).setName("DepthResolve").buildCompute()
+        );
+
+        // SSAO Gen
+        auto sGen = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/ssao.comp.spv");
+        m_ssaoPipeline = m_renderer->createComputePipeline(
+            builder.setComputeShader(sGen.get()).setName("SSAOGen").buildCompute()
+        );
+
+        // Blur
+        auto sBlur = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/blur.comp.spv");
+        m_ssaoBlurPipeline = m_renderer->createComputePipeline(
+            builder.setComputeShader(sBlur.get()).setName("SSAOBlur").buildCompute()
+        );
+
+        // Composition (Graphics)
+        auto vComp = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/fullscreen.vert.spv");
+        auto fComp = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/composition.frag.spv");
+
+        rhi::RHIPipelineBuilder compBuilder;
+        compBuilder.setShaders(vComp.get(), fComp.get())
+                   .setTopology(rhi::PrimitiveTopology::TriangleList)
+                   .setPolygonMode(rhi::PolygonMode::Fill)
+                   .setCullMode(rhi::CullMode::None)
+                   .enableDepthTest(false)
+                   .setNoBlend()
+                   .setColorFormat(m_renderer->getSwapchainColorFormat()) // Target is swapchain/backbuffer
+                   .setName("CompositionPass");
+
+        m_compositionPipeline = m_renderer->createGraphicsPipeline(compBuilder.buildGraphics());
+    }
+
+    void IndirectRenderer::createSSAOResources(uint32_t width, uint32_t height) {
+        // Release old bindless storage indices if they exist
+        auto* dev = m_renderer->device();
+        if (m_depthResolvedStorageIndex != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_depthResolvedStorageIndex});
+        if (m_ssaoRawStorageIndex != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_ssaoRawStorageIndex});
+        if (m_ssaoBlurStorageIndex != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_ssaoBlurStorageIndex});
+        if (m_ssaoFinalStorageIndex != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_ssaoFinalStorageIndex});
+
+        // Destroy old textures to avoid leaks
+        if (m_depthResolved != INVALID_TEXTURE_HANDLE) m_renderer->destroyTexture(m_depthResolved);
+        if (m_ssaoRaw != INVALID_TEXTURE_HANDLE)       m_renderer->destroyTexture(m_ssaoRaw);
+        if (m_ssaoBlur != INVALID_TEXTURE_HANDLE)      m_renderer->destroyTexture(m_ssaoBlur);
+        if (m_ssaoFinal != INVALID_TEXTURE_HANDLE)     m_renderer->destroyTexture(m_ssaoFinal);
+
+        // Resolved Depth (R32F)
+        rhi::TextureDescriptor dDesc{};
+        dDesc.extent = {width, height, 1};
+        dDesc.format = rhi::Format::R32_SFLOAT;
+        dDesc.usage = rhi::TextureUsage::Storage | rhi::TextureUsage::Sampled;
+        dDesc.debugName = "SSAODepthResolve";
+        m_depthResolved = m_renderer->createTexture(dDesc);
+        m_depthResolvedStorageIndex = dev->registerBindlessStorageImage(m_renderer->getTexture(m_depthResolved)).index;
+
+        // SSAO Targets (R8)
+        rhi::TextureDescriptor sDesc{};
+        sDesc.extent = {width, height, 1};
+        sDesc.format = rhi::Format::R8_UNORM;
+        sDesc.usage = rhi::TextureUsage::Storage | rhi::TextureUsage::Sampled;
+
+        sDesc.debugName = "SSAORaw";
+        m_ssaoRaw = m_renderer->createTexture(sDesc);
+        m_ssaoRawStorageIndex = dev->registerBindlessStorageImage(m_renderer->getTexture(m_ssaoRaw)).index;
+
+        sDesc.debugName = "SSAOBlur";
+        m_ssaoBlur = m_renderer->createTexture(sDesc);
+        m_ssaoBlurStorageIndex = dev->registerBindlessStorageImage(m_renderer->getTexture(m_ssaoBlur)).index;
+
+        sDesc.debugName = "SSAOFinal";
+        m_ssaoFinal = m_renderer->createTexture(sDesc);
+        m_ssaoFinalStorageIndex = dev->registerBindlessStorageImage(m_renderer->getTexture(m_ssaoFinal)).index;
+    }
+
+    void IndirectRenderer::dispatchSSAO(rhi::RHICommandBuffer* cmd, const scene::Camera& camera) {
+        if (!m_ssaoSettings.enabled) return;
+
+        cmd->beginDebugLabel("SSAO", 1.0f, 0.8f, 0.0f, 1.0f);
+
+        uint32_t w = m_width;
+        uint32_t h = m_height;
+        uint32_t sampler = m_renderer->getBindlessSamplerIndex(rhi::SamplerAddressMode::ClampToEdge);
+
+        // 1. Resolve Depth (MSAA -> R32F)
+        {
+            cmd->beginDebugLabel("Depth Resolve");
+
+            rhi::RHIMemoryBarrier b[2];
+            // Source: MSAA Depth (Attachment -> ShaderRead)
+            b[0].texture = m_renderer->getTexture(m_msaaDepth);
+            b[0].oldLayout = rhi::ResourceLayout::DepthStencilAttachment;
+            b[0].newLayout = rhi::ResourceLayout::ShaderReadOnly;
+            b[0].srcAccessStage = rhi::ShaderStage::RenderTarget;
+            b[0].dstAccessStage = rhi::ShaderStage::Compute;
+
+            // Destination: Resolved Depth (General for Storage Write)
+            b[1].texture = m_renderer->getTexture(m_depthResolved);
+            b[1].newLayout = rhi::ResourceLayout::General;
+            b[1].srcAccessStage = rhi::ShaderStage::None;
+            b[1].dstAccessStage = rhi::ShaderStage::Compute;
+
+            cmd->pipelineBarrier(rhi::ShaderStage::RenderTarget, rhi::ShaderStage::Compute, 
+                std::vector<rhi::RHIMemoryBarrier>(std::begin(b), std::end(b)));
+
+            cmd->bindPipeline(m_renderer->getPipeline(m_depthResolvePipeline));
+
+            struct ResolvePC {
+                uint32_t msaaID; uint32_t targetID; glm::vec2 res; uint32_t samples;
+            } rpc;
+            rpc.msaaID = m_renderer->getTextureBindlessIndex(m_msaaDepth);
+            rpc.targetID = m_depthResolvedStorageIndex;
+            rpc.res = { (float)w, (float)h };
+            rpc.samples = m_msaaSamples;
+
+            m_renderer->pushConstants(cmd, m_depthResolvePipeline, rhi::ShaderStage::Compute, rpc);
+            cmd->dispatch((w + 15)/16, (h + 15)/16, 1);
+
+            cmd->endDebugLabel();
+        }
+
+        // 2. Generate SSAO
+        {
+            cmd->beginDebugLabel("Generate Occlusion");
+
+            rhi::RHIMemoryBarrier b[2];
+            b[0].texture = m_renderer->getTexture(m_depthResolved);
+            b[0].oldLayout = rhi::ResourceLayout::General;
+            b[0].newLayout = rhi::ResourceLayout::ShaderReadOnly;
+            b[0].srcAccessStage = rhi::ShaderStage::Compute;
+            b[0].dstAccessStage = rhi::ShaderStage::Compute;
+
+            b[1].texture = m_renderer->getTexture(m_ssaoRaw);
+            b[1].newLayout = rhi::ResourceLayout::General;
+            b[1].dstAccessStage = rhi::ShaderStage::Compute;
+
+            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Compute,
+                std::vector<rhi::RHIMemoryBarrier>(std::begin(b), std::end(b)));
+
+            cmd->bindPipeline(m_renderer->getPipeline(m_ssaoPipeline));
+
+            struct SSAOPC {
+                glm::mat4 proj; glm::mat4 invProj;
+                uint32_t depthID; uint32_t noiseID; uint32_t outID; uint32_t sampID;
+                float zNear; float zFar; float radius; float bias; float intensity; float kSize;
+                glm::vec2 noiseScale;
+            } spc;
+
+            spc.proj = camera.proj();
+            spc.invProj = glm::inverse(camera.proj());
+            spc.depthID = m_renderer->getTextureBindlessIndex(m_depthResolved);
+            spc.noiseID = m_ssaoNoiseIndex;
+            spc.outID = m_ssaoRawStorageIndex;
+            spc.sampID = sampler;
+            spc.zNear = 0.1f;
+            spc.zFar = 1000.0f;
+            spc.radius = m_ssaoSettings.radius;
+            spc.bias = m_ssaoSettings.bias;
+            spc.intensity = m_ssaoSettings.intensity;
+            spc.noiseScale = glm::vec2(w/4.0f, h/4.0f);
+
+            m_renderer->pushConstants(cmd, m_ssaoPipeline, rhi::ShaderStage::Compute, spc);
+            cmd->dispatch((w + 15)/16, (h + 15)/16, 1);
+
+            cmd->endDebugLabel();
+        }
+
+        // 3. Blur X & Y
+        {
+            cmd->beginDebugLabel("Bilateral Blur");
+
+            auto runBlur = [&](TextureHandle src, TextureHandle dst, uint32_t dstStorageIndex, int axis) {
+                rhi::RHIMemoryBarrier b[2];
+                b[0].texture = m_renderer->getTexture(src);
+                b[0].oldLayout = rhi::ResourceLayout::General;
+                b[0].newLayout = rhi::ResourceLayout::ShaderReadOnly;
+                b[0].srcAccessStage = rhi::ShaderStage::Compute;
+                b[0].dstAccessStage = rhi::ShaderStage::Compute;
+
+                b[1].texture = m_renderer->getTexture(dst);
+                b[1].newLayout = rhi::ResourceLayout::General;
+                b[1].dstAccessStage = rhi::ShaderStage::Compute;
+
+                cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Compute,
+                    std::vector<rhi::RHIMemoryBarrier>(std::begin(b), std::end(b)));
+
+                cmd->bindPipeline(m_renderer->getPipeline(m_ssaoBlurPipeline));
+
+                struct BlurPC {
+                    uint32_t inID; uint32_t outID; uint32_t dID; uint32_t sID;
+                    int axis; float sharp;
+                    float zNear; float zFar;
+                } bpc;
+                bpc.inID = m_renderer->getTextureBindlessIndex(src);
+                bpc.outID = dstStorageIndex;
+                bpc.dID = m_renderer->getTextureBindlessIndex(m_depthResolved);
+                bpc.sID = sampler;
+                bpc.axis = axis;
+                bpc.sharp = m_ssaoSettings.blurSharpness;
+                bpc.zNear = 0.1f;
+                bpc.zFar = 1000.0f;
+
+                m_renderer->pushConstants(cmd, m_ssaoBlurPipeline, rhi::ShaderStage::Compute, bpc);
+                cmd->dispatch((w + 15)/16, (h + 15)/16, 1);
+            };
+
+            runBlur(m_ssaoRaw, m_ssaoBlur, m_ssaoBlurStorageIndex, 0); // X
+            runBlur(m_ssaoBlur, m_ssaoFinal, m_ssaoFinalStorageIndex, 1); // Y
+
+            rhi::RHIMemoryBarrier bFinal;
+            bFinal.texture = m_renderer->getTexture(m_ssaoFinal);
+            bFinal.oldLayout = rhi::ResourceLayout::General;
+            bFinal.newLayout = rhi::ResourceLayout::ShaderReadOnly;
+            bFinal.srcAccessStage = rhi::ShaderStage::Compute;
+            bFinal.dstAccessStage = rhi::ShaderStage::Fragment;
+            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Fragment, {bFinal});
+
+            cmd->endDebugLabel();
+        }
+
+        cmd->endDebugLabel(); // End SSAO
     }
 
     void IndirectRenderer::init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model,
@@ -163,6 +436,8 @@ namespace pnkr::renderer
         uploadMaterialData();
         uploadEnvironmentData(brdf, irradiance, prefilter);
 
+        initSSAO();
+
         // Init offscreen targets
         resize(m_renderer->getSwapchain()->extent().width, m_renderer->getSwapchain()->extent().height);
     }
@@ -219,6 +494,7 @@ namespace pnkr::renderer
         m_width = width;
         m_height = height;
         createOffscreenResources(width, height);
+        createSSAOResources(width, height);
     }
 
     void IndirectRenderer::createComputePipeline()
@@ -793,6 +1069,7 @@ namespace pnkr::renderer
         auto* depthTex = m_renderer->getDepthTexture();
 
         // --- PHASE 0: Shadow Pass ---
+        cmd->beginDebugLabel("Shadow Pass", 0.3f, 0.3f, 0.3f, 1.0f);
         // Prepare default invalid shadow data
         ShaderGen::indirect_frag::ShadowDataGPU shadowData{};
         shadowData.shadowMapTexture = 0xFFFFFFFFu; // Invalid texture ID disables shadows in shader
@@ -914,6 +1191,8 @@ namespace pnkr::renderer
             m_shadowLayout = rhi::ResourceLayout::ShaderReadOnly;
         }
 
+        cmd->endDebugLabel(); // End Shadows
+
         // Always upload shadow data (either valid or invalid) to prevent reading garbage
         if (frame.mappedShadowData)
         {
@@ -924,8 +1203,11 @@ namespace pnkr::renderer
             m_renderer->getBuffer(frame.shadowDataBuffer)->uploadData(&shadowData, sizeof(shadowData));
         }
 
+        cmd->beginDebugLabel("Geometry Pass", 0.2f, 0.4f, 0.8f, 1.0f);
+
         // --- PHASE 1: Opaque Pass ---
         {
+            cmd->beginDebugLabel("Opaque Pass");
             // Barriers
             std::vector<rhi::RHIMemoryBarrier> barriers;
             rhi::RHIMemoryBarrier bColor{};
@@ -966,7 +1248,7 @@ namespace pnkr::renderer
             rhi::RenderingAttachment attDepth{};
             attDepth.texture = m_renderer->getTexture(m_msaaDepth);
             attDepth.loadOp = rhi::LoadOp::Clear;
-            attDepth.storeOp = rhi::StoreOp::Store; // Store for Phase 3
+            attDepth.storeOp = rhi::StoreOp::Store; // Store for SSAO Resolve
             attDepth.clearValue.isDepthStencil = true;
             attDepth.clearValue.depthStencil.depth = 1.0f;
             info.depthAttachment = &attDepth;
@@ -988,11 +1270,13 @@ namespace pnkr::renderer
                                          sizeof(rhi::DrawIndexedIndirectCommand));
             }
             cmd->endRendering();
+            cmd->endDebugLabel();
         }
 
         // --- PHASE 2: Copy Opaque to Transmission ---
         if (!ctx.indirectTransmission.empty())
         {
+            cmd->beginDebugLabel("Copy to Transmission");
             auto* transTex = m_renderer->getTexture(m_transmissionTexture);
 
             // Barrier: SceneColor -> TransferSrc, TransTex -> TransferDst
@@ -1040,6 +1324,7 @@ namespace pnkr::renderer
             pc.drawable.transmissionFramebuffer = m_renderer->getTextureBindlessIndex(m_transmissionTexture);
             pc.drawable.transmissionFramebufferSampler = m_renderer->getBindlessSamplerIndex(
                 rhi::SamplerAddressMode::ClampToEdge);
+            cmd->endDebugLabel();
         }
         else
         {
@@ -1050,19 +1335,20 @@ namespace pnkr::renderer
 
         // --- PHASE 3: Transmission & Transparent ---
         {
+            cmd->beginDebugLabel("Transmission & Transparent Pass");
             rhi::RenderingInfo info{};
             info.renderArea = {0, 0, width, height};
             rhi::RenderingAttachment attColor{};
             attColor.texture = m_renderer->getTexture(m_msaaColor);
             attColor.resolveTexture = sceneColorTex;
             attColor.loadOp = rhi::LoadOp::Load; // Keep opaque pixels in MSAA
-            attColor.storeOp = rhi::StoreOp::DontCare; // Discard MSAA after final resolve
+            attColor.storeOp = rhi::StoreOp::Store; // Discard MSAA after final resolve
             info.colorAttachments.push_back(attColor);
 
             rhi::RenderingAttachment attDepth{};
             attDepth.texture = m_renderer->getTexture(m_msaaDepth);
             attDepth.loadOp = rhi::LoadOp::Load; // Keep depth
-            attDepth.storeOp = rhi::StoreOp::DontCare; // Discard MSAA depth
+            attDepth.storeOp = rhi::StoreOp::Store; // Discard MSAA depth
             info.depthAttachment = &attDepth;
 
             cmd->beginRendering(info);
@@ -1095,47 +1381,72 @@ namespace pnkr::renderer
                                          sizeof(rhi::DrawIndexedIndirectCommand));
             }
             cmd->endRendering();
+            cmd->endDebugLabel();
         }
 
-        // --- PHASE 4: Final Blit to Swapchain ---
+        cmd->endDebugLabel(); // End Geometry Pass
+
+        // --- PHASE 4: Final Composition (Replaces Blit) ---
         {
+            cmd->beginDebugLabel("Composition Pass", 0.2f, 0.8f, 0.2f, 1.0f);
+
+            if (m_ssaoSettings.enabled) {
+                dispatchSSAO(cmd, camera);
+            }
+
             auto* backbuffer = m_renderer->getBackbuffer();
 
-            // Barriers
-            std::vector<rhi::RHIMemoryBarrier> barriers;
+            // Transition SceneColor to ShaderRead
             rhi::RHIMemoryBarrier bSrc{};
             bSrc.texture = sceneColorTex;
             bSrc.oldLayout = m_sceneColorLayout;
-            bSrc.newLayout = rhi::ResourceLayout::TransferSrc;
+            bSrc.newLayout = rhi::ResourceLayout::ShaderReadOnly;
             bSrc.srcAccessStage = rhi::ShaderStage::RenderTarget;
-            bSrc.dstAccessStage = rhi::ShaderStage::Transfer;
-            barriers.push_back(bSrc);
+            bSrc.dstAccessStage = rhi::ShaderStage::Fragment;
 
+            // Transition Backbuffer to Attachment
             rhi::RHIMemoryBarrier bDst{};
             bDst.texture = backbuffer;
-            // Backbuffer comes in as ColorAttachment from beginFrame
-            bDst.oldLayout = rhi::ResourceLayout::ColorAttachment;
-            bDst.newLayout = rhi::ResourceLayout::TransferDst;
-            bDst.srcAccessStage = rhi::ShaderStage::RenderTarget;
-            bDst.dstAccessStage = rhi::ShaderStage::Transfer;
-            barriers.push_back(bDst);
+            bDst.oldLayout = rhi::ResourceLayout::ColorAttachment; // From beginFrame
+            bDst.newLayout = rhi::ResourceLayout::ColorAttachment;
+            bDst.srcAccessStage = rhi::ShaderStage::None;
+            bDst.dstAccessStage = rhi::ShaderStage::RenderTarget;
 
-            cmd->pipelineBarrier(rhi::ShaderStage::RenderTarget, rhi::ShaderStage::Transfer, barriers);
-            m_sceneColorLayout = rhi::ResourceLayout::TransferSrc;
+            cmd->pipelineBarrier(rhi::ShaderStage::All, rhi::ShaderStage::All, {bSrc, bDst});
+            m_sceneColorLayout = rhi::ResourceLayout::ShaderReadOnly;
 
-            // Blit
-            rhi::TextureCopyRegion region{};
-            region.extent = {width, height, 1};
-            cmd->copyTexture(sceneColorTex, backbuffer, region);
+            // Render Quad
+            rhi::RenderingInfo info{};
+            info.renderArea = {0, 0, width, height};
+            rhi::RenderingAttachment attColor{};
+            attColor.texture = backbuffer;
+            attColor.loadOp = rhi::LoadOp::DontCare;
+            attColor.storeOp = rhi::StoreOp::Store;
+            info.colorAttachments.push_back(attColor);
 
-            // Restore Backbuffer for UI (ColorAttachment)
-            rhi::RHIMemoryBarrier bRest{};
-            bRest.texture = backbuffer;
-            bRest.oldLayout = rhi::ResourceLayout::TransferDst;
-            bRest.newLayout = rhi::ResourceLayout::ColorAttachment;
-            bRest.srcAccessStage = rhi::ShaderStage::Transfer;
-            bRest.dstAccessStage = rhi::ShaderStage::RenderTarget;
-            cmd->pipelineBarrier(rhi::ShaderStage::Transfer, rhi::ShaderStage::RenderTarget, {bRest});
+            cmd->beginRendering(info);
+            cmd->setViewport({0, 0, (float)width, (float)height, 0, 1});
+            cmd->setScissor({0, 0, width, height});
+
+            cmd->bindPipeline(m_renderer->getPipeline(m_compositionPipeline));
+
+            struct CompPC {
+                uint32_t cid; uint32_t sid; uint32_t samp; float strength;
+            } cpc;
+
+            cpc.cid = m_renderer->getTextureBindlessIndex(m_sceneColor);
+            // Fallback to white if disabled
+            cpc.sid = m_ssaoSettings.enabled ? m_renderer->getTextureBindlessIndex(m_ssaoFinal)
+                                             : m_renderer->getTextureBindlessIndex(m_renderer->getWhiteTexture());
+            cpc.samp = m_renderer->getBindlessSamplerIndex(rhi::SamplerAddressMode::ClampToEdge);
+            cpc.strength = m_ssaoSettings.strength;
+
+            m_renderer->pushConstants(cmd, m_compositionPipeline, rhi::ShaderStage::Fragment, cpc);
+
+            cmd->draw(3, 1, 0, 0); // Fullscreen triangle
+            cmd->endRendering();
+
+            cmd->endDebugLabel();
         }
 
         // --- PHASE 5: Restart Swapchain Pass for ImGui ---

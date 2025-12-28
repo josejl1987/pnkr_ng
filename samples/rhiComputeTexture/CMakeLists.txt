@@ -17,11 +17,6 @@ set_target_properties(pnkr_rhi_compute_texture PROPERTIES
 add_shader_target("shaders/industrial.comp")
 add_dependencies(pnkr_rhi_compute_texture ${LAST_GENERATED_TARGET})
 
-add_shader_target("shaders/fullscreen.vert")
-add_dependencies(pnkr_rhi_compute_texture ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/fullscreen.frag")
-add_dependencies(pnkr_rhi_compute_texture ${LAST_GENERATED_TARGET})
 
 target_include_directories(pnkr_rhi_compute_texture PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 

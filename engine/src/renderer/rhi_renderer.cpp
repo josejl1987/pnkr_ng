@@ -916,6 +916,52 @@ namespace pnkr::renderer
         return handle;
     }
 
+    void RHIRenderer::destroyTexture(TextureHandle handle)
+    {
+        if (handle.id < m_textures.size())
+        {
+            auto& data = m_textures[handle.id];
+            if (data.texture)
+            {
+                // The Bindless release is handled in VulkanRHITexture destructor
+                data.texture.reset();
+                data.bindlessIndex = 0xFFFFFFFFU;
+            }
+        }
+    }
+
+    void RHIRenderer::destroyBuffer(BufferHandle handle)
+    {
+        if (handle.id < m_buffers.size())
+        {
+            auto& data = m_buffers[handle.id];
+            if (data.buffer)
+            {
+                // If it was registered for bindless, we should ideally release it.
+                // Currently VulkanRHIDevice::releaseBindlessBuffer(handle) exists.
+                // VulkanRHIBuffer destructor doesn't seem to release its bindless handle automatically.
+                if (data.buffer->getBindlessHandle().isValid())
+                {
+                    m_device->releaseBindlessBuffer(data.buffer->getBindlessHandle());
+                }
+                data.buffer.reset();
+                data.bindlessIndex = 0xFFFFFFFFU;
+            }
+        }
+    }
+
+    void RHIRenderer::destroyMesh(MeshHandle handle)
+    {
+        if (handle.id < m_meshes.size())
+        {
+            auto& mesh = m_meshes[handle.id];
+            mesh.m_vertexBuffer.reset();
+            mesh.m_indexBuffer.reset();
+            mesh.m_vertexCount = 0;
+            mesh.m_indexCount = 0;
+        }
+    }
+
     BufferHandle RHIRenderer::createBuffer(const rhi::BufferDescriptor& desc)
     {
         // 1. Create the hardware resource via device

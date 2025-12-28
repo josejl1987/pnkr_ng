@@ -1,0 +1,122 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+layout(set = 1, binding = 0) uniform texture2D bindlessTextures[];
+layout(set = 1, binding = 1) uniform sampler bindlessSamplers[];
+layout(set = 1, binding = 4) uniform writeonly image2D bindlessStorageImages[];
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant) uniform SSAOParams {
+    mat4 proj;
+    mat4 invProj;
+    uint depthTexID;
+    uint noiseTexID;
+    uint outputTexID;
+    uint samplerID;
+    float zNear;
+    float zFar;
+    float radius;
+    float bias;
+    float intensity;
+    float kernelSize;
+    vec2 noiseScale;
+} pc;
+
+const int KERNEL_SIZE = 32;
+
+// Reconstruct view-space position from depth
+vec3 getViewPos(vec2 uv, float depth) {
+    vec4 clipPos = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec4 viewPos = pc.invProj * clipPos;
+    return viewPos.xyz / viewPos.w;
+}
+
+// Helper for bindless sampling
+vec4 textureBindless2D(uint textureid, uint samplerid, vec2 uv) {
+    return texture(sampler2D(bindlessTextures[nonuniformEXT(textureid)], bindlessSamplers[nonuniformEXT(samplerid)]), uv);
+}
+
+void main() {
+    ivec2 size = imageSize(bindlessStorageImages[nonuniformEXT(pc.outputTexID)]);
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    vec2 uv = (vec2(coord) + 0.5) / vec2(size);
+
+    float depth = textureBindless2D(pc.depthTexID, pc.samplerID, uv).r;
+    
+    // Early exit for background
+    if (depth >= 1.0) {
+        imageStore(bindlessStorageImages[nonuniformEXT(pc.outputTexID)], coord, vec4(1.0));
+        return;
+    }
+
+    vec3 fragPos = getViewPos(uv, depth);
+
+    // Reconstruct normal from depth by sampling neighbors (cross product of position deltas)
+    vec2 texelSize = 1.0 / vec2(size);
+    float depthRight = textureBindless2D(pc.depthTexID, pc.samplerID, uv + vec2(texelSize.x, 0.0)).r;
+    float depthUp    = textureBindless2D(pc.depthTexID, pc.samplerID, uv + vec2(0.0, texelSize.y)).r;
+    
+    vec3 posRight = getViewPos(uv + vec2(texelSize.x, 0.0), depthRight);
+    vec3 posUp    = getViewPos(uv + vec2(0.0, texelSize.y), depthUp);
+    
+    // Calculate normal from neighbors
+    vec3 normal = normalize(cross(posRight - fragPos, posUp - fragPos));
+
+    // Force normal to face towards the camera to prevent self-occlusion on flat surfaces.
+    // fragPos is view-space position (from origin to surface).
+    if (dot(normal, fragPos) > 0.0) {
+        normal = -normal;
+    }
+
+    // Random rotation
+    vec2 noiseUV = uv * pc.noiseScale;
+    vec3 randomVec = textureBindless2D(pc.noiseTexID, pc.samplerID, noiseUV).xyz;
+    
+    vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
+    vec3 bitangent = cross(normal, tangent);
+    mat3 TBN = mat3(tangent, bitangent, normal);
+
+    float occlusion = 0.0;
+    
+    // Hardcoded Golden Spiral kernel generation for performance/quality balance
+    for(int i = 0; i < KERNEL_SIZE; ++i) {
+        // Generate sample in hemisphere
+        float t = float(i) / float(KERNEL_SIZE);
+        float phi = 2.399963 * float(i); // Golden angle
+        
+        float r = sqrt(t); 
+        float z = 1.0 - t; // Cosine distributed
+        float sinTheta = sqrt(1.0 - z*z);
+        
+        vec3 samplePos = vec3(sinTheta * cos(phi), sinTheta * sin(phi), z);
+        
+        // Scale sample to cluster near origin
+        samplePos *= mix(0.1, 1.0, t * t); 
+        
+        samplePos = TBN * samplePos;
+        samplePos = fragPos + samplePos * pc.radius;
+
+        // Project sample
+        vec4 offset = vec4(samplePos, 1.0);
+        offset = pc.proj * offset;
+        offset.xyz /= offset.w;
+        offset.xy = offset.xy * 0.5 + 0.5;
+
+        // Get sample depth
+        float sampleDepth = textureBindless2D(pc.depthTexID, pc.samplerID, offset.xy).r;
+        vec3 sampleViewPos = getViewPos(offset.xy, sampleDepth);
+
+        // Range check & Accumulate
+        float rangeCheck = smoothstep(0.0, 1.0, pc.radius / abs(fragPos.z - sampleViewPos.z));
+        occlusion += (sampleViewPos.z >= samplePos.z + pc.bias ? 1.0 : 0.0) * rangeCheck;
+    }
+
+    occlusion = 1.0 - (occlusion / float(KERNEL_SIZE));
+    occlusion = pow(occlusion, pc.intensity); // Contrast
+
+    imageStore(bindlessStorageImages[nonuniformEXT(pc.outputTexID)], coord, vec4(occlusion));
+}

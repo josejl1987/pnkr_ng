@@ -8,8 +8,8 @@
 #include <glm/gtx/norm.hpp>
 #include <algorithm>
 #include <unordered_map>
+#include <generated/indirect.frag.h>
 
-#include "../../../../cmake-build-debug-clang-cl/samples/rhiIndirectGLTF/generated/indirect.frag.h"
 #include "pnkr/generated/gltf.frag.h"
 #include "pnkr/generated/gltf.vert.h"
 

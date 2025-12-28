@@ -51,6 +51,15 @@ namespace pnkr::renderer {
         float biasSlope = 1.75f;
     };
 
+    struct SSAOSettings {
+        bool enabled = true;
+        float radius = 0.1f;
+        float bias = 0.025f;
+        float intensity = 2.0f;
+        float blurSharpness = 40.0f;
+        float strength = 1.0f;
+    };
+
     struct FrameResources {
         BufferHandle indirectBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle instanceDataBuffer = INVALID_BUFFER_HANDLE;
@@ -108,6 +117,8 @@ namespace pnkr::renderer {
         uint32_t shadowMapDebugBindlessIndex() const noexcept { return m_shadowMapDebugBindlessIndex; }
         void setShadowSettings(const ShadowSettings& settings) { m_shadowSettings = settings; }
         int getShadowCasterIndex() const { return m_shadowCasterIndex; }
+        void setSSAOSettings(const SSAOSettings& settings) { m_ssaoSettings = settings; }
+        TextureHandle getSSAOTexture() const { return m_ssaoFinal; }
 
     private:
         void createPipeline();
@@ -117,6 +128,10 @@ namespace pnkr::renderer {
         void uploadMaterialData();
         void uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
         void createOffscreenResources(uint32_t width, uint32_t height);
+
+        void initSSAO();
+        void createSSAOResources(uint32_t width, uint32_t height);
+        void dispatchSSAO(rhi::RHICommandBuffer* cmd, const scene::Camera& camera);
 
         RHIRenderer* m_renderer = nullptr;
         std::shared_ptr<scene::ModelDOD> m_model;
@@ -163,5 +178,25 @@ namespace pnkr::renderer {
         rhi::ResourceLayout m_sceneColorLayout = rhi::ResourceLayout::Undefined;
         rhi::ResourceLayout m_transmissionLayout = rhi::ResourceLayout::Undefined;
         rhi::ResourceLayout m_depthLayout = rhi::ResourceLayout::Undefined;
+
+        // SSAO
+        PipelineHandle m_depthResolvePipeline = INVALID_PIPELINE_HANDLE;
+        PipelineHandle m_ssaoPipeline = INVALID_PIPELINE_HANDLE;
+        PipelineHandle m_ssaoBlurPipeline = INVALID_PIPELINE_HANDLE;
+        PipelineHandle m_compositionPipeline = INVALID_PIPELINE_HANDLE;
+
+        TextureHandle m_depthResolved = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_ssaoRaw = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_ssaoBlur = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_ssaoFinal = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_ssaoNoise = INVALID_TEXTURE_HANDLE;
+
+        uint32_t m_ssaoNoiseIndex = 0xFFFFFFFF;
+        uint32_t m_depthResolvedStorageIndex = 0xFFFFFFFF;
+        uint32_t m_ssaoRawStorageIndex = 0xFFFFFFFF;
+        uint32_t m_ssaoBlurStorageIndex = 0xFFFFFFFF;
+        uint32_t m_ssaoFinalStorageIndex = 0xFFFFFFFF;
+
+        SSAOSettings m_ssaoSettings;
     };
 }

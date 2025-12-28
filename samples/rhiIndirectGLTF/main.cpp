@@ -184,6 +184,8 @@ public:
     float m_lightDepthBiasConst = 2.0f;
     float m_lightDepthBiasSlope = 2.5f;
 
+    renderer::SSAOSettings m_ssaoSettings;
+
     void onInit() override
     {
         m_recent.load();
@@ -348,6 +350,7 @@ public:
             shadowSettings.biasConst = m_lightDepthBiasConst;
             shadowSettings.biasSlope = m_lightDepthBiasSlope;
             m_indirectRenderer->setShadowSettings(shadowSettings);
+            m_indirectRenderer->setSSAOSettings(m_ssaoSettings);
 
             m_indirectRenderer->update(dt);
         }
@@ -495,6 +498,26 @@ public:
             }
         }
 
+        ImGui::End();
+
+        if (ImGui::Begin("SSAO"))
+        {
+            ImGui::Checkbox("Enable SSAO", &m_ssaoSettings.enabled);
+            ImGui::SliderFloat("Radius", &m_ssaoSettings.radius, 0.01f, 2.0f);
+            ImGui::SliderFloat("Bias", &m_ssaoSettings.bias, 0.0f, 0.5f);
+            ImGui::SliderFloat("Intensity", &m_ssaoSettings.intensity, 0.1f, 5.0f);
+            ImGui::SliderFloat("Blur Sharpness", &m_ssaoSettings.blurSharpness, 0.0f, 100.0f);
+            ImGui::SliderFloat("Strength", &m_ssaoSettings.strength, 0.0f, 1.0f);
+
+            // Debug view
+            if (m_indirectRenderer)
+            {
+                auto h = m_indirectRenderer->getSSAOTexture();
+                auto id = m_imgui.getTextureID(h);
+                float w = ImGui::GetContentRegionAvail().x;
+                if (id != -1) ImGui::Image(id, ImVec2(w, w * 9.0f / 16.0f));
+            }
+        }
         ImGui::End();
 
         ImGui::Begin("Camera");

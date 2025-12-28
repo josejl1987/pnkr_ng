@@ -78,6 +78,10 @@ namespace pnkr::renderer
         TextureHandle createCubemap(const std::vector<std::filesystem::path>& faces,
                                    bool srgb = true);
 
+        void destroyTexture(TextureHandle handle);
+        void destroyBuffer(BufferHandle handle);
+        void destroyMesh(MeshHandle handle);
+
         BufferHandle createBuffer(const rhi::BufferDescriptor& desc);
 
         PipelineHandle createGraphicsPipeline(const rhi::GraphicsPipelineDescriptor& desc);
