@@ -6,6 +6,7 @@
 #include "generated/depth_resolve.comp.h"
 #include "generated/ssao.comp.h"
 #include "generated/blur.comp.h"
+#include "generated/adaptation.comp.h"
 #include "generated/composition.frag.h"
 
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
@@ -19,6 +20,7 @@
 #include <cmath>
 #include <random>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/packing.hpp>
 
 namespace pnkr::renderer
 {
@@ -54,6 +56,9 @@ namespace pnkr::renderer
             if (m_luminanceStorageIndex != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_luminanceStorageIndex});
             if (m_bloomStorageIndex[0] != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_bloomStorageIndex[0]});
             if (m_bloomStorageIndex[1] != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_bloomStorageIndex[1]});
+
+            if (m_adaptedLumStorageIndex[0] != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_adaptedLumStorageIndex[0]});
+            if (m_adaptedLumStorageIndex[1] != 0xFFFFFFFF) dev->releaseBindlessStorageImage({m_adaptedLumStorageIndex[1]});
         }
         for (auto& frame : m_frames)
         {
@@ -69,6 +74,8 @@ namespace pnkr::renderer
             if (m_texLuminance != INVALID_TEXTURE_HANDLE) m_renderer->destroyTexture(m_texLuminance);
             if (m_texBloom[0] != INVALID_TEXTURE_HANDLE) m_renderer->destroyTexture(m_texBloom[0]);
             if (m_texBloom[1] != INVALID_TEXTURE_HANDLE) m_renderer->destroyTexture(m_texBloom[1]);
+            if (m_texAdaptedLum[0] != INVALID_TEXTURE_HANDLE) m_renderer->destroyTexture(m_texAdaptedLum[0]);
+            if (m_texAdaptedLum[1] != INVALID_TEXTURE_HANDLE) m_renderer->destroyTexture(m_texAdaptedLum[1]);
         }
 
         m_resourceMgr.purgeAll();
@@ -219,6 +226,42 @@ namespace pnkr::renderer
         m_texBloom[1] = m_renderer->createTexture(desc);
         m_bloomStorageIndex[1] = dev->registerBindlessStorageImage(m_renderer->getTexture(m_texBloom[1])).index;
         m_bloomLayout[1] = rhi::ResourceLayout::Undefined;
+
+        if (m_texAdaptedLum[0] == INVALID_TEXTURE_HANDLE) {
+            createAdaptationResources();
+        }
+    }
+
+    void IndirectRenderer::createAdaptationResources()
+    {
+        auto* dev = m_renderer->device();
+
+        m_resourceMgr.releaseBindlessStorageImageDeferred(m_adaptedLumStorageIndex[0], "AdaptedLum0");
+        m_resourceMgr.releaseBindlessStorageImageDeferred(m_adaptedLumStorageIndex[1], "AdaptedLum1");
+        m_resourceMgr.destroyTextureDeferred(m_texAdaptedLum[0], "AdaptedLum0");
+        m_resourceMgr.destroyTextureDeferred(m_texAdaptedLum[1], "AdaptedLum1");
+
+        // Initial bright value (e.g., 50.0) to simulate eye adaptation from bright to dark
+        uint16_t initialVal = glm::packHalf1x16(50.0f);
+        std::vector<uint8_t> initialData(2);
+        std::memcpy(initialData.data(), &initialVal, 2);
+
+        rhi::TextureDescriptor desc{};
+        desc.extent = {1, 1, 1};
+        desc.format = rhi::Format::R16_SFLOAT;
+        desc.usage = rhi::TextureUsage::Storage | rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+        desc.debugName = "AdaptedLuminance0";
+        
+        m_texAdaptedLum[0] = m_renderer->createTexture(desc);
+        m_renderer->getTexture(m_texAdaptedLum[0])->uploadData(initialData.data(), 2);
+        m_adaptedLumStorageIndex[0] = dev->registerBindlessStorageImage(m_renderer->getTexture(m_texAdaptedLum[0])).index;
+
+        desc.debugName = "AdaptedLuminance1";
+        m_texAdaptedLum[1] = m_renderer->createTexture(desc);
+        m_renderer->getTexture(m_texAdaptedLum[1])->uploadData(initialData.data(), 2);
+        m_adaptedLumStorageIndex[1] = dev->registerBindlessStorageImage(m_renderer->getTexture(m_texAdaptedLum[1])).index;
+
+        m_currentAdaptedLumIndex = 0;
     }
 
     void IndirectRenderer::dispatchSSAO(rhi::RHICommandBuffer* cmd, const scene::Camera& camera) {
@@ -612,6 +655,7 @@ namespace pnkr::renderer
 
     void IndirectRenderer::update(float dt)
     {
+        m_dt = dt;
         if (m_model)
         {
             m_currentFrameIndex = (m_currentFrameIndex + 1) % m_frames.size();
@@ -992,6 +1036,11 @@ namespace pnkr::renderer
         auto sBright = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/bright_pass.comp.spv");
         m_brightPassPipeline = m_renderer->createComputePipeline(
             postBuilder.setComputeShader(sBright.get()).setName("HDR_BrightPass").buildCompute()
+        );
+
+        auto sAdapt = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/adaptation.comp.spv");
+        m_adaptationPipeline = m_renderer->createComputePipeline(
+            postBuilder.setComputeShader(sAdapt.get()).setName("HDR_Adaptation").buildCompute()
         );
 
         auto sBloom = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/bloom.comp.spv");
@@ -1627,6 +1676,64 @@ namespace pnkr::renderer
                 m_luminanceLayout = rhi::ResourceLayout::ShaderReadOnly;
             }
 
+            // Light Adaptation Pass
+            uint32_t prevIdx = m_currentAdaptedLumIndex;
+            uint32_t nextIdx = m_currentAdaptedLumIndex ^ 1;
+            TextureHandle texPrev = m_texAdaptedLum[prevIdx];
+            TextureHandle texNext = m_texAdaptedLum[nextIdx];
+
+            {
+                cmd->insertDebugLabel("Adaptation");
+
+                rhi::RHIMemoryBarrier barriers[2];
+                barriers[0].texture = m_renderer->getTexture(texPrev);
+                barriers[0].oldLayout = rhi::ResourceLayout::Undefined;
+                barriers[0].newLayout = rhi::ResourceLayout::ShaderReadOnly;
+                barriers[0].srcAccessStage = rhi::ShaderStage::Compute;
+                barriers[0].dstAccessStage = rhi::ShaderStage::Compute;
+
+                barriers[1].texture = m_renderer->getTexture(texNext);
+                barriers[1].oldLayout = rhi::ResourceLayout::Undefined;
+                barriers[1].newLayout = rhi::ResourceLayout::General;
+                barriers[1].srcAccessStage = rhi::ShaderStage::Compute | rhi::ShaderStage::Fragment;
+                barriers[1].dstAccessStage = rhi::ShaderStage::Compute;
+
+                cmd->pipelineBarrier(rhi::ShaderStage::Compute | rhi::ShaderStage::Fragment, rhi::ShaderStage::Compute,
+                    std::vector<rhi::RHIMemoryBarrier>(std::begin(barriers), std::end(barriers)));
+
+                cmd->bindPipeline(m_renderer->getPipeline(m_adaptationPipeline));
+
+                struct AdaptationPC {
+                    uint32_t texCurr;
+                    uint32_t texPrev;
+                    uint32_t texNext;
+                    uint32_t samp;
+                    float dt;
+                    float speed;
+                } apc;
+
+                apc.texCurr = m_renderer->getTextureBindlessIndex(m_texLuminance);
+                apc.texPrev = m_renderer->getTextureBindlessIndex(texPrev);
+                apc.texNext = m_adaptedLumStorageIndex[nextIdx];
+                apc.samp = sampler;
+                apc.dt = m_dt; 
+                apc.speed = m_hdrSettings.adaptationSpeed;
+
+                m_renderer->pushConstants(cmd, m_adaptationPipeline, rhi::ShaderStage::Compute, apc);
+                cmd->dispatch(1, 1, 1);
+
+                m_currentAdaptedLumIndex = nextIdx;
+
+                // Transition next to ShaderReadOnly for Tone Map
+                rhi::RHIMemoryBarrier bRead{};
+                bRead.texture = m_renderer->getTexture(texNext);
+                bRead.oldLayout = rhi::ResourceLayout::General;
+                bRead.newLayout = rhi::ResourceLayout::ShaderReadOnly;
+                bRead.srcAccessStage = rhi::ShaderStage::Compute;
+                bRead.dstAccessStage = rhi::ShaderStage::Fragment;
+                cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Fragment, {bRead});
+            }
+
             // 3. Bloom Blur
             TextureHandle bloomResult = m_renderer->getBlackTexture();
             if (m_hdrSettings.enableBloom && m_hdrSettings.bloomStrength > 0.0f && m_hdrSettings.bloomPasses > 0)
@@ -1737,7 +1844,7 @@ namespace pnkr::renderer
 
                 tpc.cID = m_renderer->getTextureBindlessIndex(m_sceneColor);
                 tpc.bID = m_renderer->getTextureBindlessIndex(bloomResult);
-                tpc.lID = m_renderer->getTextureBindlessIndex(m_texLuminance);
+                tpc.lID = m_renderer->getTextureBindlessIndex(m_texAdaptedLum[m_currentAdaptedLumIndex]);
                 tpc.ssaoID = m_ssaoSettings.enabled ? m_renderer->getTextureBindlessIndex(m_ssaoFinal)
                                                     : m_renderer->getTextureBindlessIndex(m_renderer->getWhiteTexture());
                 tpc.sID = sampler;

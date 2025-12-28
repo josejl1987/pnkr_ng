@@ -1,0 +1,40 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "../renderer/indirect/bindless.glsl"
+
+layout(local_size_x = 1, local_size_y = 1) in;
+
+// We use r16f to match the texture format (R16_SFLOAT)
+layout(set = 1, binding = 4, r16f) uniform writeonly image2D bindlessStorageImagesR16[];
+
+layout(push_constant) uniform PushConstants {
+    uint texCurr; // Current Scene Average Luminance (Sampled)
+    uint texPrev; // Previous Adapted Luminance (Sampled)
+    uint texNext; // Next Adapted Luminance (Storage Write)
+    uint samplerID;
+    float dt;
+    float speed;
+} pc;
+
+void main() {
+    // 1. Get Current Average Luminance
+    // The input texCurr is the full mip chain of the scene luminance.
+    // We sample the lowest mip (highest level) to get the average.
+    int levels = textureBindlessQueryLevels2D(pc.texCurr);
+    float lumCurr = textureBindless2DLod(pc.texCurr, pc.samplerID, vec2(0.5), float(levels - 1)).r;
+
+    // 2. Get Previous Adapted Luminance
+    // texPrev is a 1x1 texture, so we sample at LOD 0.
+    float lumPrev = textureBindless2DLod(pc.texPrev, pc.samplerID, vec2(0.5), 0).r;
+
+    // 3. Compute Adaptation (Exponential Decay)
+    // Formula: new = prev + (curr - prev) * (1 - exp(-speed * dt))
+    float factor = 1.0 - exp(-pc.speed * pc.dt);
+    float newLum = lumPrev + (lumCurr - lumPrev) * factor;
+
+    // 4. Store Result
+    // We write to the specific storage image index for the "Next" texture.
+    imageStore(bindlessStorageImagesR16[nonuniformEXT(pc.texNext)], ivec2(0, 0), vec4(newLum, 0.0, 0.0, 1.0));
+}

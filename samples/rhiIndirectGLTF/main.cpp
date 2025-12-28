@@ -525,6 +525,7 @@ public:
             auto& settings = m_indirectRenderer->hdrSettings();
 
             ImGui::SliderFloat("Exposure", &settings.exposure, 0.1f, 5.0f);
+            ImGui::SliderFloat("Adaptation Speed", &settings.adaptationSpeed, 0.0f, 10.0f);
 
             ImGui::Checkbox("Enable Bloom", &settings.enableBloom);
             if (settings.enableBloom)

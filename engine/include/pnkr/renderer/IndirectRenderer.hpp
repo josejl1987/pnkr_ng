@@ -68,6 +68,8 @@ namespace pnkr::renderer {
         int bloomPasses = 3;
         float exposure = 1.0f;
 
+        float adaptationSpeed = 3.0f;
+
         enum class ToneMapMode : int {
             None = 0,
             Reinhard = 1,
@@ -156,6 +158,7 @@ namespace pnkr::renderer {
         void uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
         void createOffscreenResources(uint32_t width, uint32_t height);
         void createHDRResources(uint32_t width, uint32_t height);
+        void createAdaptationResources();
 
         void initSSAO();
         void createSSAOResources(uint32_t width, uint32_t height);
@@ -229,18 +232,24 @@ namespace pnkr::renderer {
         SSAOSettings m_ssaoSettings;
 
         HDRSettings m_hdrSettings;
+        float m_dt = 0.016f;
 
         PipelineHandle m_brightPassPipeline = INVALID_PIPELINE_HANDLE;
         PipelineHandle m_bloomPipeline = INVALID_PIPELINE_HANDLE;
         PipelineHandle m_toneMapPipeline = INVALID_PIPELINE_HANDLE;
+        PipelineHandle m_adaptationPipeline = INVALID_PIPELINE_HANDLE;
 
         TextureHandle m_texBrightPass = INVALID_TEXTURE_HANDLE;
         TextureHandle m_texLuminance = INVALID_TEXTURE_HANDLE;
         TextureHandle m_texBloom[2] = { INVALID_TEXTURE_HANDLE, INVALID_TEXTURE_HANDLE };
+        TextureHandle m_texAdaptedLum[2] = { INVALID_TEXTURE_HANDLE, INVALID_TEXTURE_HANDLE };
 
         uint32_t m_brightPassStorageIndex = 0xFFFFFFFF;
         uint32_t m_luminanceStorageIndex = 0xFFFFFFFF;
         uint32_t m_bloomStorageIndex[2] = { 0xFFFFFFFF, 0xFFFFFFFF };
+        uint32_t m_adaptedLumStorageIndex[2] = { 0xFFFFFFFF, 0xFFFFFFFF };
+
+        uint32_t m_currentAdaptedLumIndex = 0;
 
         rhi::ResourceLayout m_brightPassLayout = rhi::ResourceLayout::Undefined;
         rhi::ResourceLayout m_luminanceLayout = rhi::ResourceLayout::Undefined;

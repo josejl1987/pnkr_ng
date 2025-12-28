@@ -384,6 +384,9 @@ add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 add_shader_target("shaders/post/bright_pass.comp")
 add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 
+add_shader_target("shaders/post/adaptation.comp")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
 add_shader_target("shaders/post/bloom.comp")
 add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 
@@ -406,7 +409,7 @@ set_source_files_properties( src/renderer/scene/SpriteRenderer.cpp PROPERTIES
 )
 
 set_source_files_properties( src/renderer/IndirectRenderer.cpp PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/indirect.vert.h;${CMAKE_CURRENT_BINARY_DIR}/generated/indirect.frag.h;${CMAKE_CURRENT_BINARY_DIR}/generated/skinning.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/depth_resolve.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/ssao.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/blur.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/composition.frag.h"
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/indirect.vert.h;${CMAKE_CURRENT_BINARY_DIR}/generated/indirect.frag.h;${CMAKE_CURRENT_BINARY_DIR}/generated/skinning.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/depth_resolve.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/ssao.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/blur.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/composition.frag.h;${CMAKE_CURRENT_BINARY_DIR}/generated/adaptation.comp.h"
 )
 
 add_custom_command(TARGET pnkr_engine POST_BUILD

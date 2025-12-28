@@ -293,6 +293,49 @@ void SceneEditorApp::onImGui() {
         ImGui::Text("Select a node in the Scene Graph to inspect.");
     }
     ImGui::End();
+
+    if (m_indirectRenderer && ImGui::Begin("HDR Settings"))
+    {
+        auto& settings = m_indirectRenderer->hdrSettings();
+
+        ImGui::SliderFloat("Exposure", &settings.exposure, 0.1f, 5.0f);
+        ImGui::SliderFloat("Adaptation Speed", &settings.adaptationSpeed, 0.0f, 10.0f);
+
+        ImGui::Checkbox("Enable Bloom", &settings.enableBloom);
+        if (settings.enableBloom)
+        {
+            ImGui::SliderFloat("Bloom Strength", &settings.bloomStrength, 0.0f, 1.0f);
+            ImGui::SliderFloat("Bloom Threshold", &settings.bloomThreshold, 0.0f, 5.0f);
+            ImGui::SliderInt("Bloom Passes", &settings.bloomPasses, 1, 6);
+        }
+
+        const char* items[] = {"None", "Reinhard", "Uchimura", "Khronos PBR"};
+        int item = static_cast<int>(settings.mode);
+        if (ImGui::Combo("Tone Mapper", &item, items, 4))
+        {
+            settings.mode = static_cast<renderer::HDRSettings::ToneMapMode>(item);
+        }
+
+        if (settings.mode == renderer::HDRSettings::ToneMapMode::Reinhard)
+        {
+            ImGui::SliderFloat("Max White", &settings.reinhardMaxWhite, 0.5f, 10.0f);
+        }
+        else if (settings.mode == renderer::HDRSettings::ToneMapMode::Uchimura)
+        {
+            ImGui::SliderFloat("Max Brightness (P)", &settings.u_P, 1.0f, 100.0f);
+            ImGui::SliderFloat("Contrast (a)", &settings.u_a, 0.0f, 5.0f);
+            ImGui::SliderFloat("Linear Start (m)", &settings.u_m, 0.0f, 1.0f);
+            ImGui::SliderFloat("Linear Length (l)", &settings.u_l, 0.0f, 1.0f);
+            ImGui::SliderFloat("Black Tightness (c)", &settings.u_c, 1.0f, 3.0f);
+            ImGui::SliderFloat("Pedestal (b)", &settings.u_b, 0.0f, 1.0f);
+        }
+        else if (settings.mode == renderer::HDRSettings::ToneMapMode::KhronosPBR)
+        {
+            ImGui::SliderFloat("Compression Start", &settings.k_Start, 0.0f, 1.0f);
+            ImGui::SliderFloat("Desaturation", &settings.k_Desat, 0.0f, 1.0f);
+        }
+        ImGui::End();
+    }
 }
 
 void SceneEditorApp::onRecord(const renderer::RHIFrameContext& ctx) {
