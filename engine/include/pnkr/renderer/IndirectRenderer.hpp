@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/RenderResourceManager.h"
 
 #include <span>
 #include "generated/indirect.frag.h"
@@ -58,6 +59,31 @@ namespace pnkr::renderer {
         float intensity = 2.0f;
         float blurSharpness = 40.0f;
         float strength = 1.0f;
+    };
+
+    struct HDRSettings {
+        bool enableBloom = true;
+        float bloomStrength = 0.05f;
+        float bloomThreshold = 1.0f;
+        int bloomPasses = 3;
+        float exposure = 1.0f;
+
+        enum class ToneMapMode : int {
+            None = 0,
+            Reinhard = 1,
+            Uchimura = 2,
+            KhronosPBR = 3
+        } mode = ToneMapMode::KhronosPBR;
+
+        float reinhardMaxWhite = 4.0f;
+        float u_P = 1.0f;
+        float u_a = 1.0f;
+        float u_m = 0.22f;
+        float u_l = 0.4f;
+        float u_c = 1.33f;
+        float u_b = 0.0f;
+        float k_Start = 0.8f;
+        float k_Desat = 0.15f;
     };
 
     struct FrameResources {
@@ -119,6 +145,7 @@ namespace pnkr::renderer {
         int getShadowCasterIndex() const { return m_shadowCasterIndex; }
         void setSSAOSettings(const SSAOSettings& settings) { m_ssaoSettings = settings; }
         TextureHandle getSSAOTexture() const { return m_ssaoFinal; }
+        HDRSettings& hdrSettings() { return m_hdrSettings; }
 
     private:
         void createPipeline();
@@ -128,12 +155,14 @@ namespace pnkr::renderer {
         void uploadMaterialData();
         void uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
         void createOffscreenResources(uint32_t width, uint32_t height);
+        void createHDRResources(uint32_t width, uint32_t height);
 
         void initSSAO();
         void createSSAOResources(uint32_t width, uint32_t height);
         void dispatchSSAO(rhi::RHICommandBuffer* cmd, const scene::Camera& camera);
 
         RHIRenderer* m_renderer = nullptr;
+        RenderResourceManager m_resourceMgr;
         std::shared_ptr<scene::ModelDOD> m_model;
         std::vector<uint32_t> m_skinOffsets;
 
@@ -198,5 +227,24 @@ namespace pnkr::renderer {
         uint32_t m_ssaoFinalStorageIndex = 0xFFFFFFFF;
 
         SSAOSettings m_ssaoSettings;
+
+        HDRSettings m_hdrSettings;
+
+        PipelineHandle m_brightPassPipeline = INVALID_PIPELINE_HANDLE;
+        PipelineHandle m_bloomPipeline = INVALID_PIPELINE_HANDLE;
+        PipelineHandle m_toneMapPipeline = INVALID_PIPELINE_HANDLE;
+
+        TextureHandle m_texBrightPass = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_texLuminance = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_texBloom[2] = { INVALID_TEXTURE_HANDLE, INVALID_TEXTURE_HANDLE };
+
+        uint32_t m_brightPassStorageIndex = 0xFFFFFFFF;
+        uint32_t m_luminanceStorageIndex = 0xFFFFFFFF;
+        uint32_t m_bloomStorageIndex[2] = { 0xFFFFFFFF, 0xFFFFFFFF };
+
+        rhi::ResourceLayout m_brightPassLayout = rhi::ResourceLayout::Undefined;
+        rhi::ResourceLayout m_luminanceLayout = rhi::ResourceLayout::Undefined;
+        rhi::ResourceLayout m_bloomLayout[2] = { rhi::ResourceLayout::Undefined,
+                                                 rhi::ResourceLayout::Undefined };
     };
 }

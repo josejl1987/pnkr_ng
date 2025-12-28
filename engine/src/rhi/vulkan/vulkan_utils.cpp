@@ -30,6 +30,7 @@ namespace pnkr::renderer::rhi::vulkan
         case Format::R8G8B8A8_SRGB: return vk::Format::eR8G8B8A8Srgb;
         case Format::B8G8R8A8_UNORM: return vk::Format::eB8G8R8A8Unorm;
         case Format::B8G8R8A8_SRGB: return vk::Format::eB8G8R8A8Srgb;
+        case Format::B10G11R11_UFLOAT_PACK32: return vk::Format::eB10G11R11UfloatPack32;
 
         case Format::R16_SFLOAT: return vk::Format::eR16Sfloat;
         case Format::R16G16_SFLOAT: return vk::Format::eR16G16Sfloat;
@@ -72,6 +73,7 @@ namespace pnkr::renderer::rhi::vulkan
         case vk::Format::eR8G8B8A8Srgb: return Format::R8G8B8A8_SRGB;
         case vk::Format::eB8G8R8A8Unorm: return Format::B8G8R8A8_UNORM;
         case vk::Format::eB8G8R8A8Srgb: return Format::B8G8R8A8_SRGB;
+        case vk::Format::eB10G11R11UfloatPack32: return Format::B10G11R11_UFLOAT_PACK32;
 
         case vk::Format::eR16Sfloat: return Format::R16_SFLOAT;
         case vk::Format::eR16G16Sfloat: return Format::R16G16_SFLOAT;

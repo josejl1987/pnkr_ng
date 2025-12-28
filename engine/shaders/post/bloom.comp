@@ -1,0 +1,43 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "../renderer/indirect/bindless.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 1, binding = 4, rgba16f) uniform writeonly image2D bindlessStorageImages[];
+
+layout(push_constant) uniform PushConstants {
+    uint texIn;
+    uint texOut;
+    uint samplerID;
+    uint isHorizontal;
+} pc;
+
+const float weights[5] = float[](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+
+void main() {
+    ivec2 sizeOut = imageSize(bindlessStorageImages[nonuniformEXT(pc.texOut)]);
+    ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x >= sizeOut.x || xy.y >= sizeOut.y) return;
+
+    vec2 texelSize = 1.0 / vec2(sizeOut);
+    vec2 uv = (vec2(xy) + 0.5) * texelSize;
+
+    vec3 result = textureBindless2D(pc.texIn, pc.samplerID, uv).rgb * weights[0];
+
+    if (pc.isHorizontal == 1u) {
+        for (int i = 1; i < 5; ++i) {
+            result += textureBindless2D(pc.texIn, pc.samplerID, uv + vec2(texelSize.x * i, 0.0)).rgb * weights[i];
+            result += textureBindless2D(pc.texIn, pc.samplerID, uv - vec2(texelSize.x * i, 0.0)).rgb * weights[i];
+        }
+    } else {
+        for (int i = 1; i < 5; ++i) {
+            result += textureBindless2D(pc.texIn, pc.samplerID, uv + vec2(0.0, texelSize.y * i)).rgb * weights[i];
+            result += textureBindless2D(pc.texIn, pc.samplerID, uv - vec2(0.0, texelSize.y * i)).rgb * weights[i];
+        }
+    }
+
+    imageStore(bindlessStorageImages[nonuniformEXT(pc.texOut)], xy, vec4(result, 1.0));
+}

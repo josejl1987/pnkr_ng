@@ -381,6 +381,15 @@ add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 add_shader_target("shaders/ssao/composition.frag")
 add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
 
+add_shader_target("shaders/post/bright_pass.comp")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/post/bloom.comp")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+add_shader_target("shaders/post/tonemap.frag")
+add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
 # Include generated headers
 
 # Rebuild if shader headers change

@@ -1,0 +1,34 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "../renderer/indirect/bindless.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 1, binding = 4, rgba16f) uniform writeonly image2D bindlessStorageImages[];
+
+layout(push_constant) uniform PushConstants {
+    uint texColor;
+    uint texBright;
+    uint texLuminance;
+    uint samplerID;
+    float threshold;
+} pc;
+
+const vec3 LUMA_COEFFS = vec3(0.2126, 0.7152, 0.0722);
+
+void main() {
+    ivec2 sizeOut = imageSize(bindlessStorageImages[nonuniformEXT(pc.texBright)]);
+    ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x >= sizeOut.x || xy.y >= sizeOut.y) return;
+
+    vec2 uv = (vec2(xy) + 0.5) / vec2(sizeOut);
+    vec3 color = textureBindless2D(pc.texColor, pc.samplerID, uv).rgb;
+
+    float lum = dot(color, LUMA_COEFFS);
+    vec3 brightColor = max(color - vec3(pc.threshold), vec3(0.0));
+
+    imageStore(bindlessStorageImages[nonuniformEXT(pc.texBright)], xy, vec4(brightColor, 1.0));
+    imageStore(bindlessStorageImages[nonuniformEXT(pc.texLuminance)], xy, vec4(lum, 0.0, 0.0, 1.0));
+}

@@ -8,7 +8,6 @@ layout(set = 1, binding = 0) uniform texture2D bindlessTextures[];
 layout(set = 1, binding = 1) uniform sampler bindlessSamplers[];
 layout(set = 1, binding = 2) uniform textureCube bindlessCubemaps[];
 layout(set = 1, binding = 3, std430) readonly buffer BindlessStorageBuffer { uint data[]; } bindlessStorageBuffers[];
-layout(set = 1, binding = 4, rgba8) uniform image2D bindlessStorageImages[];
 layout(set = 1, binding = 5) uniform texture3D bindlessTextures3D[];
 layout(set = 1, binding = 6) uniform samplerShadow bindlessSamplersShadow[];
 layout(set = 1, binding = 7) uniform texture2D bindlessTexturesShadow[];

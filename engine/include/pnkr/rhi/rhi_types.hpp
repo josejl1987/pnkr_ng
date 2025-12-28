@@ -50,6 +50,7 @@ namespace pnkr::renderer::rhi
         R8G8B8A8_SRGB,
         B8G8R8A8_UNORM,
         B8G8R8A8_SRGB,
+        B10G11R11_UFLOAT_PACK32,
 
         R16_SFLOAT,
         R16G16_SFLOAT,

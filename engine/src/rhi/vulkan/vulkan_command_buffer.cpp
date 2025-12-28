@@ -508,17 +508,19 @@ namespace pnkr::renderer::rhi::vulkan
                 vkBarrier.srcStageMask = (barrierSrcStage != vk::PipelineStageFlags2{}) ? barrierSrcStage : oldStage;
                 vkBarrier.dstStageMask = (barrierDstStage != vk::PipelineStageFlags2{}) ? barrierDstStage : newStage;
 
-                // Access MUST match layout (best practice + avoids hazards on clears).
-                // However, if the user explicitly provided a stage override, they might want stage-derived access 
-                // (e.g. for general layout or if the layout helper is too generic).
-                // Minimal rule: if user sets a stage, use stage-derived access.
-                vkBarrier.srcAccessMask = (barrierSrcStage != vk::PipelineStageFlags2{}) ? accessForStageSrc(vkBarrier.srcStageMask) : oldAccess;
-                vkBarrier.dstAccessMask = (barrierDstStage != vk::PipelineStageFlags2{}) ? accessForStageDst(vkBarrier.dstStageMask) : newAccess;
+                // Access: If user provided a specific stage, trust their intent (or derive valid access for that stage).
+                // If no stage provided (using layout default), use layout default access.
+                if (barrierSrcStage != vk::PipelineStageFlags2{}) {
+                     vkBarrier.srcAccessMask = accessForStageSrc(vkBarrier.srcStageMask);
+                } else {
+                     vkBarrier.srcAccessMask = oldAccess;
+                }
 
-                // [FIX] For layouts like ColorAttachment/DepthAttachment, ensure we at least have 
-                // the layout-mandated access bits even if the stage override was provided.
-                vkBarrier.srcAccessMask |= oldAccess;
-                vkBarrier.dstAccessMask |= newAccess;
+                if (barrierDstStage != vk::PipelineStageFlags2{}) {
+                     vkBarrier.dstAccessMask = accessForStageDst(vkBarrier.dstStageMask);
+                } else {
+                     vkBarrier.dstAccessMask = newAccess;
+                }
 
                 stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
                 stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);

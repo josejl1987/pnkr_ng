@@ -232,6 +232,9 @@ namespace pnkr::renderer::rhi::vulkan
         featuresCore.shaderFloat64 = VK_TRUE;
         featuresCore.multiDrawIndirect = VK_TRUE; // Enable MultiDraw
         
+        // FIX: Enable drawIndirectFirstInstance for indirect rendering
+        featuresCore.drawIndirectFirstInstance = VK_TRUE;
+        
         // FIX: Enable Sample Rate Shading for MSAA
         featuresCore.sampleRateShading = VK_TRUE; 
 
