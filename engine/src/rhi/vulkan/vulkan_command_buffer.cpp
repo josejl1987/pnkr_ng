@@ -9,6 +9,7 @@
 #include "pnkr/rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/core/common.hpp"
 #include "pnkr/core/profiler.hpp"
+#include <cstring>
 #include <cpptrace/cpptrace.hpp>
 
 using namespace pnkr::util;
@@ -68,6 +69,17 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHICommandBuffer::end()
     {
+#ifdef TRACY_ENABLE
+        while (!m_tracyZoneStack.empty())
+        {
+            m_tracyZoneStack.pop_back();
+        }
+        if (m_profilingCtx)
+        {
+            auto* ctx = static_cast<TracyContext>(m_profilingCtx);
+            PNKR_PROFILE_GPU_COLLECT(ctx, static_cast<VkCommandBuffer>(m_commandBuffer));
+        }
+#endif
         m_commandBuffer.end();
         m_recording = false;
     }
@@ -772,6 +784,26 @@ namespace pnkr::renderer::rhi::vulkan
             labelInfo.color[3] = a;
             m_commandBuffer.beginDebugUtilsLabelEXT(labelInfo);
         }
+
+#ifdef TRACY_ENABLE
+        if (m_profilingCtx && name)
+        {
+            auto* ctx = static_cast<TracyContext>(m_profilingCtx);
+            const char* file = __FILE__;
+            const char* func = "RHICommandBuffer::DebugLabel";
+            m_tracyZoneStack.emplace_back(std::make_unique<tracy::VkCtxScope>(
+                ctx,
+                static_cast<uint32_t>(__LINE__),
+                file,
+                std::strlen(file),
+                func,
+                std::strlen(func),
+                name,
+                std::strlen(name),
+                static_cast<VkCommandBuffer>(m_commandBuffer),
+                true));
+        }
+#endif
     }
 
     void VulkanRHICommandBuffer::endDebugLabel()
@@ -779,6 +811,13 @@ namespace pnkr::renderer::rhi::vulkan
         if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdEndDebugUtilsLabelEXT) {
             m_commandBuffer.endDebugUtilsLabelEXT();
         }
+
+#ifdef TRACY_ENABLE
+        if (!m_tracyZoneStack.empty())
+        {
+            m_tracyZoneStack.pop_back();
+        }
+#endif
     }
 
     void VulkanRHICommandBuffer::insertDebugLabel(const char* name, float r, float g, float b, float a)
@@ -792,6 +831,26 @@ namespace pnkr::renderer::rhi::vulkan
             labelInfo.color[3] = a;
             m_commandBuffer.insertDebugUtilsLabelEXT(labelInfo);
         }
+
+#ifdef TRACY_ENABLE
+        if (m_profilingCtx && name)
+        {
+            auto* ctx = static_cast<TracyContext>(m_profilingCtx);
+            const char* file = __FILE__;
+            const char* func = "RHICommandBuffer::InsertDebugLabel";
+            tracy::VkCtxScope zone(
+                ctx,
+                static_cast<uint32_t>(__LINE__),
+                file,
+                std::strlen(file),
+                func,
+                std::strlen(func),
+                name,
+                std::strlen(name),
+                static_cast<VkCommandBuffer>(m_commandBuffer),
+                true);
+        }
+#endif
     }
 } // namespace pnkr::renderer::rhi::vulkan
 

@@ -242,6 +242,10 @@ namespace pnkr::renderer::scene
         ctx.transmissionMeshIndices.clear();
         ctx.transparentMeshIndices.clear();
 
+        ctx.opaqueBounds.clear();
+        ctx.transmissionBounds.clear();
+        ctx.transparentBounds.clear();
+
         ctx.volumetricMaterial = false;
 
         if (!ctx.model || !ctx.renderer) return;
@@ -256,6 +260,7 @@ namespace pnkr::renderer::scene
             renderer::rhi::DrawIndexedIndirectCommand baseCmd;
             uint32_t meshId = 0;
             float dist2 = 0.0f;
+            BoundingBox bounds;
         };
 
         struct Key
@@ -311,10 +316,10 @@ namespace pnkr::renderer::scene
             return st;
         };
 
-        auto meshView = scene.registry.view<MeshRenderer, WorldTransform, Visibility>();
+        auto meshView = scene.registry.view<MeshRenderer, WorldTransform, Visibility, WorldBounds>();
         {
             PNKR_PROFILE_SCOPE("DOD Mesh View Loop");
-            meshView.each([&](ecs::Entity e, MeshRenderer& meshComp, WorldTransform& world, Visibility& vis) {
+            meshView.each([&](ecs::Entity e, MeshRenderer& meshComp, WorldTransform& world, Visibility& vis, WorldBounds& bounds) {
                 if (!vis.visible) return;
                 if (meshComp.meshID < 0 || static_cast<size_t>(meshComp.meshID) >= meshes.size()) return;
 
@@ -351,6 +356,7 @@ namespace pnkr::renderer::scene
                         .firstInstance = 0u
                     };
                     inst.meshId = meshId;
+                    inst.bounds = bounds.aabb;
 
                     if (!ctx.mergeByMaterial && st != SortingType::Transparent)
                     {
@@ -366,6 +372,7 @@ namespace pnkr::renderer::scene
                                 .firstInstance = firstInstance
                             });
                             ctx.transmissionMeshIndices.push_back(meshId);
+                            ctx.transmissionBounds.push_back(inst.bounds);
                         } else {
                             ctx.indirectOpaque.push_back({
                                 .indexCount = inst.baseCmd.indexCount,
@@ -375,6 +382,7 @@ namespace pnkr::renderer::scene
                                 .firstInstance = firstInstance
                             });
                             ctx.opaqueMeshIndices.push_back(meshId);
+                            ctx.opaqueBounds.push_back(inst.bounds);
                         }
                         continue;
                     }
@@ -399,7 +407,8 @@ namespace pnkr::renderer::scene
 
     auto emitGroups = [&](auto& groups, 
                               std::vector<renderer::rhi::DrawIndexedIndirectCommand>& outCmds,
-                              std::vector<uint32_t>& outMeshIndices)
+                              std::vector<uint32_t>& outMeshIndices,
+                              std::vector<BoundingBox>& outBounds)
         {
             std::vector<Key> keys;
             keys.reserve(groups.size());
@@ -422,6 +431,7 @@ namespace pnkr::renderer::scene
                 ctx.transforms.reserve(ctx.transforms.size() + instances.size());
 
                 const uint32_t representativeMesh = instances[0].meshId;
+                const BoundingBox representativeBounds = instances[0].bounds;
 
                 for (const auto& inst : instances)
                     ctx.transforms.push_back(inst.xf);
@@ -434,13 +444,14 @@ namespace pnkr::renderer::scene
                     .firstInstance = firstInstance
                 });
                 outMeshIndices.push_back(representativeMesh);
+                outBounds.push_back(representativeBounds);
             }
         };
 
         if (ctx.mergeByMaterial)
         {
-            emitGroups(groupsOpaque, ctx.indirectOpaque, ctx.opaqueMeshIndices);
-            emitGroups(groupsTransmission, ctx.indirectTransmission, ctx.transmissionMeshIndices);
+            emitGroups(groupsOpaque, ctx.indirectOpaque, ctx.opaqueMeshIndices, ctx.opaqueBounds);
+            emitGroups(groupsTransmission, ctx.indirectTransmission, ctx.transmissionMeshIndices, ctx.transmissionBounds);
         }
 
         {
@@ -465,6 +476,7 @@ namespace pnkr::renderer::scene
                 .firstInstance = firstInstance
             });
             ctx.transparentMeshIndices.push_back(inst.meshId);
+            ctx.transparentBounds.push_back(inst.bounds);
         }
 
         if (ctx.transforms.empty()) return;

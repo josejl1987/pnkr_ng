@@ -7,21 +7,24 @@
 #include <glm/glm.hpp>
 
 #include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/geometry/Frustum.hpp"
 #include "pnkr/renderer/RenderResourceManager.h"
 #include "pnkr/renderer/debug/DebugLayer.hpp"
 
 #include <span>
 #include "generated/indirect.frag.h"
+#include "geometry/Frustum.hpp"
 
 namespace pnkr::renderer {
 
-    // Data fetched per draw call via BDA
-    struct DrawInstanceData {
-        uint32_t transformIndex; // Index into global transform array
-        uint32_t materialIndex;  // Index into material array
-        int32_t  jointOffset;    // Offset into joint buffer (or -1)
-        uint32_t _pad1;
+    enum class CullingMode {
+        None,
+        CPU,
+        GPU
     };
+
+
+
 
     // Matches shaders/pbr_common.glsl EnvironmentMapDataGPU
     struct EnvironmentMapDataGPU {
@@ -109,6 +112,7 @@ namespace pnkr::renderer {
         uint32_t lightCount = 0;
 
         BufferHandle materialBuffer = INVALID_BUFFER_HANDLE;
+        BufferHandle gpuWorldBounds = INVALID_BUFFER_HANDLE;
     };
 
     class IndirectRenderer {
@@ -143,13 +147,14 @@ namespace pnkr::renderer {
         HDRSettings& hdrSettings() { return m_hdrSettings; }
 
         // Culling Control
-        void setCullingEnabled(bool enable) { m_enableFrustumCulling = enable; }
+        void setCullingMode(CullingMode mode) { m_cullingMode = mode; }
+        CullingMode getCullingMode() const { return m_cullingMode; }
         void setFreezeCullingView(bool freeze) { m_freezeCullingView = freeze; }
         void setDrawDebugBounds(bool draw) { m_drawDebugBounds = draw; }
         uint32_t getVisibleMeshCount() const { return m_visibleMeshCount; }
 
     private:
-        void drawIndirect(rhi::RHICommandBuffer* cmd, const IndirectDrawBuffer& buffer);
+        void drawIndirect(rhi::RHICommandBuffer* cmd, const IndirectDrawBuffer& buffer, uint32_t frameIndex);
         void createPipeline();
         void createComputePipeline();
         void buildBuffers();
@@ -163,6 +168,11 @@ namespace pnkr::renderer {
         void initSSAO();
         void createSSAOResources(uint32_t width, uint32_t height);
         void dispatchSSAO(rhi::RHICommandBuffer* cmd, const scene::Camera& camera);
+
+        void dispatchCulling(rhi::RHICommandBuffer* cmd, 
+                             uint32_t frameIndex, 
+                             const scene::Camera& camera, 
+                             uint32_t drawCount);
 
         RHIRenderer* m_renderer = nullptr;
         RenderResourceManager m_resourceMgr;
@@ -266,10 +276,23 @@ namespace pnkr::renderer {
         IndirectPipeline m_indirectPipeline;
 
         // Culling State
-        bool m_enableFrustumCulling = true;
+        CullingMode m_cullingMode = CullingMode::CPU;
         bool m_freezeCullingView = false;
         bool m_drawDebugBounds = false;
         glm::mat4 m_cullingViewMatrix{ 1.0f };
+        glm::mat4 m_cullingProjMatrix{ 1.0f };
+        geometry::Frustum m_cullingFrustum;
         uint32_t m_visibleMeshCount = 0;
+
+        PipelineHandle m_cullingPipeline = INVALID_PIPELINE_HANDLE;
+
+        struct CullingFrameResource {
+            BufferHandle cullingBuffer = INVALID_BUFFER_HANDLE;
+            BufferHandle visibilityBuffer = INVALID_BUFFER_HANDLE;
+            rhi::RHIDescriptorSet* descriptorSet = nullptr; 
+        };
+        std::vector<CullingFrameResource> m_cullingResources;
+        uint32_t m_lastOpaqueDrawCount = 0;
+        std::vector<scene::BoundingBox> m_lastOpaqueBounds;
     };
 }

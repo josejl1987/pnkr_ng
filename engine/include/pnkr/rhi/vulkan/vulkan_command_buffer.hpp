@@ -2,6 +2,15 @@
 
 #include "pnkr/rhi/rhi_command_buffer.hpp"
 #include <vulkan/vulkan.hpp>
+#include <memory>
+#include <vector>
+
+#ifdef TRACY_ENABLE
+namespace tracy
+{
+    class VkCtxScope;
+}
+#endif
 
 namespace pnkr::renderer::rhi::vulkan
 {
@@ -22,6 +31,9 @@ namespace pnkr::renderer::rhi::vulkan
         void begin() override;
         void end() override;
         void reset() override;
+
+        void setProfilingContext(void* ctx) override { m_profilingCtx = ctx; }
+        void* getProfilingContext() const override { return m_profilingCtx; }
 
         void beginRendering(const RenderingInfo& info) override;
         void endRendering() override;
@@ -97,9 +109,14 @@ namespace pnkr::renderer::rhi::vulkan
         vk::CommandBuffer m_commandBuffer;
         bool m_recording = false;
         bool m_inRendering = false;
+        void* m_profilingCtx = nullptr;
 
         // Cached pipeline for descriptor set binding
         VulkanRHIPipeline* m_boundPipeline = nullptr;
+
+#ifdef TRACY_ENABLE
+        std::vector<std::unique_ptr<tracy::VkCtxScope>> m_tracyZoneStack;
+#endif
     };
 
 } // namespace pnkr::renderer::rhi::vulkan

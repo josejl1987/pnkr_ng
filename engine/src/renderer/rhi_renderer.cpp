@@ -32,6 +32,9 @@ namespace pnkr::renderer
     RHIRenderer::RHIRenderer(platform::Window& window, const RendererConfig& config)
         : m_window(window)
     {
+#ifdef TRACY_ENABLE
+        tracy::SetThreadName("Main");
+#endif
         // 1. Load RenderDoc DLL and setup hooks BEFORE Vulkan initializes.
         if (m_renderdoc.init())
         {
@@ -184,6 +187,7 @@ namespace pnkr::renderer
 
     void RHIRenderer::beginFrame(float deltaTime)
     {
+        PNKR_PROFILE_SCOPE("RHIRenderer::beginFrame");
         if (m_frameInProgress)
         {
             core::Logger::warn("beginFrame called while frame already in progress");
@@ -227,6 +231,11 @@ namespace pnkr::renderer
             m_activeCommandBuffer = nullptr;
             m_frameInProgress = false;
             return;
+        }
+
+        if (auto* vkSwapchain = dynamic_cast<rhi::vulkan::VulkanRHISwapchain*>(m_swapchain.get()))
+        {
+            m_activeCommandBuffer->setProfilingContext(vkSwapchain->getTracyContext());
         }
 
         m_backbuffer = m_currentFrame.color;
@@ -356,6 +365,7 @@ namespace pnkr::renderer
 
     void RHIRenderer::endFrame()
     {
+        PNKR_PROFILE_SCOPE("RHIRenderer::endFrame");
         if (!m_frameInProgress)
         {
             core::Logger::error("endFrame called without beginFrame");
@@ -415,6 +425,7 @@ namespace pnkr::renderer
         m_frameInProgress = false;
         m_activeCommandBuffer = nullptr;
         m_frameIndex++;
+        PNKR_PROFILE_FRAME_MARK();
     }
 
     void RHIRenderer::resize(int width, int height)

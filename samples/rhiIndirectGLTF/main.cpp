@@ -56,7 +56,7 @@ namespace
     float g_LightXAngle;
     float g_LightDist;
 
-    bool DrawLightControls(LightSource& light, int index, bool isShadowCaster, SceneGraphDOD* scene, ecs::Entity entity)
+    bool DrawLightControls(LightSource& light, [[maybe_unused]] int index, bool isShadowCaster, SceneGraphDOD* scene, ecs::Entity entity)
     {
         bool removeRequested = false;
         ImGui::PushID(static_cast<int>(entity));
@@ -522,7 +522,7 @@ public:
                 auto h = m_indirectRenderer->getSSAOTexture();
                 auto id = m_imgui.getTextureID(h);
                 float w = ImGui::GetContentRegionAvail().x;
-                if (id != -1) ImGui::Image(id, ImVec2(w, w * 9.0f / 16.0f));
+                if (id != (ImTextureID)-1) ImGui::Image(id, ImVec2(w, w * 9.0f / 16.0f));
             }
         }
         ImGui::End();
@@ -573,9 +573,10 @@ public:
         if (m_indirectRenderer) {
             ImGui::Begin("Culling Settings");
 
-            static bool enableCulling = true;
-            if (ImGui::Checkbox("Enable CPU Frustum Culling", &enableCulling)) {
-                m_indirectRenderer->setCullingEnabled(enableCulling);
+            const char* cullingModes[] = { "None", "CPU", "GPU" };
+            int currentMode = static_cast<int>(m_indirectRenderer->getCullingMode());
+            if (ImGui::Combo("Culling Mode", &currentMode, cullingModes, 3)) {
+                m_indirectRenderer->setCullingMode(static_cast<renderer::CullingMode>(currentMode));
             }
 
             static bool freeze = false;
@@ -735,7 +736,7 @@ public:
             ImGui::Begin("Shadow Map");
             TextureHandle shadowHandle = m_indirectRenderer->getShadowMapTexture();
             auto texID = m_imgui.getTextureID(shadowHandle);
-            if (texID != -1)
+            if (texID != (ImTextureID)-1)
             {
                 float availWidth = ImGui::GetContentRegionAvail().x;
                 ImGui::Image(texID, ImVec2(availWidth, availWidth));

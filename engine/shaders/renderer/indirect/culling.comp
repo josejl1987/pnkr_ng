@@ -1,0 +1,102 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct DrawIndexedIndirectCommand {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int  vertexOffset;
+    uint firstInstance;
+};
+
+struct BoundingBox {
+    vec4 min; // w unused
+    vec4 max; // w unused
+};
+
+struct CullingData {
+    vec4 frustumPlanes[6];
+    vec4 frustumCorners[8];
+    uint numMeshesToCull;
+    uint numVisibleMeshes; // Atomic counter
+    uint _pad0;
+    uint _pad1;
+};
+
+// Bindings
+// Binding 0: The Indirect Draw Buffer (Has 16-byte header: count + padding)
+layout(set = 0, binding = 0, std430) buffer DrawCommandBuffer { 
+    uint count;
+    uint _pad[3]; 
+    DrawIndexedIndirectCommand commands[]; 
+};
+
+// Binding 1: Linear array of Bounding Boxes matching commands[]
+layout(set = 0, binding = 1, scalar) readonly buffer BoundsBuffer { 
+    BoundingBox boxes[]; 
+};
+
+// Binding 2: Global Culling Data (Frustum info + stats)
+layout(set = 0, binding = 2, scalar) buffer CullingDataBuffer { 
+    CullingData data; 
+};
+
+// Binding 3: Per-command visibility flags (0/1) written by GPU culling for CPU debug
+layout(set = 0, binding = 3, std430) buffer VisibilityBuffer {
+    uint visibleFlags[];
+};
+
+bool isAABBinFrustum(BoundingBox Box)
+{
+    for (int i = 0; i < 6; i++) {
+        int r = 0;
+        r += ( dot( data.frustumPlanes[i], vec4(Box.min.x, Box.min.y, Box.min.z, 1.0f) ) < 0 ) ? 1 : 0;
+        r += ( dot( data.frustumPlanes[i], vec4(Box.max.x, Box.min.y, Box.min.z, 1.0f) ) < 0 ) ? 1 : 0;
+        r += ( dot( data.frustumPlanes[i], vec4(Box.min.x, Box.max.y, Box.min.z, 1.0f) ) < 0 ) ? 1 : 0;
+        r += ( dot( data.frustumPlanes[i], vec4(Box.max.x, Box.max.y, Box.min.z, 1.0f) ) < 0 ) ? 1 : 0;
+        r += ( dot( data.frustumPlanes[i], vec4(Box.min.x, Box.min.y, Box.max.z, 1.0f) ) < 0 ) ? 1 : 0;
+        r += ( dot( data.frustumPlanes[i], vec4(Box.max.x, Box.min.y, Box.max.z, 1.0f) ) < 0 ) ? 1 : 0;
+        r += ( dot( data.frustumPlanes[i], vec4(Box.min.x, Box.max.y, Box.max.z, 1.0f) ) < 0 ) ? 1 : 0;
+        r += ( dot( data.frustumPlanes[i], vec4(Box.max.x, Box.max.y, Box.max.z, 1.0f) ) < 0 ) ? 1 : 0;
+        if ( r == 8 ) return false;
+    }
+
+    int r = 0;
+    r = 0; for ( int i = 0; i < 8; i++ ) r += ( (data.frustumCorners[i].x > Box.max.x) ? 1 : 0 ); if ( r == 8 ) return false;
+    r = 0; for ( int i = 0; i < 8; i++ ) r += ( (data.frustumCorners[i].x < Box.min.x) ? 1 : 0 ); if ( r == 8 ) return false;
+    r = 0; for ( int i = 0; i < 8; i++ ) r += ( (data.frustumCorners[i].y > Box.max.y) ? 1 : 0 ); if ( r == 8 ) return false;
+    r = 0; for ( int i = 0; i < 8; i++ ) r += ( (data.frustumCorners[i].y < Box.min.y) ? 1 : 0 ); if ( r == 8 ) return false;
+    r = 0; for ( int i = 0; i < 8; i++ ) r += ( (data.frustumCorners[i].z > Box.max.z) ? 1 : 0 ); if ( r == 8 ) return false;
+    r = 0; for ( int i = 0; i < 8; i++ ) r += ( (data.frustumCorners[i].z < Box.min.z) ? 1 : 0 ); if ( r == 8 ) return false;
+
+    return true;
+}
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    
+    if (idx >= data.numMeshesToCull) {
+        return;
+    }
+
+    // Load bound
+    BoundingBox box = boxes[idx];
+
+    // Cull
+    bool visible = isAABBinFrustum(box);
+
+    // Update Indirect Command
+    // We only touch instanceCount. 1 = Draw, 0 = Skip vertex shader.
+    commands[idx].instanceCount = visible ? 1 : 0;
+
+    // Write visibility for debug (CPU reads previous frame)
+    visibleFlags[idx] = visible ? 1u : 0u;
+
+    // Update Stats
+    if (visible) {
+        atomicAdd(data.numVisibleMeshes, 1);
+    }
+}

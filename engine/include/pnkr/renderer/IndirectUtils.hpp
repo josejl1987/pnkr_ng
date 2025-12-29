@@ -16,21 +16,26 @@ namespace pnkr::renderer {
     // Wrapper for VKIndirectBuffer11
     class IndirectDrawBuffer {
     public:
-        // Changed: Now accepts maxFramesInFlight to create ring-buffered staging memory
+        // Changed: Now accepts maxFramesInFlight to create ring-buffered GPU + staging buffers
         IndirectDrawBuffer(RHIRenderer* renderer, uint32_t maxCommands, uint32_t maxFramesInFlight) 
             : m_renderer(renderer), m_maxCommands(maxCommands) 
         {
             // Layout: [Count (4 bytes)] [Padding (12 bytes)] [Command 0] [Command 1] ...
             // We pad to 16 bytes for proper alignment on all GPUs.
             size_t size = 16 + maxCommands * sizeof(IndirectCommand);
-            
-            // Main buffer in device-local memory
-            m_buffer = m_renderer->createBuffer({
-                .size = size,
-                .usage = rhi::BufferUsage::IndirectBuffer | rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::TransferDst, 
-                .memoryUsage = rhi::MemoryUsage::GPUOnly,
-                .debugName = "IndirectDrawBuffer_GPU"
-            });
+
+            // Per-frame main buffers in device-local memory
+            m_buffers.resize(maxFramesInFlight);
+            m_bufferNames.reserve(maxFramesInFlight);
+            for (uint32_t i = 0; i < maxFramesInFlight; ++i) {
+                m_bufferNames.push_back("IndirectDrawBuffer_GPU_" + std::to_string(i));
+                m_buffers[i] = m_renderer->createBuffer({
+                    .size = size,
+                    .usage = rhi::BufferUsage::IndirectBuffer | rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::TransferDst, 
+                    .memoryUsage = rhi::MemoryUsage::GPUOnly,
+                    .debugName = m_bufferNames.back().c_str()
+                });
+            }
 
             // Create per-frame staging buffers for async upload
             m_stagingBuffers.resize(maxFramesInFlight);
@@ -49,8 +54,10 @@ namespace pnkr::renderer {
         }
 
         ~IndirectDrawBuffer() {
-            if (m_buffer != INVALID_BUFFER_HANDLE) {
-                m_renderer->destroyBuffer(m_buffer);
+            for (auto& handle : m_buffers) {
+                if (handle != INVALID_BUFFER_HANDLE) {
+                    m_renderer->destroyBuffer(handle);
+                }
             }
             for (auto& handle : m_stagingBuffers) {
                 if (handle != INVALID_BUFFER_HANDLE) {
@@ -79,14 +86,15 @@ namespace pnkr::renderer {
         // Optimized: Records copy command to the main command buffer. No waiting.
         // MUST BE CALLED OUTSIDE RENDER PASS.
         void upload(rhi::RHICommandBuffer* cmd, uint32_t frameIndex) {
-            if (m_buffer == INVALID_BUFFER_HANDLE || m_stagingBuffers.empty()) return;
+            if (m_buffers.empty() || m_stagingBuffers.empty()) return;
             
             // 1. Select the staging buffer for the current frame
             uint32_t safeFrameIdx = frameIndex % (uint32_t)m_stagingBuffers.size();
             BufferHandle currentStaging = m_stagingBuffers[safeFrameIdx];
+            BufferHandle currentBuffer = m_buffers[safeFrameIdx];
             
             auto* stagingInfo = m_renderer->getBuffer(currentStaging);
-            auto* gpuBuffer = m_renderer->getBuffer(m_buffer);
+            auto* gpuBuffer = m_renderer->getBuffer(currentBuffer);
 
             if (!stagingInfo || !gpuBuffer) return;
 
@@ -121,13 +129,17 @@ namespace pnkr::renderer {
             );
         }
 
-        BufferHandle handle() const { return m_buffer; }
+        BufferHandle handle(uint32_t frameIndex) const { 
+            if (m_buffers.empty()) return INVALID_BUFFER_HANDLE;
+            return m_buffers[frameIndex % m_buffers.size()]; 
+        }
         uint32_t maxCommands() const { return m_maxCommands; }
         const std::vector<IndirectCommand>& commands() const { return m_commands; }
 
     private:
         RHIRenderer* m_renderer;
-        BufferHandle m_buffer;
+        std::vector<BufferHandle> m_buffers;
+        std::vector<std::string> m_bufferNames;
         std::vector<BufferHandle> m_stagingBuffers; // Ring buffer
         std::vector<std::string> m_stagingNames;
         uint32_t m_maxCommands;

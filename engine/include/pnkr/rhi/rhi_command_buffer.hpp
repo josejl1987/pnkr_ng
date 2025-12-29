@@ -89,6 +89,10 @@ namespace pnkr::renderer::rhi
     public:
         virtual ~RHICommandBuffer() = default;
 
+        // Optional profiling context (backend-specific, e.g. TracyVkCtx stored as void*).
+        virtual void setProfilingContext(void* ctx) { (void)ctx; }
+        virtual void* getProfilingContext() const { return nullptr; }
+
         // Command buffer lifecycle
         virtual void begin() = 0;
         virtual void end() = 0;

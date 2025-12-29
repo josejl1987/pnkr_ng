@@ -4,6 +4,7 @@
 #include "pnkr/core/profiler.hpp"
 #include "generated/indirect.vert.h"
 #include "generated/skinning.comp.h"
+#include "generated/culling.comp.h"
 #include "generated/depth_resolve.comp.h"
 #include "generated/ssao.comp.h"
 #include "generated/blur.comp.h"
@@ -80,8 +81,18 @@ namespace pnkr::renderer
             if (m_texBloom[1] != INVALID_TEXTURE_HANDLE) m_renderer->destroyTexture(m_texBloom[1]);
             if (m_texAdaptedLum[0] != INVALID_TEXTURE_HANDLE) m_renderer->destroyTexture(m_texAdaptedLum[0]);
             if (m_texAdaptedLum[1] != INVALID_TEXTURE_HANDLE) m_renderer->destroyTexture(m_texAdaptedLum[1]);
-        }
 
+            for (auto& frame : m_frames) {
+                if (frame.gpuWorldBounds != INVALID_BUFFER_HANDLE) m_renderer->destroyBuffer(frame.gpuWorldBounds);
+            }
+            for (auto& res : m_cullingResources) {
+                if (res.cullingBuffer != INVALID_BUFFER_HANDLE) m_renderer->destroyBuffer(res.cullingBuffer);
+                if (res.visibilityBuffer != INVALID_BUFFER_HANDLE) m_renderer->destroyBuffer(res.visibilityBuffer);
+                // descriptorSet is owned by RHI but usually we don't need to manually free if device is destroyed, 
+                // but for completeness if RHIRenderer provides a way. 
+                // In this codebase, it seems descriptor sets are managed by the device.
+            }
+        }
         m_resourceMgr.purgeAll();
     }
 
@@ -572,6 +583,39 @@ namespace pnkr::renderer
         uploadEnvironmentData(brdf, irradiance, prefilter);
 
         initSSAO();
+
+        // --- Init GPU Culling ---
+        {
+            auto shader = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/culling.comp.spv");
+            if (shader) {
+                rhi::RHIPipelineBuilder builder;
+                builder.setComputeShader(shader.get()).setName("GPUCulling");
+                m_cullingPipeline = m_renderer->createComputePipeline(builder.buildCompute());
+            }
+
+            m_cullingResources.resize(m_frames.size());
+            auto* dsLayout = m_renderer->getPipeline(m_cullingPipeline)->descriptorSetLayout(0);
+
+            for (auto& res : m_cullingResources) {
+                res.cullingBuffer = m_renderer->createBuffer({
+                    .size = sizeof(ShaderGen::culling_comp::CullingData),
+                    .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::TransferDst | rhi::BufferUsage::TransferSrc,
+                    .memoryUsage = rhi::MemoryUsage::GPUToCPU,
+                    .debugName = "CullingDataBuffer"
+                });
+
+                res.visibilityBuffer = m_renderer->createBuffer({
+                    .size = 1024 * sizeof(uint32_t),
+                    .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::TransferDst | rhi::BufferUsage::TransferSrc,
+                    .memoryUsage = rhi::MemoryUsage::GPUToCPU,
+                    .debugName = "CullingVisibilityBuffer"
+                });
+
+                if (dsLayout) {
+                    res.descriptorSet = m_renderer->device()->allocateDescriptorSet(dsLayout).release();
+                }
+            }
+        }
 
         // Init offscreen targets
         resize(m_renderer->getSwapchain()->extent().width, m_renderer->getSwapchain()->extent().height);
@@ -1146,6 +1190,10 @@ namespace pnkr::renderer
 
         if ((hasSkinning || hasMorphing) && m_skinningPipeline != INVALID_PIPELINE_HANDLE)
         {
+            auto* vkSwapchain = dynamic_cast<rhi::vulkan::VulkanRHISwapchain*>(m_renderer->getSwapchain());
+            TracyContext t_ctx = vkSwapchain ? vkSwapchain->getTracyContext() : nullptr;
+            PNKR_RHI_GPU_ZONE(t_ctx, cmd, "GPU/Indirect/Skinning");
+
             cmd->bindPipeline(m_renderer->getPipeline(m_skinningPipeline));
 
             struct SkinPushConstants
@@ -1197,6 +1245,108 @@ namespace pnkr::renderer
         }
     }
 
+    void IndirectRenderer::dispatchCulling(rhi::RHICommandBuffer* cmd, uint32_t frameIndex, [[maybe_unused]] const scene::Camera& camera, uint32_t drawCount) {
+        if (m_cullingPipeline == INVALID_PIPELINE_HANDLE || drawCount == 0) return;
+
+        auto* vkSwapchain = dynamic_cast<rhi::vulkan::VulkanRHISwapchain*>(m_renderer->getSwapchain());
+        TracyContext t_ctx = vkSwapchain ? vkSwapchain->getTracyContext() : nullptr;
+        PNKR_RHI_GPU_ZONE(t_ctx, cmd, "GPU/Indirect/Culling");
+
+        auto& res = m_cullingResources[frameIndex];
+
+        // Ensure visibility buffer capacity
+        const uint64_t visBytes = (uint64_t)drawCount * sizeof(uint32_t);
+        {
+            auto* vb = m_renderer->getBuffer(res.visibilityBuffer);
+            if (res.visibilityBuffer == INVALID_BUFFER_HANDLE || !vb || vb->size() < visBytes) {
+                if (res.visibilityBuffer != INVALID_BUFFER_HANDLE) m_renderer->destroyBuffer(res.visibilityBuffer);
+                res.visibilityBuffer = m_renderer->createBuffer({
+                    .size = visBytes + 4096,
+                    .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::TransferDst | rhi::BufferUsage::TransferSrc,
+                    .memoryUsage = rhi::MemoryUsage::GPUToCPU,
+                    .debugName = "CullingVisibilityBuffer"
+                });
+            }
+        }
+
+        // 1. Update Culling Data Uniforms
+        ShaderGen::culling_comp::CullingData gpuData{};
+        gpuData.numMeshesToCull = drawCount;
+        gpuData.numVisibleMeshes = 0; // Reset atomic
+
+        // Copy planes/corners from our current frustum
+        std::memcpy(gpuData.frustumPlanes.data(), m_cullingFrustum.planes, sizeof(glm::vec4) * 6);
+        std::memcpy(gpuData.frustumCorners.data(), m_cullingFrustum.corners, sizeof(glm::vec4) * 8);
+
+        m_renderer->getBuffer(res.cullingBuffer)->uploadData(&gpuData, sizeof(ShaderGen::culling_comp::CullingData));
+
+        // 2. Barriers: Ensure IndirectBuffer, Bounds, AND CullingData are ready
+        // OpaqueDrawBuffer was just uploaded, so it's in TransferDst layout or similar.
+        // We need it in General or Storage layout for compute.
+        {
+            rhi::RHIMemoryBarrier barriers[4]{};
+            barriers[0].buffer = m_renderer->getBuffer(m_opaqueDrawBuffer->handle(frameIndex));
+            barriers[0].srcAccessStage = rhi::ShaderStage::Transfer;
+            barriers[0].dstAccessStage = rhi::ShaderStage::Compute;
+            
+            auto& frame = m_frames[frameIndex];
+            barriers[1].buffer = m_renderer->getBuffer(frame.gpuWorldBounds);
+            barriers[1].srcAccessStage = rhi::ShaderStage::Transfer;
+            barriers[1].dstAccessStage = rhi::ShaderStage::Compute;
+
+            barriers[2].buffer = m_renderer->getBuffer(res.cullingBuffer);
+            barriers[2].srcAccessStage = rhi::ShaderStage::Transfer;
+            barriers[2].dstAccessStage = rhi::ShaderStage::Compute;
+
+            barriers[3].buffer = m_renderer->getBuffer(res.visibilityBuffer);
+            barriers[3].srcAccessStage = rhi::ShaderStage::Transfer;
+            barriers[3].dstAccessStage = rhi::ShaderStage::Compute;
+
+            cmd->pipelineBarrier(rhi::ShaderStage::Transfer, rhi::ShaderStage::Compute, 
+                std::vector<rhi::RHIMemoryBarrier>(std::begin(barriers), std::end(barriers)));
+        }
+
+        // 3. Dispatch
+        cmd->beginDebugLabel("GPU Culling", 0.8f, 0.2f, 0.2f, 1.0f);
+        
+        // Bind: 0=Commands, 1=Bounds, 2=Data, 3=Visibility
+        auto& frame = m_frames[frameIndex];
+        auto* cmdBuf = m_renderer->getBuffer(m_opaqueDrawBuffer->handle(frameIndex));
+        auto* boundsBuf = m_renderer->getBuffer(frame.gpuWorldBounds);
+        auto* dataBuf = m_renderer->getBuffer(res.cullingBuffer);
+        auto* visBuf = m_renderer->getBuffer(res.visibilityBuffer);
+
+        res.descriptorSet->updateBuffer(0, cmdBuf, 0, cmdBuf->size());
+        res.descriptorSet->updateBuffer(1, boundsBuf, 0, boundsBuf->size());
+        res.descriptorSet->updateBuffer(2, dataBuf, 0, dataBuf->size());
+        res.descriptorSet->updateBuffer(3, visBuf, 0, visBuf->size());
+
+        auto* pipelinePtr  = m_renderer->getPipeline(m_cullingPipeline);
+        cmd->bindPipeline(pipelinePtr);
+        cmd->bindDescriptorSet(pipelinePtr, 0, res.descriptorSet);
+
+        uint32_t groupCount = (drawCount + 63) / 64;
+        cmd->dispatch(groupCount, 1, 1);
+        cmd->endDebugLabel();
+
+        // 4. Barrier: Compute Write -> Indirect Draw Read & Host Read
+        {
+            rhi::RHIMemoryBarrier b0{};
+            b0.buffer = m_renderer->getBuffer(m_opaqueDrawBuffer->handle(frameIndex));
+            b0.srcAccessStage = rhi::ShaderStage::Compute;
+            b0.dstAccessStage = rhi::ShaderStage::DrawIndirect;
+
+            rhi::RHIMemoryBarrier b1{};
+            b1.buffer = m_renderer->getBuffer(res.visibilityBuffer);
+            b1.srcAccessStage = rhi::ShaderStage::Compute;
+            b1.dstAccessStage = rhi::ShaderStage::Transfer; // Or Host if supported
+
+            cmd->pipelineBarrier(rhi::ShaderStage::Compute, 
+                rhi::ShaderStage::DrawIndirect | rhi::ShaderStage::Transfer, 
+                { b0, b1 });
+        }
+    }
+
     void IndirectRenderer::draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera, uint32_t width,
                                 uint32_t height, debug::DebugLayer* debugLayer)
     {
@@ -1233,51 +1383,104 @@ namespace pnkr::renderer
 
         updateLights();
 
+        uint32_t flightCount = m_renderer->getSwapchain()->framesInFlight();
+        uint32_t prevFrameIndex = (m_currentFrameIndex + flightCount - 1) % flightCount;
+        auto& prevRes = m_cullingResources[prevFrameIndex];
+
+        std::vector<uint32_t> gpuVisibleFlags;
+        if (m_cullingMode == CullingMode::GPU && m_drawDebugBounds && debugLayer) {
+            auto* buf = m_renderer->getBuffer(prevRes.visibilityBuffer);
+            if (buf && m_lastOpaqueDrawCount > 0) {
+                gpuVisibleFlags.resize(m_lastOpaqueDrawCount);
+                void* ptr = buf->map();
+                if (ptr) {
+                    std::memcpy(gpuVisibleFlags.data(), ptr, m_lastOpaqueDrawCount * sizeof(uint32_t));
+                    buf->unmap();
+                } else {
+                    gpuVisibleFlags.clear();
+                }
+            }
+        }
+
+        if (m_cullingMode == CullingMode::GPU) {
+            ShaderGen::culling_comp::CullingData* prevCullingData = (ShaderGen::culling_comp::CullingData*)m_renderer->getBuffer(prevRes.cullingBuffer)->map();
+            if (prevCullingData) {
+                m_visibleMeshCount = prevCullingData->numVisibleMeshes;
+                m_renderer->getBuffer(prevRes.cullingBuffer)->unmap();
+            }
+        }
+
         if (!m_freezeCullingView) {
             m_cullingViewMatrix = camera.view();
+            m_cullingProjMatrix = camera.proj();
+            m_cullingFrustum = geometry::createFrustum(m_cullingProjMatrix * m_cullingViewMatrix);
         }
 
-        glm::mat4 cullingProj = camera.proj();
-        geometry::Frustum frustum{};
-        if (m_enableFrustumCulling) {
-            frustum = geometry::createFrustum(cullingProj * m_cullingViewMatrix);
-        }
-
-        m_visibleMeshCount = 0;
+        if (m_cullingMode != CullingMode::GPU) m_visibleMeshCount = 0;
 
         if (m_model) {
             auto& sc = m_model->scene();
             auto cullView = sc.registry.view<scene::MeshRenderer, scene::WorldBounds, scene::Visibility>();
             cullView.each([&](ecs::Entity /*e*/, scene::MeshRenderer& /*mr*/, scene::WorldBounds& wb, scene::Visibility& vis) {
                 bool visible = true;
-                if (m_enableFrustumCulling) {
-                    visible = geometry::isBoxInFrustum(frustum, wb.aabb);
+                if (m_cullingMode == CullingMode::CPU) {
+                    visible = geometry::isBoxInFrustum(m_cullingFrustum, wb.aabb);
+                } else if (m_cullingMode == CullingMode::GPU || m_cullingMode == CullingMode::None) {
+                    visible = true;
                 }
+                
                 vis.visible = visible ? 1 : 0;
 
                 if (visible) {
-                    m_visibleMeshCount++;
-                    if (m_drawDebugBounds && debugLayer) {
+                    if (m_cullingMode == CullingMode::CPU) m_visibleMeshCount++;
+                    if (m_drawDebugBounds && debugLayer && m_cullingMode == CullingMode::CPU) {
                         debugLayer->box(wb.aabb.m_min, wb.aabb.m_max, glm::vec3(0, 1, 0)); // Green
                     }
-                } else if (m_drawDebugBounds && debugLayer) {
+                } else if (m_drawDebugBounds && debugLayer && m_cullingMode == CullingMode::CPU) {
                     debugLayer->box(wb.aabb.m_min, wb.aabb.m_max, glm::vec3(1, 0, 0)); // Red
                 }
             });
         }
 
-        if (m_freezeCullingView && m_drawDebugBounds && debugLayer) {
-            debugLayer->frustum(m_cullingViewMatrix, cullingProj, glm::vec3(1, 1, 0)); // Yellow
+        // Build lists early so we have bounds for debug visualization and GPU upload
+        scene::GLTFUnifiedDOD::buildDrawLists(ctx, camera.position());
+
+        if (m_drawDebugBounds && debugLayer && m_cullingMode == CullingMode::GPU && !gpuVisibleFlags.empty() && gpuVisibleFlags.size() == m_lastOpaqueBounds.size()) {
+            for (size_t i = 0; i < m_lastOpaqueBounds.size(); ++i) {
+                const auto& b = m_lastOpaqueBounds[i];
+                const bool v = gpuVisibleFlags[i] != 0;
+                debugLayer->box(b.m_min, b.m_max, v ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0));
+            }
         }
 
-        // Build lists
-        scene::GLTFUnifiedDOD::buildDrawLists(ctx, camera.position());
+        // Store bounds for next frame's GPU debug readback
+        m_lastOpaqueBounds = ctx.opaqueBounds;
+        m_lastOpaqueDrawCount = (uint32_t)ctx.indirectOpaque.size();
+
+        if (m_freezeCullingView && m_drawDebugBounds && debugLayer) {
+            debugLayer->frustum(m_cullingViewMatrix, m_cullingProjMatrix, glm::vec3(1, 1, 0)); // Yellow
+        }
 
         // Update handles back to frame (in case they were recreated)
         frame.transformBuffer = ctx.transformBuffer;
         frame.indirectOpaqueBuffer = ctx.indirectOpaqueBuffer;
         frame.indirectTransmissionBuffer = ctx.indirectTransmissionBuffer;
         frame.indirectTransparentBuffer = ctx.indirectTransparentBuffer;
+
+        // Read back GPU stats from PREVIOUS frame
+        if (m_cullingMode == CullingMode::GPU) {
+            uint32_t prevFrame = (m_currentFrameIndex + m_frames.size() - 1) % m_frames.size();
+            auto* buf = m_renderer->getBuffer(m_cullingResources[prevFrame].cullingBuffer);
+            if (buf) {
+                ShaderGen::culling_comp::CullingData readback;
+                void* ptr = buf->map();
+                if (ptr) {
+                    std::memcpy(&readback, ptr, sizeof(ShaderGen::culling_comp::CullingData));
+                    buf->unmap();
+                    m_visibleMeshCount = readback.numVisibleMeshes;
+                }
+            }
+        }
 
         // 2. STOP DEFAULT PASS
         // We must end the current render pass (started by RHIRenderer::drawFrame) BEFORE
@@ -1289,6 +1492,29 @@ namespace pnkr::renderer
         m_opaqueDrawBuffer->clear();
         m_opaqueDrawBuffer->addCommands(ctx.indirectOpaque);
         m_opaqueDrawBuffer->upload(cmd, m_currentFrameIndex);
+
+        if (m_cullingMode == CullingMode::GPU && !ctx.opaqueBounds.empty()) {
+            std::vector<ShaderGen::culling_comp::BoundingBox> gpuBounds;
+            gpuBounds.reserve(ctx.opaqueBounds.size());
+            for (const auto& b : ctx.opaqueBounds) {
+                gpuBounds.push_back({ glm::vec4(b.m_min, 0.0f), glm::vec4(b.m_max, 0.0f) });
+            }
+
+            size_t size = gpuBounds.size() * sizeof(ShaderGen::culling_comp::BoundingBox);
+            auto& frame = m_frames[m_currentFrameIndex];
+            if (frame.gpuWorldBounds == INVALID_BUFFER_HANDLE || m_renderer->getBuffer(frame.gpuWorldBounds)->size() < size) {
+                if (frame.gpuWorldBounds != INVALID_BUFFER_HANDLE) m_renderer->destroyBuffer(frame.gpuWorldBounds);
+                frame.gpuWorldBounds = m_renderer->createBuffer({
+                    .size = size + 4096,
+                    .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::TransferDst,
+                    .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+                    .debugName = "GPUWorldBounds"
+                });
+            }
+            m_renderer->getBuffer(frame.gpuWorldBounds)->uploadData(gpuBounds.data(), size);
+
+            dispatchCulling(cmd, m_currentFrameIndex, camera, (uint32_t)ctx.indirectOpaque.size());
+        }
 
         m_transmissionDrawBuffer->clear();
         m_transmissionDrawBuffer->addCommands(ctx.indirectTransmission);
@@ -1454,7 +1680,7 @@ namespace pnkr::renderer
             shadowPC.drawable.proj = lightProjMat;
             m_renderer->pushConstants(cmd, m_shadowPipeline, rhi::ShaderStage::Vertex, shadowPC);
 
-            drawIndirect(cmd, *m_shadowDrawBuffer);
+            drawIndirect(cmd, *m_shadowDrawBuffer, m_currentFrameIndex);
 
             cmd->endRendering();
 
@@ -1563,7 +1789,7 @@ namespace pnkr::renderer
                 m_renderer->pushConstants(cmd, opaquePipeline, rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment,
                                           pc);
 
-                drawIndirect(cmd, *m_opaqueDrawBuffer);
+                drawIndirect(cmd, *m_opaqueDrawBuffer, m_currentFrameIndex);
             }
             cmd->endRendering();
             cmd->endDebugLabel();
@@ -1663,7 +1889,7 @@ namespace pnkr::renderer
                 m_renderer->pushConstants(cmd, opaquePipeline, rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment,
                                           pc);
 
-                drawIndirect(cmd, *m_transmissionDrawBuffer);
+                drawIndirect(cmd, *m_transmissionDrawBuffer, m_currentFrameIndex);
             }
 
             // Transparent
@@ -1673,7 +1899,7 @@ namespace pnkr::renderer
                 m_renderer->pushConstants(cmd, m_pipelineTransparent,
                                           rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
 
-                drawIndirect(cmd, *m_transparentDrawBuffer);
+                drawIndirect(cmd, *m_transparentDrawBuffer, m_currentFrameIndex);
             }
             cmd->endRendering();
             cmd->endDebugLabel();
@@ -1980,9 +2206,13 @@ namespace pnkr::renderer
         }
     }
 
-    void IndirectRenderer::drawIndirect(rhi::RHICommandBuffer* cmd, const IndirectDrawBuffer& buffer)
+    void IndirectRenderer::drawIndirect(rhi::RHICommandBuffer* cmd, const IndirectDrawBuffer& buffer, uint32_t frameIndex)
     {
-        auto* rhiBuf = m_renderer->getBuffer(buffer.handle());
+        auto* vkSwapchain = dynamic_cast<rhi::vulkan::VulkanRHISwapchain*>(m_renderer->getSwapchain());
+        TracyContext t_ctx = vkSwapchain ? vkSwapchain->getTracyContext() : nullptr;
+        PNKR_RHI_GPU_ZONE(t_ctx, cmd, "GPU/Indirect/Draw");
+
+        auto* rhiBuf = m_renderer->getBuffer(buffer.handle(frameIndex));
         uint32_t maxDraws = buffer.maxCommands();
         uint32_t stride = sizeof(IndirectCommand);
 

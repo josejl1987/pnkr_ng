@@ -33,6 +33,10 @@ namespace pnkr::renderer::scene {
         std::vector<uint32_t> transmissionMeshIndices;
         std::vector<uint32_t> transparentMeshIndices;
 
+        std::vector<BoundingBox> opaqueBounds;
+        std::vector<BoundingBox> transmissionBounds;
+        std::vector<BoundingBox> transparentBounds;
+
         // Per-pass indirect command buffers (GPU)
         BufferHandle indirectOpaqueBuffer = INVALID_BUFFER_HANDLE;
         BufferHandle indirectTransmissionBuffer = INVALID_BUFFER_HANDLE;
