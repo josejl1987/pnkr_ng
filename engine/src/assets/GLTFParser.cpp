@@ -664,10 +664,23 @@ namespace pnkr::assets {
         const size_t sceneIdx = gltf.defaultScene.value_or(0);
         if (sceneIdx < gltf.scenes.size())
         {
-            for (auto nodeIdx : gltf.scenes[sceneIdx].nodeIndices)
+            const auto& scene = gltf.scenes[sceneIdx];
+
+            ImportedNode sceneRoot;
+            sceneRoot.name = scene.name.empty() ? "SceneRoot" : scene.name;
+            sceneRoot.localTransform = glm::mat4(1.0F);
+            sceneRoot.parentIndex = -1;
+
+            const auto sceneRootIdx = static_cast<int>(model.nodes.size());
+
+            for (auto nodeIdx : scene.nodeIndices)
             {
-                model.rootNodes.push_back((int)nodeIdx);
+                sceneRoot.children.push_back(static_cast<int>(nodeIdx));
+                model.nodes[nodeIdx].parentIndex = sceneRootIdx;
             }
+
+            model.nodes.push_back(std::move(sceneRoot));
+            model.rootNodes.push_back(sceneRootIdx);
         }
     }
 }

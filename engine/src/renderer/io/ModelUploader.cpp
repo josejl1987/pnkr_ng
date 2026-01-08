@@ -302,6 +302,10 @@ namespace pnkr::renderer::io {
             model->scene().setParent(entityMap[rootIdx], ecs::NULL_ENTITY);
         }
 
+        if (!source.rootNodes.empty()) {
+            model->scene().setRoot(entityMap[source.rootNodes[0]]);
+        }
+
         model->camerasMutable() = std::move(source.cameras);
 
         auto& skins = model->skinsMutable();

@@ -34,6 +34,7 @@ namespace pnkr::renderer::scene {
         void setParent(ecs::Entity entity, ecs::Entity parent);
 
         ecs::Entity root() const noexcept { return root_; }
+        void setRoot(ecs::Entity r) noexcept { root_ = r; }
 
         uint32_t materialBaseIndex() const noexcept { return materialBaseIndex_; }
         void setMaterialBaseIndex(uint32_t baseIndex) noexcept { materialBaseIndex_ = baseIndex; }
