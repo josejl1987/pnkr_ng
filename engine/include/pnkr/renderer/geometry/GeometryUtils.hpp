@@ -29,4 +29,4 @@ namespace pnkr::renderer::geometry {
                                const glm::vec4& tan);
     };
 
-} // namespace pnkr::renderer::geometry
+}

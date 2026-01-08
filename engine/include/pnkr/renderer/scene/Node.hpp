@@ -18,8 +18,7 @@ struct Node {
     Transform worldTransform;
     int parentIndex = -1;
     std::vector<int> children;
-    
-    // A node can hold a mesh (which may have multiple primitives)
+
     std::optional<std::vector<MeshPrimitive>> meshPrimitives;
 
     std::string name;

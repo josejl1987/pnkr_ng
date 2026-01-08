@@ -13,14 +13,14 @@ namespace pnkr::renderer::scene {
 
         void init(RHIRenderer& renderer);
 
-        void draw(rhi::RHICommandBuffer* cmd, const Camera& camera) const;
+        void draw(rhi::RHICommandList* cmd, const Camera& camera) const;
 
         void destroy();
 
     private:
         void createGridPipeline();
 
-        RHIRenderer* m_renderer = nullptr; // Stored reference
-        PipelineHandle m_pipeline{INVALID_PIPELINE_HANDLE};
+        RHIRenderer* m_renderer = nullptr;
+        PipelinePtr m_pipeline;
     };
 }

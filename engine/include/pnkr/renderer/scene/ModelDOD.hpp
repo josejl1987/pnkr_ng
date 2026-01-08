@@ -1,142 +1,129 @@
 #pragma once
 
-#include "pnkr/renderer/scene/Model.hpp" // Reuse MaterialData/Light definitions
+#include "pnkr/renderer/material/Material.hpp"
+#include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/SceneGraph.hpp"
-#include "pnkr/renderer/scene/VtxData.hpp"
 #include "pnkr/renderer/scene/Animation.hpp"
 #include "pnkr/renderer/scene/GltfCamera.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/renderer/geometry/GeometryUtils.hpp"
+#include "pnkr/renderer/scene/Bounds.hpp"
+#include "pnkr/assets/ImportedData.hpp"
 #include <filesystem>
 #include <vector>
+#include <span>
+#include <cstddef>
 #include <memory>
+#include <limits>
+
+#include "pnkr/renderer/gpu_shared/SkinningShared.h"
+#include "pnkr/renderer/scene/SceneAssetDatabase.hpp"
+#include "pnkr/renderer/scene/SceneState.hpp"
 
 namespace pnkr::renderer::scene
 {
-    struct PrimitiveDOD
-    {
-        uint32_t firstIndex = 0;
-        uint32_t indexCount = 0;
-        int32_t vertexOffset = 0;
-        uint32_t materialIndex = 0;
-    };
-
-    struct MeshDOD
-    {
-        std::vector<PrimitiveDOD> primitives;
-        std::string name;
-    };
-
-    struct AnimationState
-    {
-        uint32_t animIndex = ~0u;
-        float currentTime = 0.0f;
-        bool isLooping = true;
-        bool isPlaying = false;
-
-        // For smooth transitions (future proofing)
-        float weight = 1.0f;
-    };
-
-    // --- Skeleton Structures ---
-
-    struct MorphTargetInfo
-    {
-        uint32_t meshIndex = ~0u;
-        std::vector<uint32_t> targetOffsets; // Offsets into global delta buffer
-    };
-
-    struct MorphStateGPU
-    {
-        uint32_t meshIndex = ~0u;
-        uint32_t activeTargets[8] = {0};
-        float weights[8] = {0.0f};
-    };
-
     class ModelDOD
     {
     public:
-        ModelDOD();
-        ~ModelDOD();
+        ModelDOD() : m_scene(std::make_unique<SceneGraphDOD>()) {}
+        ~ModelDOD() = default;
 
-        static std::unique_ptr<ModelDOD> load(RHIRenderer& renderer, const std::filesystem::path& path,
-                                              bool vertexPulling = false);
+        const std::vector<MaterialData>& materials() const { return m_assets.materials(); }
+        const std::vector<TextureHandle>& textures() const { return m_assets.textures(); }
+        const std::vector<TextureHandle>& pendingTextures() const { return m_assets.pendingTextures(); }
+        const std::vector<MeshDOD>& meshes() const { return m_assets.meshes(); }
+        const std::vector<BoundingBox>& meshBounds() const { return m_assets.meshBounds(); }
+        const std::vector<Skin>& skins() const { return m_assets.skins(); }
+        const std::vector<Animation>& animations() const { return m_assets.animations(); }
+        std::vector<Skin>& skinsMutable() { return m_assets.skinsMutable(); }
+        std::vector<Animation>& animationsMutable() { return m_assets.animationsMutable(); }
+        const std::vector<GltfCamera>& cameras() const { return m_assets.cameras(); }
+        std::vector<GltfCamera>& camerasMutable() { return m_assets.camerasMutable(); }
 
-        bool saveCache(const std::filesystem::path& path);
-        bool loadCache(const std::filesystem::path& path, RHIRenderer& renderer);
+        std::vector<MorphTargetInfo>& morphTargetInfos() { return m_assets.morphTargetInfosMutable(); }
+        const std::vector<MorphTargetInfo>& morphTargetInfos() const { return m_assets.morphTargetInfos(); }
+        std::vector<gpu::MorphState>& morphStates() { return m_state.morphStates(); }
+        const std::vector<gpu::MorphState>& morphStates() const { return m_state.morphStates(); }
 
-        // Assets
-        const std::vector<MaterialData>& materials() const { return m_materials; }
-        const std::vector<TextureHandle>& textures() const { return m_textures; }
-        const std::vector<MeshDOD>& meshes() const { return m_meshes; }
-        const std::vector<BoundingBox>& meshBounds() const { return m_meshBounds; }
-        const std::vector<Skin>& skins() const { return m_skins; }
-        const std::vector<Animation>& animations() const { return m_animations; }
-        const std::vector<GltfCamera>& cameras() const { return m_cameras; }
+        AnimationState& animationState() { return m_state.animationState(); }
+        const AnimationState& animationState() const { return m_state.animationState(); }
 
-        std::vector<MorphTargetInfo>& morphTargetInfos() { return m_morphTargetInfos; }
-        const std::vector<MorphTargetInfo>& morphTargetInfos() const { return m_morphTargetInfos; }
-        std::vector<MorphStateGPU>& morphStates() { return m_morphStates; }
-        const std::vector<MorphStateGPU>& morphStates() const { return m_morphStates; }
+        std::vector<MaterialData>& materialsMutable() { return m_assets.materialsMutable(); }
+        std::vector<TextureHandle>& texturesMutable() { return m_assets.texturesMutable(); }
+        std::vector<TextureHandle>& pendingTexturesMutable() { return m_assets.pendingTexturesMutable(); }
+        std::vector<MeshDOD>& meshesMutable() { return m_assets.meshesMutable(); }
+        std::vector<BoundingBox>& meshBoundsMutable() { return m_assets.meshBoundsMutable(); }
+        std::vector<MaterialCPU>& materialsCPUMutable() { return m_assets.materialsCPUMutable(); }
+        std::vector<Vertex>& cpuVerticesMutable() { return m_assets.cpuVerticesMutable(); }
+        std::vector<uint32_t>& cpuIndicesMutable() { return m_assets.cpuIndicesMutable(); }
+        std::vector<std::string>& textureFilesMutable() { return m_assets.textureFilesMutable(); }
+        const std::vector<uint8_t>& textureIsSrgb() const { return m_assets.textureIsSrgb(); }
+        std::vector<uint8_t>& textureIsSrgbMutable() { return m_assets.textureIsSrgbMutable(); }
 
-        AnimationState& animationState() { return m_animState; }
-        const AnimationState& animationState() const { return m_animState; }
+        uint32_t appendPrimitiveMeshData(const geometry::MeshData& primitiveData,
+                                                   uint32_t materialIndex,
+                                                   const std::string& name);
 
-        std::vector<MaterialData>& materialsMutable() { return m_materials; }
-        std::vector<TextureHandle>& texturesMutable() { return m_textures; }
-        std::vector<MeshDOD>& meshesMutable() { return m_meshes; }
+        void uploadUnifiedBuffers(RHIRenderer& renderer);
 
         uint32_t addPrimitiveToScene(RHIRenderer& renderer,
                                      const geometry::MeshData& primitiveData,
                                      uint32_t materialIndex = 0,
                                      const glm::mat4& transform = glm::mat4(1.0f),
                                      const std::string& name = "Primitive");
+
         void addPrimitiveMeshes(RHIRenderer& renderer,
                                 const std::vector<geometry::MeshData>& primitives,
                                 const std::vector<std::string>& names,
                                 uint32_t materialIndex = 0);
+
         void dropCpuGeometry();
 
         int32_t addLight(const Light& light, const glm::mat4& transform = glm::mat4(1.0f), const std::string& name = "Light");
+
         void removeLight(int32_t lightIndex);
 
-        const std::vector<MaterialCPU>& materialsCPU() const { return m_materialsCPU; }
-        const std::vector<std::string>& textureFiles() const { return m_textureFiles; }
+        const std::vector<MaterialCPU>& materialsCPU() const { return m_assets.materialsCPU(); }
+        const std::vector<std::string>& textureFiles() const { return m_assets.textureFiles(); }
 
-        // The DOD Scene
         SceneGraphDOD& scene() { return *m_scene; }
         const SceneGraphDOD& scene() const { return *m_scene; }
 
-        // Unified GPU Buffers for geometry
-        BufferHandle vertexBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle indexBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle morphVertexBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle morphStateBuffer = INVALID_BUFFER_HANDLE;
+        // Forwarding buffer pointers is tricky because they are now split.
+        // We will expose getters or leave them if they are public members in the new classes?
+        // In ModelDOD they were public: BufferPtr vertexBuffer;
+        // Now they are in m_assets.vertexBuffer
+        // To maintain compatibility for now, we can use references or just getters.
+        // But for public member access, we can't easily emulate it without getters.
+        // I will add getters and update usages if possible, OR just expose the member.
+        // Given ModelDOD is a "God Class" being broken down, let's expose the sub-objects.
 
-        friend class ModelDODLoader; // Allowing loader access to private members for loading
+        SceneAssetDatabase& assets() { return m_assets; }
+        const SceneAssetDatabase& assets() const { return m_assets; }
+
+        SceneState& state() { return m_state; }
+        const SceneState& state() const { return m_state; }
+
+        // Wrapper getters for buffers
+        BufferPtr vertexBuffer() const { return m_assets.vertexBuffer; }
+        BufferPtr indexBuffer() const { return m_assets.indexBuffer; }
+        BufferPtr boundsBuffer() const { return m_assets.boundsBuffer; }
+        BufferPtr visibleListBuffer() const { return m_visibleListBuffer; }
+        BufferPtr morphVertexBuffer() const { return m_state.morphVertexBuffer; }
+        BufferPtr morphStateBuffer() const { return m_state.morphStateBuffer; }
+
+        // Setters for buffers if needed (or just access via assets()/state())
+        void setMorphVertexBuffer(BufferPtr buffer) { m_state.morphVertexBuffer = buffer; }
+        
+        // This should probably be managed dynamically or in SceneState?
+        // For now we keep it as member but private/accessible via getter.
+        void setVisibleListBuffer(BufferPtr buffer) { m_visibleListBuffer = buffer; }
 
     private:
-        uint32_t appendPrimitiveMeshData(const geometry::MeshData& primitiveData,
-                                         uint32_t materialIndex,
-                                         const std::string& name);
-        void uploadUnifiedBuffers(RHIRenderer& renderer);
-        std::vector<TextureHandle> m_textures;
-        std::vector<MaterialData> m_materials;
-        std::vector<MeshDOD> m_meshes;
-        std::vector<Skin> m_skins;
-        std::vector<Animation> m_animations;
-        std::vector<GltfCamera> m_cameras;
-        std::vector<MorphTargetInfo> m_morphTargetInfos;
-        std::vector<MorphStateGPU> m_morphStates;
-        AnimationState m_animState;
-
-        std::vector<MaterialCPU> m_materialsCPU;
-        std::vector<std::string> m_textureFiles;
-        std::vector<uint8_t> m_textureIsSrgb;
+        SceneAssetDatabase m_assets;
+        SceneState m_state;
+        BufferPtr m_visibleListBuffer{};
 
         std::unique_ptr<SceneGraphDOD> m_scene;
-        std::vector<BoundingBox> m_meshBounds;
-        std::vector<Vertex> m_cpuVertices;
-        std::vector<uint32_t> m_cpuIndices;
     };
-} // namespace pnkr::renderer::scene
+}

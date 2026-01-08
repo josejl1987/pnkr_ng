@@ -32,7 +32,7 @@ namespace pnkr::renderer::scene
         const Sprite* get(SpriteID id) const;
 
         void update(float dt);
-        void render(rhi::RHICommandBuffer* cmd,
+        void render(rhi::RHICommandList* cmd,
                     const Camera& camera,
                     uint32_t viewportW,
                     uint32_t viewportH,
@@ -64,4 +64,4 @@ namespace pnkr::renderer::scene
         std::vector<SpriteSlot> m_slots;
         std::vector<uint32_t> m_freeList;
     };
-} // namespace pnkr::renderer::scene
+}

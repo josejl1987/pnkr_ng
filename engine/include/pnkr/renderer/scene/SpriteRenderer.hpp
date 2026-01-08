@@ -17,7 +17,7 @@ namespace pnkr::renderer::scene
         explicit SpriteRenderer(RHIRenderer& renderer);
         ~SpriteRenderer() = default;
 
-        void uploadAndDraw(rhi::RHICommandBuffer* cmd,
+        void uploadAndDraw(rhi::RHICommandList* cmd,
                            const Camera& camera,
                            uint32_t viewportW,
                            uint32_t viewportH,
@@ -27,18 +27,16 @@ namespace pnkr::renderer::scene
     private:
         RHIRenderer& m_renderer;
 
-        MeshHandle m_quadMesh{INVALID_MESH_HANDLE};
+        MeshPtr m_quadMesh;
 
-        // World
-        PipelineHandle m_worldCutoutPipeline{INVALID_PIPELINE_HANDLE};
-        PipelineHandle m_worldAlphaPipeline{INVALID_PIPELINE_HANDLE};
-        PipelineHandle m_worldAdditivePipeline{INVALID_PIPELINE_HANDLE};
-        PipelineHandle m_worldPremultipliedPipeline{INVALID_PIPELINE_HANDLE};
+        PipelinePtr m_worldCutoutPipeline;
+        PipelinePtr m_worldAlphaPipeline;
+        PipelinePtr m_worldAdditivePipeline;
+        PipelinePtr m_worldPremultipliedPipeline;
 
-        // UI
-        PipelineHandle m_uiAlphaPipeline{INVALID_PIPELINE_HANDLE};
-        PipelineHandle m_uiAdditivePipeline{INVALID_PIPELINE_HANDLE};
-        PipelineHandle m_uiPremultipliedPipeline{INVALID_PIPELINE_HANDLE};
+        PipelinePtr m_uiAlphaPipeline;
+        PipelinePtr m_uiAdditivePipeline;
+        PipelinePtr m_uiPremultipliedPipeline;
 
         struct FrameResources
         {
@@ -50,11 +48,11 @@ namespace pnkr::renderer::scene
         std::vector<FrameResources> m_frames;
 
         rhi::RHIDescriptorSetLayout* m_instanceLayout = nullptr;
-        uint32_t m_whiteTextureIndex = 0xFFFFFFFFu;
-        uint32_t m_defaultSamplerIndex = 0;
+        rhi::TextureBindlessHandle m_whiteTextureIndex;
+        rhi::SamplerBindlessHandle m_defaultSamplerIndex;
 
         void createQuadMesh();
         void createPipelines();
         void ensureFrameCapacity(FrameResources& frame, size_t requiredInstances, uint32_t frameIndex);
     };
-} // namespace pnkr::renderer::scene
+}

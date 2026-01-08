@@ -2,8 +2,11 @@
 
 #include "pnkr/rhi/rhi_types.hpp"
 #include <filesystem>
+#include <cstddef>
+#include <ktx.h>
 #include <string>
 #include <vector>
+#include <span>
 
 #include "pnkr/rhi/rhi_texture.hpp"
 
@@ -23,7 +26,12 @@ namespace pnkr::renderer
         uint32_t numFaces = 1;
         bool isCubemap = false;
         bool isArray = false;
-        std::vector<uint8_t> data;
+
+        const uint8_t* dataPtr = nullptr;
+        size_t dataSize = 0;
+
+        std::vector<uint8_t> ownedData;
+        std::vector<uint64_t> mipFileOffsets;
     };
 
     class KTXUtils
@@ -31,8 +39,28 @@ namespace pnkr::renderer
     public:
         static bool loadFromFile(const std::filesystem::path& path,
                                  KTXTextureData& out,
-                                 std::string* error = nullptr);
+                                 std::string* error = nullptr,
+                                 bool headerOnly = false);
+        static bool loadFromMemory(std::span<const std::byte> data,
+                                   KTXTextureData& out,
+                                   std::string* error = nullptr);
+
+        static bool saveToFile(const std::filesystem::path& path,
+                               ktxTexture2* texture,
+                               std::string* error = nullptr);
+
+        static ktxTexture2* createKTX2Texture(std::span<const std::byte> pixels,
+                                               uint32_t width,
+                                               uint32_t height,
+                                               bool srgb,
+                                               std::string* error = nullptr);
 
         static void destroy(KTXTextureData& data);
+
+        static bool isOpenCLAvailable();
+
+        static uint64_t getImageFileOffset(const KTXTextureData& data, uint32_t level, uint32_t layer, uint32_t face);
+
+        static rhi::Format mapKtx2VkFormatToRhi(uint32_t vkFormat);
     };
-} // namespace pnkr::renderer
+}

@@ -6,16 +6,15 @@
 
 namespace pnkr::renderer::scene
 {
-    // --- Skeleton Structures ---
+
     struct Skin
     {
         std::string name;
-        std::vector<glm::mat4> inverseBindMatrices; // Configured pose -> local bone space
-        std::vector<uint32_t> joints;               // Indices into node hierarchy
+        std::vector<glm::mat4> inverseBindMatrices;
+        std::vector<uint32_t> joints;
         int skeletonRootNode = -1;
     };
 
-    // --- Animation Structures ---
     enum class InterpolationType
     {
         Linear,
@@ -34,14 +33,14 @@ namespace pnkr::renderer::scene
     struct AnimationSampler
     {
         InterpolationType interpolation;
-        std::vector<float> inputs;      // Time keys
-        std::vector<glm::vec4> outputs; // Data (Vec3 position/scale stored as Vec4, Quat stored as Vec4)
+        std::vector<float> inputs;
+        std::vector<glm::vec4> outputs;
     };
 
     struct AnimationChannel
     {
         int samplerIndex;
-        uint32_t targetNode; // Index into node hierarchy
+        uint32_t targetNode;
         AnimationPath path;
     };
 
@@ -52,4 +51,4 @@ namespace pnkr::renderer::scene
         std::vector<AnimationChannel> channels;
         float duration = 0.0f;
     };
-} // namespace pnkr::renderer::scene
+}

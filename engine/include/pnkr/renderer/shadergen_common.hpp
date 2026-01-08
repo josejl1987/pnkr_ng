@@ -12,19 +12,15 @@
 
 namespace ShaderGen
 {
-    // Byte padding that is safe for N==0.
+
     template <size_t N>
     struct Pad
     {
         std::array<std::byte, N> bytes{};
     };
 
-    // 32-bit bool in SPIR-V interface blocks (std140/std430 rules).
     using Bool = uint32_t;
 
-    // Represents a SPIR-V runtime array member (e.g., `T data[];`).
-    // This has no fixed size and therefore cannot participate in sizeof-based assertions.
-    // It exists purely to preserve the member name/type in generated headers.
     template <typename T>
     struct RuntimeArray
     {
@@ -33,9 +29,6 @@ namespace ShaderGen
 
     static_assert(std::is_standard_layout_v<RuntimeArray<uint32_t>>);
 
-
-    // Buffer-reference / device-address representation on CPU side.
-    // (You push this as an address or store it in a UBO/SSBO CPU mirror.)
     struct DeviceAddress
     {
         uint64_t value = 0;
@@ -54,7 +47,6 @@ namespace ShaderGen
         operator uint64_t() const { return value; }
     };
 
-    // Vec4-like POD with glm assignment support.
     template <typename T>
     struct Vec4
     {
@@ -66,7 +58,6 @@ namespace ShaderGen
         {
         }
 
-        // glm convenience for float specialization
         Vec4(const glm::vec4& v) requires (std::is_same_v<T, float>)
         {
             x = v.x;
@@ -90,7 +81,6 @@ namespace ShaderGen
         }
     };
 
-    // Mat4 POD with glm assignment support (column-major float32).
     struct Mat4
     {
         std::array<float, 16> m{};
@@ -118,12 +108,10 @@ namespace ShaderGen
         }
     };
 
-    // Fixed-size scalar vectors with std140-friendly padding for vec3 (32-bit scalar).
     template <typename T>
     struct Vec2
     {
         T x{}, y{};
-
 
         Vec2() = default;
 
@@ -131,7 +119,6 @@ namespace ShaderGen
         {
         }
 
-        // glm convenience for float specialization
         Vec2(const glm::vec3& v) requires (std::is_same_v<T, float>)
         {
             x = v.x;
@@ -156,15 +143,12 @@ namespace ShaderGen
     {
         T x{}, y{}, z{};
 
-
         Vec3() = default;
 
         Vec3(T _x, T _y, T _z) : x(_x), y(_y), z(_z)
         {
         }
 
-
-        // glm convenience for float specialization
         Vec3(const glm::vec3& v) requires (std::is_same_v<T, float>)
         {
             x = v.x;
@@ -195,4 +179,4 @@ namespace ShaderGen
     using UInt2 = Vec2<uint32_t>;
     using UInt3 = Vec3<uint32_t>;
     using UInt4 = Vec4<uint32_t>;
-} // namespace ShaderGen
+}

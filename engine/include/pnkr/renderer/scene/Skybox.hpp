@@ -8,26 +8,31 @@
 
 namespace pnkr::renderer::scene {
 
-
-
     class Skybox {
     public:
-        // Changed: Removed the manual loadSpirv helper (we use RHI Factory)
-        // We store the renderer pointer in init.
+
         void init(RHIRenderer& renderer, const std::vector<std::filesystem::path>& faces);
         void init(RHIRenderer& renderer, TextureHandle cubemap);
+        void initFromEquirectangular(RHIRenderer& renderer, const std::filesystem::path& path);
 
-        // Changed: Renderer is no longer a parameter
-        void draw(rhi::RHICommandBuffer* cmd, const Camera& camera);
+        void draw(rhi::RHICommandList* cmd, const Camera& camera);
+        void resize(uint32_t msaaSamples);
 
-        // Cleanup resources
         void destroy();
+        [[nodiscard]] bool isValid() const;
+        TextureHandle getTexture() const { return m_cubemapHandle; }
+        void setFlipY(bool flipY) { m_flipY = flipY; }
+        void setRotation(float rotationDeg) { m_rotation = rotationDeg; }
+        float getRotation() const { return m_rotation; }
 
     private:
         void createSkyboxPipeline();
 
-        RHIRenderer* m_renderer = nullptr; // Stored reference
+        RHIRenderer* m_renderer = nullptr;
         TextureHandle m_cubemapHandle{INVALID_TEXTURE_HANDLE};
-        PipelineHandle m_pipeline{INVALID_PIPELINE_HANDLE};
+        PipelinePtr m_pipeline;
+        bool m_flipY = false;
+        float m_rotation = 0.0f;
+        uint32_t m_msaaSamples = 1;
     };
 }

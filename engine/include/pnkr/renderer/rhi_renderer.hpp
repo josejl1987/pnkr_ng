@@ -10,24 +10,32 @@
 #include "pnkr/rhi/rhi_sampler.hpp"
 #include "pnkr/rhi/rhi_descriptor.hpp"
 #include "pnkr/core/Handle.h"
+#include "pnkr/core/Pool.hpp"
 #include "pnkr/platform/window.hpp"
-#include "pnkr/debug/RenderDoc.hpp"
+#include "pnkr/renderer/AssetManager.hpp"
+#include "pnkr/renderer/SystemMeshes.hpp"
 
 #include <functional>
 #include <memory>
 #include <vector>
+#include <cstddef>
+#include <optional>
 #include <filesystem>
 
 #include "renderer_config.hpp"
+#include "RHIDeviceContext.hpp"
+#include "RHIResourceManager.hpp"
+#include "RHISwapchainManager.hpp"
+#include "RHIPipelineCache.hpp"
+#include "RenderContext.hpp"
 
 namespace pnkr::renderer
 {
     struct Vertex;
 
-    // Frame context for recording commands
     struct RHIFrameContext
     {
-        rhi::RHICommandBuffer* commandBuffer;
+        rhi::RHICommandList* commandBuffer;
         rhi::RHITexture* backBuffer;
         rhi::RHITexture* depthBuffer;
         uint32_t frameIndex;
@@ -36,6 +44,13 @@ namespace pnkr::renderer
 
     using RHIRecordFunc = std::function<void(const RHIFrameContext&)>;
 
+    struct MeshView {
+        rhi::RHIBuffer* vertexBuffer = nullptr;
+        rhi::RHIBuffer* indexBuffer = nullptr;
+        uint32_t indexCount = 0;
+        bool vertexPulling = false;
+    };
+
     class RHIRenderer
     {
     public:
@@ -43,128 +58,110 @@ namespace pnkr::renderer
                             const RendererConfig& config = RendererConfig{});
         ~RHIRenderer();
 
-        // Disable copy/move
         RHIRenderer(const RHIRenderer&) = delete;
         RHIRenderer& operator=(const RHIRenderer&) = delete;
         RHIRenderer(RHIRenderer&&) = delete;
         RHIRenderer& operator=(RHIRenderer&&) = delete;
 
-        // Frame management
         void beginFrame(float deltaTime);
         void drawFrame();
         void endFrame();
         void resize(int width, int height);
-        MeshHandle loadNoVertexPulling(const std::vector<Vertex>& vertices,
+        MeshPtr loadNoVertexPulling(const std::vector<Vertex>& vertices,
                                        const std::vector<uint32_t>& indices);
-        MeshHandle loadVertexPulling(const std::vector<Vertex>& vertices,
+        MeshPtr loadVertexPulling(const std::vector<Vertex>& vertices,
                                        const std::vector<uint32_t>& indices);
 
-        // Resource creation
-        MeshHandle createMesh(const std::vector<struct Vertex>& vertices,
+        MeshPtr createMesh(const std::vector<struct Vertex>& vertices,
                               const std::vector<uint32_t>& indices, bool enableVertexPulling);
-        TextureHandle createTexture(const unsigned char* data, int width, int height, int channels, bool srgb = true,
-                                    bool isSigned = false);
 
+        TexturePtr createTexture(const char* name, const rhi::TextureDescriptor& desc);
+        TexturePtr createTexture(const rhi::TextureDescriptor& desc)
+        {
+            const char* name = desc.debugName.empty() ? "Texture" : desc.debugName.c_str();
+            return createTexture(name, desc);
+        }
 
-        TextureHandle createTexture(const rhi::TextureDescriptor& desc);
-
-        TextureHandle createTextureView(TextureHandle parent, const rhi::TextureViewDescriptor& desc);
-
-        TextureHandle loadTexture(const std::filesystem::path& filepath,
-                                 bool srgb = true);
-
-        TextureHandle loadTextureKTX(const std::filesystem::path& filepath, bool srgb = true);
-
-        TextureHandle createCubemap(const std::vector<std::filesystem::path>& faces,
-                                   bool srgb = true);
+        TexturePtr createTextureView(const char* name, TextureHandle parent, const rhi::TextureViewDescriptor& desc);
+        TexturePtr createTextureView(TextureHandle parent, const rhi::TextureViewDescriptor& desc)
+        {
+            return createTextureView("TextureView", parent, desc);
+        }
 
         void destroyTexture(TextureHandle handle);
         void destroyBuffer(BufferHandle handle);
+        void deferDestroyBuffer(BufferHandle handle);
         void destroyMesh(MeshHandle handle);
 
-        BufferHandle createBuffer(const rhi::BufferDescriptor& desc);
+        void replaceTexture(TextureHandle handle, TextureHandle source);
+        bool isValid(TextureHandle handle) const;
 
-        PipelineHandle createGraphicsPipeline(const rhi::GraphicsPipelineDescriptor& desc);
-        PipelineHandle createComputePipeline(const rhi::ComputePipelineDescriptor& desc);
+        BufferPtr createBuffer(const char* name, const rhi::BufferDescriptor& desc);
+        BufferPtr createBuffer(const rhi::BufferDescriptor& desc)
+        {
+            const char* name = desc.debugName.empty() ? "Buffer" : desc.debugName.c_str();
+            return createBuffer(name, desc);
+        }
 
-        // Command recording
+        PipelinePtr createGraphicsPipeline(const rhi::GraphicsPipelineDescriptor& desc);
+        PipelinePtr createComputePipeline(const rhi::ComputePipelineDescriptor& desc);
+
+        void hotSwapPipeline(PipelineHandle handle, const rhi::GraphicsPipelineDescriptor& desc);
+        void hotSwapPipeline(PipelineHandle handle, const rhi::ComputePipelineDescriptor& desc);
+
         void setRecordFunc(const RHIRecordFunc& callback);
         void setComputeRecordFunc(const RHIRecordFunc& callback) { m_computeRecordCallback = callback; }
+        void setUseDefaultRenderPass(bool enabled) { m_useDefaultRenderPass = enabled; }
+        [[nodiscard]] bool useDefaultRenderPass() const { return m_useDefaultRenderPass; }
 
-        // Drawing commands (to be used within record callback)
-        void bindPipeline(rhi::RHICommandBuffer* cmd, PipelineHandle handle);
-        void bindComputePipeline(rhi::RHICommandBuffer* cmd, PipelineHandle handle)
-        {
-            bindPipeline(cmd, handle); // Pipelines know their bind point
-        }
-        void bindMesh(rhi::RHICommandBuffer* cmd, MeshHandle handle);
-        void drawMesh(rhi::RHICommandBuffer* cmd, MeshHandle handle);
-        void drawMeshInstanced(rhi::RHICommandBuffer* cmd, MeshHandle handle, uint32_t instanceCount);
-        void drawMeshBaseInstance(rhi::RHICommandBuffer* cmd, MeshHandle handle, uint32_t firstInstance);
-        void bindDescriptorSet(rhi::RHICommandBuffer* cmd,
-                               PipelineHandle handle,
-                               uint32_t setIndex,
-                               rhi::RHIDescriptorSet* descriptorSet);
-
-        // Push constants
-        template <typename T>
-        void pushConstants(rhi::RHICommandBuffer* cmd,
-                          PipelineHandle pipe,
-                          rhi::ShaderStage stages,
-                          const T& data,
-                          uint32_t offset = 0)
-        {
-            static_assert(std::is_trivially_copyable_v<T>,
-                         "pushConstants<T>: T must be trivially copyable");
-            
-            auto* pipeline = getPipeline(pipe);
-            cmd->pushConstants(pipeline, stages, offset, sizeof(T), &data);
-        }
-
-        // Texture/descriptor access
+        [[nodiscard]] std::optional<MeshView> getMeshView(MeshHandle handle) const;
         [[nodiscard]] rhi::RHITexture* getTexture(TextureHandle handle) const;
-        [[nodiscard]] uint32_t getTextureBindlessIndex(TextureHandle handle) const;
+        [[nodiscard]] rhi::TextureBindlessHandle getTextureBindlessIndex(TextureHandle handle) const;
+        [[nodiscard]] rhi::TextureBindlessHandle getStorageImageBindlessIndex(TextureHandle handle);
+        void updateTextureBindlessDescriptor(TextureHandle handle);
+        [[nodiscard]] rhi::TextureBindlessHandle
+        getStorageImageBindlessIndex(rhi::RHITexture *texture) const;
 
-        // Existing API: linear samplers by address mode
-        [[nodiscard]] uint32_t getBindlessSamplerIndex(rhi::SamplerAddressMode addressMode) const;
+        [[nodiscard]] rhi::SamplerBindlessHandle getBindlessSamplerIndex(rhi::SamplerAddressMode addressMode) const;
 
-        // New API: select filtering + address mode (for sprites / pixel art / UI)
-        [[nodiscard]] uint32_t getBindlessSamplerIndex(rhi::Filter filter,
-                                                      rhi::SamplerAddressMode addressMode) const;
-        [[nodiscard]] uint32_t getShadowSamplerIndex() const { return m_shadowSamplerIndex; }
+        [[nodiscard]] rhi::SamplerBindlessHandle getBindlessSamplerIndex(rhi::Filter filter,
+                                                                          rhi::SamplerAddressMode addressMode) const;
+        [[nodiscard]] rhi::SamplerBindlessHandle getShadowSamplerIndex() const { return m_shadowSamplerIndex; }
 
-        // Buffer access
         [[nodiscard]] rhi::RHIBuffer* getBuffer(BufferHandle handle) const;
-        [[nodiscard]] uint32_t getBufferBindlessIndex(BufferHandle handle) const;
+        [[nodiscard]] rhi::BufferBindlessHandle getBufferBindlessIndex(BufferHandle handle) const;
+        [[nodiscard]] uint64_t getBufferDeviceAddress(BufferHandle handle) const;
 
         [[nodiscard]] uint32_t getMeshIndexCount(MeshHandle handle) const;
         uint64_t getMeshVertexBufferAddress(MeshHandle handle) const;
 
-        // Format queries
         rhi::Format getDrawColorFormat() const;
         rhi::Format getDrawDepthFormat() const;
         rhi::Format getSwapchainColorFormat() const;
 
-        // Device access
-        rhi::RHIDevice* device() const { return m_device.get(); }
-        rhi::RHISwapchain* getSwapchain() const { return m_swapchain.get(); }
+        [[nodiscard]] uint32_t getFrameIndex() const { return m_frameIndex; }
+        rhi::RHIDevice* device() const { return m_deviceContext->device(); }
+        rhi::RHISwapchain* getSwapchain() const { return m_swapchainManager->swapchain(); }
         rhi::RHITexture* getBackbuffer() const { return m_backbuffer; }
         rhi::RHITexture* getBackbufferTexture() const { return m_backbuffer; }
         rhi::RHITexture* getDepthTexture() const { return m_depthTarget.get(); }
 
         void setVsync(bool enabled);
+        [[nodiscard]] bool isVsyncEnabled() const { return m_vsync; }
 
-        // Bindless support
+        AssetManager* assets() const { return m_assets.get(); }
+
+        RHIResourceManager* resourceManager() const { return m_resourceManager.get(); }
+        RHIPipelineCache* pipelineCache() const { return m_pipelineCache.get(); }
+
         void setBindlessEnabled(bool enabled);
         rhi::RHIPipeline* pipeline(PipelineHandle handle);
         bool isBindlessEnabled() const noexcept { return m_useBindless; }
         bool hasBindlessSupport() const noexcept { return m_bindlessSupported; }
         bool checkDrawIndirectCountSupport() const;
 
-        // Pipeline access
         [[nodiscard]] rhi::RHIPipeline* getPipeline(PipelineHandle handle);
 
-        // Global Lighting
         void setGlobalIBL(TextureHandle irradiance, TextureHandle prefilter, TextureHandle brdfLut);
         [[nodiscard]] rhi::RHIDescriptorSet* getGlobalLightingDescriptorSet() const { return m_globalLightingSet.get(); }
         [[nodiscard]] rhi::RHIDescriptorSetLayout* getGlobalLightingDescriptorSetLayout() const { return m_globalLightingLayout.get(); }
@@ -172,19 +169,25 @@ namespace pnkr::renderer
         [[nodiscard]] TextureHandle getBlackTexture() const { return m_blackTexture; }
         [[nodiscard]] TextureHandle getFlatNormalTexture() const { return m_flatNormalTexture; }
 
-        pnkr::debug::RenderDoc& renderdoc() { return m_renderdoc; }
-        const pnkr::debug::RenderDoc& renderdoc() const { return m_renderdoc; }
+        SystemMeshes& getSystemMeshes() { return m_systemMeshes; }
+        const SystemMeshes& getSystemMeshes() const { return m_systemMeshes; }
 
     private:
-        // Window reference
+
         platform::Window& m_window;
 
-        // RHI objects
-        std::unique_ptr<rhi::RHIDevice> m_device;
-        std::unique_ptr<rhi::RHISwapchain> m_swapchain;
-        std::vector<std::unique_ptr<rhi::RHICommandBuffer>> m_commandBuffers;
-        rhi::RHICommandBuffer* m_activeCommandBuffer = nullptr;
+        std::unique_ptr<RHIDeviceContext> m_deviceContext;
+        std::unique_ptr<RHIResourceManager> m_resourceManager;
+        std::unique_ptr<RHISwapchainManager> m_swapchainManager;
+        std::unique_ptr<RHIPipelineCache> m_pipelineCache;
+        std::unique_ptr<RenderContext> m_renderContext;
+
+        std::unique_ptr<AssetManager> m_assets;
+        SystemMeshes m_systemMeshes;
+
+        rhi::RHICommandList* m_activeCommandBuffer = nullptr;
         rhi::SwapchainFrame m_currentFrame{};
+
         std::unique_ptr<rhi::RHISampler> m_defaultSampler;
         std::unique_ptr<rhi::RHISampler> m_repeatSampler;
         std::unique_ptr<rhi::RHISampler> m_clampSampler;
@@ -195,79 +198,61 @@ namespace pnkr::renderer
         std::unique_ptr<rhi::RHISampler> m_clampSamplerNearest;
         std::unique_ptr<rhi::RHISampler> m_mirrorSamplerNearest;
 
-        uint32_t m_repeatSamplerIndex = 0xFFFFFFFF;
-        uint32_t m_clampSamplerIndex = 0xFFFFFFFF;
-        uint32_t m_mirrorSamplerIndex = 0xFFFFFFFF;
-        uint32_t m_shadowSamplerIndex = 0xFFFFFFFF;
+        rhi::SamplerBindlessHandle m_repeatSamplerIndex;
+        rhi::SamplerBindlessHandle m_clampSamplerIndex;
+        rhi::SamplerBindlessHandle m_mirrorSamplerIndex;
+        rhi::SamplerBindlessHandle m_shadowSamplerIndex;
 
-        uint32_t m_repeatSamplerNearestIndex = 0xFFFFFFFF;
-        uint32_t m_clampSamplerNearestIndex = 0xFFFFFFFF;
-        uint32_t m_mirrorSamplerNearestIndex = 0xFFFFFFFF;
+        rhi::SamplerBindlessHandle m_repeatSamplerNearestIndex;
+        rhi::SamplerBindlessHandle m_clampSamplerNearestIndex;
+        rhi::SamplerBindlessHandle m_mirrorSamplerNearestIndex;
 
-        // Resources
-        struct MeshData {
-            std::unique_ptr<rhi::RHIBuffer> m_vertexBuffer;
-            std::unique_ptr<rhi::RHIBuffer> m_indexBuffer;
-            uint32_t m_vertexCount;
-            uint32_t m_indexCount;
-            bool m_vertexPulling;
-        };
-        std::vector<MeshData> m_meshes;
-
-        struct TextureData {
-            std::shared_ptr<rhi::RHITexture> texture;
-            uint32_t bindlessIndex;
-        };
-        std::vector<TextureData> m_textures;
-
-        struct BufferData {
-            std::unique_ptr<rhi::RHIBuffer> buffer;
-            uint32_t bindlessIndex = 0xFFFFFFFF;
-        };
-        std::vector<BufferData> m_buffers;
-
-        std::vector<std::unique_ptr<rhi::RHIPipeline>> m_pipelines;
-
-        // Render targets
-        // Backbuffer is owned by the swapchain; depth is device-owned.
         rhi::RHITexture* m_backbuffer = nullptr;
         std::unique_ptr<rhi::RHITexture> m_depthTarget;
         rhi::ResourceLayout m_depthLayout = rhi::ResourceLayout::Undefined;
 
-        // Frame state
         RHIRecordFunc m_recordCallback;
         RHIRecordFunc m_computeRecordCallback;
         bool m_frameInProgress = false;
         float m_deltaTime = 0.0f;
         uint32_t m_frameIndex = 0;
+        std::vector<uint64_t> m_frameSlotRetireValues;
+        std::vector<uint32_t> m_frameSlotFrameIndices;
 
-        // Config
         bool m_bindlessSupported = false;
         bool m_useBindless = false;
-        TextureHandle m_whiteTexture{INVALID_TEXTURE_HANDLE};
-        TextureHandle m_blackTexture{INVALID_TEXTURE_HANDLE};
-        TextureHandle m_flatNormalTexture{INVALID_TEXTURE_HANDLE};
+        bool m_useDefaultRenderPass = true;
+        bool m_vsync = true;
+        TextureHandle m_whiteTexture = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_blackTexture = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_flatNormalTexture = INVALID_TEXTURE_HANDLE;
 
-        // Global lighting
         std::unique_ptr<rhi::RHIDescriptorSetLayout> m_globalLightingLayout;
         std::unique_ptr<rhi::RHIDescriptorSet> m_globalLightingSet;
 
-        // Debug tools
-        pnkr::debug::RenderDoc m_renderdoc;
+        BufferPtr m_persistentStagingBuffer;
+        uint8_t* m_persistentStagingMapped = nullptr;
+        uint64_t m_persistentStagingCapacity = 0;
 
-        // Helper methods
         void createRenderTargets();
         void createDefaultResources();
+        void createPersistentStagingBuffer(uint64_t size);
+        void destroyPersistentStagingBuffer();
         TextureHandle createWhiteTexture();
         TextureHandle createBlackTexture();
         TextureHandle createFlatNormalTexture();
-        void uploadToBuffer(rhi::RHIBuffer* target, const void* data, uint64_t size);
+        void uploadToBuffer(rhi::RHIBuffer* target, std::span<const std::byte> data, uint64_t offset = 0);
+
+        void prepareRenderPass(const RHIFrameContext& context);
+        void executeRenderPass(const RHIFrameContext& context);
+        void updateMemoryStatistics();
+
     };
 
     struct ScopedDebugGroup
     {
-        rhi::RHICommandBuffer* cmd;
-        ScopedDebugGroup(rhi::RHICommandBuffer* c, const char* name, float r = 1.0f, float g = 1.0f, float b = 1.0f)
+        rhi::RHICommandList* cmd;
+        ScopedDebugGroup(rhi::RHICommandList* c, const char* name, float r = 1.0f, float g = 1.0f, float b = 1.0f)
             : cmd(c)
         {
             if (cmd) cmd->beginDebugLabel(name, r, g, b, 1.0f);
@@ -278,4 +263,4 @@ namespace pnkr::renderer
         }
     };
 
-} // namespace pnkr::renderer
+}

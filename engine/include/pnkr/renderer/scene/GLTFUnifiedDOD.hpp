@@ -1,71 +1,106 @@
-﻿#pragma once
+#pragma once
 
-#include "pnkr/renderer/scene/GLTFUnified.hpp"
+#include "pnkr/renderer/scene/Bounds.hpp"
 #include "pnkr/renderer/scene/ModelDOD.hpp"
+#include "pnkr/renderer/scene/SceneUploader.hpp"
 #include "pnkr/rhi/rhi_command_buffer.hpp"
+#include "pnkr/renderer/gpu_shared/SceneShared.h"
+#include "pnkr/core/LinearAllocator.hpp"
+#include "pnkr/renderer/scene/RenderBatcher.hpp"
+#include "pnkr/renderer/scene/SceneBufferPacker.hpp"
+#include "pnkr/renderer/scene/MaterialPipelineMap.hpp"
 
+#include <bit>
 #include <cstddef>
 #include <vector>
 
-namespace ShaderGen { namespace indirect_frag { struct MetallicRoughnessDataGPU; } }
+#include "pnkr/renderer/gpu_shared/CullingShared.h"
 
 namespace pnkr::renderer::scene {
 
-    struct GLTFUnifiedDODContext {
+    struct DrawLists {
+        BoundingBox* opaqueBounds = nullptr;
+        uint32_t opaqueBoundsCount = 0;
+        BoundingBox* opaqueDoubleSidedBounds = nullptr;
+        uint32_t opaqueDoubleSidedBoundsCount = 0;
+
+        BoundingBox* transmissionBounds = nullptr;
+        uint32_t transmissionBoundsCount = 0;
+        BoundingBox* transmissionDoubleSidedBounds = nullptr;
+        uint32_t transmissionDoubleSidedBoundsCount = 0;
+
+        BoundingBox* transparentBounds = nullptr;
+        uint32_t transparentBoundsCount = 0;
+    };
+
+    struct GLTFUnifiedDODContext : DrawLists {
         RHIRenderer* renderer = nullptr;
         ModelDOD* model = nullptr;
 
-        // GPU buffers
-        BufferHandle transformBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle materialBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle environmentBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle perFrameBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle lightBuffer = INVALID_BUFFER_HANDLE;
+        BufferPtr transformBuffer;
+        uint64_t transformBufferOffset = 0;
+        uint64_t transformBufferSize = 0;
+        BufferPtr materialBuffer;
+        BufferPtr environmentBuffer;
+        BufferPtr perFrameBuffer;
+        BufferPtr lightBuffer;
 
-        // CPU-side lists
-        std::vector<GLTFTransformGPU> transforms;
-        std::vector<renderer::rhi::DrawIndexedIndirectCommand> indirectOpaque;
-        std::vector<renderer::rhi::DrawIndexedIndirectCommand> indirectTransmission;
-        std::vector<renderer::rhi::DrawIndexedIndirectCommand> indirectTransparent;
+        gpu::InstanceData* transforms = nullptr;
+        uint32_t transformCount = 0;
+        uint32_t transformCapacity = 0;
+        uint64_t vertexBufferOverride = 0;
 
-        // Parallel arrays to track which MeshDOD index corresponds to the draw command
-        std::vector<uint32_t> opaqueMeshIndices;
-        std::vector<uint32_t> transmissionMeshIndices;
-        std::vector<uint32_t> transparentMeshIndices;
+        gpu::DrawIndexedIndirectCommandGPU* indirectOpaque = nullptr;
+        uint32_t opaqueCount = 0;
+        gpu::DrawIndexedIndirectCommandGPU* indirectOpaqueDoubleSided = nullptr;
+        uint32_t opaqueDoubleSidedCount = 0;
 
-        std::vector<BoundingBox> opaqueBounds;
-        std::vector<BoundingBox> transmissionBounds;
-        std::vector<BoundingBox> transparentBounds;
+        gpu::DrawIndexedIndirectCommandGPU* indirectTransmission = nullptr;
+        uint32_t transmissionCount = 0;
+        gpu::DrawIndexedIndirectCommandGPU* indirectTransmissionDoubleSided = nullptr;
+        uint32_t transmissionDoubleSidedCount = 0;
 
-        // Per-pass indirect command buffers (GPU)
-        BufferHandle indirectOpaqueBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle indirectTransmissionBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle indirectTransparentBuffer = INVALID_BUFFER_HANDLE;
+        gpu::DrawIndexedIndirectCommandGPU* indirectTransparent = nullptr;
+        uint32_t transparentCount = 0;
+
+        uint32_t* opaqueMeshIndices = nullptr;
+        uint32_t opaqueMeshCount = 0;
+        uint32_t* opaqueDoubleSidedMeshIndices = nullptr;
+        uint32_t opaqueDoubleSidedMeshCount = 0;
+
+        uint32_t* transmissionMeshIndices = nullptr;
+        uint32_t transmissionMeshCount = 0;
+        uint32_t* transmissionDoubleSidedMeshIndices = nullptr;
+        uint32_t transmissionDoubleSidedMeshCount = 0;
+
+        uint32_t* transparentMeshIndices = nullptr;
+        uint32_t transparentMeshCount = 0;
+
+        BufferPtr indirectOpaqueBuffer;
+        BufferPtr indirectOpaqueDoubleSidedBuffer;
+        BufferPtr indirectTransmissionBuffer;
+        BufferPtr indirectTransmissionDoubleSidedBuffer;
+        BufferPtr indirectTransparentBuffer;
 
         bool mergeByMaterial = true;
+        bool ignoreVisibility = false;
+        bool uploadTransformBuffer = true;
+        bool uploadIndirectBuffers = true;
 
         bool volumetricMaterial = false;
         uint32_t activeLightCount = 0;
+        uint32_t systemMeshCount = 0;
 
-        // Pipelines
-        PipelineHandle pipelineSolid = INVALID_PIPELINE_HANDLE;
-        PipelineHandle pipelineTransmission = INVALID_PIPELINE_HANDLE;
-        PipelineHandle pipelineTransparent = INVALID_PIPELINE_HANDLE;
+        MaterialPipelineMap pipelines;
     };
 
     class GLTFUnifiedDOD {
     public:
-        static void buildDrawLists(GLTFUnifiedDODContext& ctx, const glm::vec3& cameraPos);
+        static void buildDrawLists(GLTFUnifiedDODContext& ctx,
+                                   const glm::vec3& cameraPos,
+                                   core::LinearAllocator& allocator);
 
-        // Fix: Use fully qualified namespace for CommandBuffer
-        static void render(GLTFUnifiedDODContext& ctx, renderer::rhi::RHICommandBuffer& cmd);
+       static void render(GLTFUnifiedDODContext& ctx, renderer::rhi::RHICommandList& cmd);
     };
 
-    void uploadMaterials(GLTFUnifiedDODContext& ctx);
-    void uploadEnvironment(GLTFUnifiedDODContext& ctx, TextureHandle env, TextureHandle irr, TextureHandle brdf);
-    void uploadLights(GLTFUnifiedDODContext& ctx);
-
-    std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU>
-    packMaterialsGPU(const ModelDOD& model, RHIRenderer& renderer);
-
-} // namespace pnkr::renderer::scene
+}

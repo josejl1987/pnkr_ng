@@ -1,6 +1,4 @@
-//
-// Created by Jose on 12/14/2025.
-//
+
 
 #ifndef PNKR_CAMERA_H
 #define PNKR_CAMERA_H
@@ -8,6 +6,7 @@
 #pragma once
 
 #include <glm/mat4x4.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace pnkr::renderer::scene {
@@ -17,7 +16,7 @@ namespace pnkr::renderer::scene {
         void setViewMatrix(const glm::mat4& view)
         {
             m_view = view;
-            // Note: m_eye/m_center/m_up are not updated in this path (intentionally).
+            m_eye = glm::vec3(glm::affineInverse(view)[3]);
         }
 
         void setProjMatrix(const glm::mat4& proj)
@@ -31,21 +30,23 @@ namespace pnkr::renderer::scene {
         {
             m_view = glm::lookAt(eye, center, up);
 
-
             m_eye = eye;
             m_center = center;
             m_up = up;
         }
 
-        // fovyRad in radians
         void setPerspective(float fovyRad, float aspect, float zNear, float zFar)
         {
             m_proj = glm::perspective(fovyRad, aspect, zNear, zFar);
+            m_zNear = zNear;
+            m_zFar = zFar;
         }
 
         void setOrthographic(float left, float right, float bottom, float top, float zNear, float zFar)
         {
             m_proj = glm::ortho(left, right, bottom, top, zNear, zFar);
+            m_zNear = zNear;
+            m_zFar = zFar;
         }
 
         const glm::mat4& view() const noexcept { return m_view; }
@@ -57,6 +58,11 @@ namespace pnkr::renderer::scene {
         const glm::vec3& target() const noexcept { return m_center; }
         const glm::vec3& up() const noexcept { return m_up; }
 
+        glm::vec3 direction() const noexcept { return glm::normalize(m_center - m_eye); }
+
+        float zNear() const noexcept { return m_zNear; }
+        float zFar() const noexcept { return m_zFar; }
+
     private:
         glm::mat4 m_view{1.0f};
         glm::mat4 m_proj{1.0f};
@@ -66,9 +72,11 @@ namespace pnkr::renderer::scene {
         glm::vec3 m_center;
 
         glm::vec3 m_eye;
+
+        float m_zNear = 0.1f;
+        float m_zFar = 1000.0f;
     };
 
-} // namespace pnkr::renderer
+}
 
-
-#endif //PNKR_CAMERA_H
+#endif

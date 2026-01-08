@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/rhi/BindlessManager.hpp"
 
 #include <cstdint>
 #include <deque>
@@ -34,6 +35,25 @@ namespace pnkr::renderer
             texture = INVALID_TEXTURE_HANDLE;
         }
 
+        void destroyBufferDeferred(BufferHandle& buffer, const char* name = nullptr)
+        {
+            if (buffer == INVALID_BUFFER_HANDLE)
+            {
+                return;
+            }
+
+            PendingBuffer pending{};
+            pending.buffer = buffer;
+            pending.destroyFrame = m_frameIndex + FRAME_LAG + 1;
+            if (name)
+            {
+                pending.name = name;
+            }
+
+            m_pendingBuffers.push_back(std::move(pending));
+            buffer = INVALID_BUFFER_HANDLE;
+        }
+
         void destroyTextureDeferred(TextureHandle& texture,
                                     TextureHandle& view,
                                     const char* name = nullptr)
@@ -42,15 +62,15 @@ namespace pnkr::renderer
             destroyTextureDeferred(texture, name);
         }
 
-        void releaseBindlessStorageImageDeferred(uint32_t& index, const char* name = nullptr)
+        void releaseBindlessStorageImageDeferred(rhi::TextureBindlessHandle& handle, const char* name = nullptr)
         {
-            if (index == 0xFFFFFFFF)
+            if (!handle.isValid())
             {
                 return;
             }
 
             PendingBindless pending{};
-            pending.handle = rhi::BindlessHandle{index};
+            pending.handle = handle;
             pending.destroyFrame = m_frameIndex + FRAME_LAG + 1;
             pending.type = BindlessType::StorageImage;
             if (name)
@@ -59,7 +79,7 @@ namespace pnkr::renderer
             }
 
             m_pendingBindless.push_back(std::move(pending));
-            index = 0xFFFFFFFF;
+            handle = rhi::TextureBindlessHandle::Invalid;
         }
 
         void onFrameComplete()
@@ -82,6 +102,17 @@ namespace pnkr::renderer
                 m_pendingTextures.pop_front();
             }
 
+            while (!m_pendingBuffers.empty() &&
+                   m_pendingBuffers.front().destroyFrame <= m_frameIndex)
+            {
+                auto handle = m_pendingBuffers.front().buffer;
+                if (handle != INVALID_BUFFER_HANDLE)
+                {
+                    m_renderer->destroyBuffer(handle);
+                }
+                m_pendingBuffers.pop_front();
+            }
+
             while (!m_pendingBindless.empty() &&
                    m_pendingBindless.front().destroyFrame <= m_frameIndex)
             {
@@ -90,7 +121,10 @@ namespace pnkr::renderer
                     const auto& entry = m_pendingBindless.front();
                     if (entry.type == BindlessType::StorageImage)
                     {
-                        device->releaseBindlessStorageImage(entry.handle);
+                        if (auto* bindless = device->getBindlessManager())
+                        {
+                            bindless->releaseStorageImage(entry.handle);
+                        }
                     }
                 }
                 m_pendingBindless.pop_front();
@@ -114,21 +148,32 @@ namespace pnkr::renderer
                     m_renderer->destroyTexture(entry.texture);
                 }
             }
+            for (const auto& entry : m_pendingBuffers)
+            {
+                if (entry.buffer != INVALID_BUFFER_HANDLE)
+                {
+                    m_renderer->destroyBuffer(entry.buffer);
+                }
+            }
             for (const auto& entry : m_pendingBindless)
             {
                 if (device && entry.type == BindlessType::StorageImage)
                 {
-                    device->releaseBindlessStorageImage(entry.handle);
+                    if (auto* bindless = device->getBindlessManager())
+                    {
+                        bindless->releaseStorageImage(entry.handle);
+                    }
                 }
             }
 
             m_pendingTextures.clear();
+            m_pendingBuffers.clear();
             m_pendingBindless.clear();
         }
 
         size_t getPendingResourceCount() const
         {
-            return m_pendingTextures.size() + m_pendingBindless.size();
+            return m_pendingTextures.size() + m_pendingBuffers.size() + m_pendingBindless.size();
         }
 
         uint64_t getCurrentFrameIndex() const { return m_frameIndex; }
@@ -141,6 +186,13 @@ namespace pnkr::renderer
             std::string name;
         };
 
+        struct PendingBuffer
+        {
+            BufferHandle buffer = INVALID_BUFFER_HANDLE;
+            uint64_t destroyFrame = 0;
+            std::string name;
+        };
+
         enum class BindlessType : uint8_t
         {
             StorageImage
@@ -148,7 +200,7 @@ namespace pnkr::renderer
 
         struct PendingBindless
         {
-            rhi::BindlessHandle handle{};
+            rhi::TextureBindlessHandle handle{};
             uint64_t destroyFrame = 0;
             std::string name;
             BindlessType type = BindlessType::StorageImage;
@@ -157,6 +209,7 @@ namespace pnkr::renderer
         RHIRenderer* m_renderer = nullptr;
         uint64_t m_frameIndex = 0;
         std::deque<PendingTexture> m_pendingTextures;
+        std::deque<PendingBuffer> m_pendingBuffers;
         std::deque<PendingBindless> m_pendingBindless;
     };
-} // namespace pnkr::renderer
+}

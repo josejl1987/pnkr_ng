@@ -3,296 +3,148 @@
 #include "pnkr/engine.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/ModelDOD.hpp"
-#include "IndirectUtils.hpp"
-#include <glm/glm.hpp>
-
 #include "pnkr/renderer/scene/Camera.hpp"
-#include "pnkr/renderer/geometry/Frustum.hpp"
-#include "pnkr/renderer/RenderResourceManager.h"
+#include "pnkr/renderer/scene/Skybox.hpp"
 #include "pnkr/renderer/debug/DebugLayer.hpp"
+#include "pnkr/renderer/RenderResourceManager.h"
+#include "pnkr/renderer/RenderSettings.hpp"
+#include "pnkr/renderer/FrameManager.hpp"
+#include "pnkr/renderer/passes/IRenderPass.hpp"
+#include "pnkr/renderer/framegraph/FrameGraph.hpp"
+#include "pnkr/renderer/gpu_shared/SceneShared.h"
+#include "pnkr/renderer/material/GlobalMaterialHeap.hpp"
+#include "pnkr/renderer/skinning/GlobalJointBuffer.hpp"
+#include "pnkr/renderer/IndirectDrawContext.hpp"
 
+#include <memory>
+#include <vector>
 #include <span>
-#include "generated/indirect.frag.h"
-#include "geometry/Frustum.hpp"
+#include <functional>
 
 namespace pnkr::renderer {
 
-    enum class CullingMode {
-        None,
-        CPU,
-        GPU
-    };
+    namespace physics { class ClothSystem; }
+    class EnvironmentProcessor;
 
-
-
-
-    // Matches shaders/pbr_common.glsl EnvironmentMapDataGPU
-    struct EnvironmentMapDataGPU {
-        uint32_t envMapTexture;
-        uint32_t envMapTextureSampler;
-        uint32_t envMapTextureIrradiance;
-        uint32_t envMapTextureIrradianceSampler;
-        uint32_t texBRDF_LUT;
-        uint32_t texBRDF_LUTSampler;
-        uint32_t envMapTextureCharlie;
-        uint32_t envMapTextureCharlieSampler;
-    };
-
-    struct ShadowSettings {
-        float fov = 45.0f;
-        float orthoSize = 40.0f;
-        float nearPlane = 1.0f;
-        float farPlane = 100.0f;
-        float distFromCam = 20.0f;
-        float biasConst = 1.25f;
-        float biasSlope = 1.75f;
-    };
-
-    struct SSAOSettings {
-        bool enabled = true;
-        float radius = 0.1f;
-        float bias = 0.025f;
-        float intensity = 2.0f;
-        float blurSharpness = 40.0f;
-        float strength = 1.0f;
-    };
-
-    struct HDRSettings {
-        bool enableBloom = true;
-        float bloomStrength = 0.05f;
-        float bloomThreshold = 1.0f;
-        int bloomPasses = 3;
-        float exposure = 1.0f;
-
-        float adaptationSpeed = 3.0f;
-
-        enum class ToneMapMode : int {
-            None = 0,
-            Reinhard = 1,
-            Uchimura = 2,
-            KhronosPBR = 3
-        } mode = ToneMapMode::KhronosPBR;
-
-        float reinhardMaxWhite = 4.0f;
-        float u_P = 1.0f;
-        float u_a = 1.0f;
-        float u_m = 0.22f;
-        float u_l = 0.4f;
-        float u_c = 1.33f;
-        float u_b = 0.0f;
-        float k_Start = 0.8f;
-        float k_Desat = 0.15f;
-    };
-
-    struct FrameResources {
-        BufferHandle indirectBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle instanceDataBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle transformBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle jointBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle jointMatricesBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle meshXformsBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle skinnedVertexBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle lightBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle shadowDataBuffer = INVALID_BUFFER_HANDLE;
-        void* mappedShadowData = nullptr;
-
-        // Command buffers for separated passes
-        BufferHandle indirectOpaqueBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle indirectTransmissionBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle indirectTransparentBuffer = INVALID_BUFFER_HANDLE;
-
-        // Pointers for mapped access (if using persistent mapping)
-        void* mappedIndirect = nullptr;
-        void* mappedInstance = nullptr;
-        void* mappedTransform = nullptr;
-        void* mappedJoints = nullptr;
-        void* mappedJointMatrices = nullptr;
-        void* mappedMeshXforms = nullptr;
-        void* mappedLights = nullptr;
-        uint32_t lightCount = 0;
-
-        BufferHandle materialBuffer = INVALID_BUFFER_HANDLE;
-        BufferHandle gpuWorldBounds = INVALID_BUFFER_HANDLE;
-    };
+    class GlobalResourcePool;
+    class SceneUniformProvider;
+    class RenderPipeline;
 
     class IndirectRenderer {
     public:
+        IndirectRenderer();
         ~IndirectRenderer();
+
         void init(RHIRenderer* renderer, std::shared_ptr<scene::ModelDOD> model,
-                  TextureHandle brdf = INVALID_TEXTURE_HANDLE, 
-                  TextureHandle irradiance = INVALID_TEXTURE_HANDLE, 
-                  TextureHandle prefilter = INVALID_TEXTURE_HANDLE);
-        
+                  TextureHandle brdf = INVALID_TEXTURE_HANDLE,
+                  TextureHandle irradiance = INVALID_TEXTURE_HANDLE,
+                  TextureHandle prefilter = INVALID_TEXTURE_HANDLE,
+                  TextureHandle skybox = INVALID_TEXTURE_HANDLE);
+        void createGlobalResources(uint32_t width, uint32_t height);
+
         void resize(uint32_t width, uint32_t height);
         void update(float dt);
-        void updateGlobalTransforms();
-        void dispatchSkinning(rhi::RHICommandBuffer* cmd);
-        
-        // Requires viewport size to manage offscreen targets
-        void draw(rhi::RHICommandBuffer* cmd, const scene::Camera& camera, uint32_t width, uint32_t height, debug::DebugLayer* debugLayer = nullptr);
-        
-        void setWireframe(bool enabled);
+        void draw(rhi::RHICommandList* cmd, const scene::Camera& camera, uint32_t width, uint32_t height,
+                  debug::DebugLayer* debugLayer = nullptr,
+                  std::function<void(rhi::RHICommandList*)> uiRender = {});
+
+        RenderSettings& settings() { return m_settings; }
+        const RenderSettings& settings() const { return m_settings; }
+
+        void setShadowSettings(const ShadowSettings& s) { m_settings.shadow = s; }
+        void setSSAOSettings(const SSAOSettings& s) { m_settings.ssao = s; }
+        HDRSettings& hdrSettings() { return m_settings.hdr; }
+        void setIBLStrength(float strength);
         void updateMaterial(uint32_t materialIndex);
+        void setWireframe(bool enabled) { m_settings.drawWireframe = enabled; }
+        void setCullingMode(CullingMode mode) { m_settings.cullingMode = mode; }
+        void setFreezeCullingView(bool freeze) { m_settings.freezeCulling = freeze; }
+        void setDrawDebugBounds(bool draw) { m_settings.drawDebugBounds = draw; }
+        int getShadowCasterIndex() const { return m_resources.shadowCasterIndex; }
+        uint32_t getFrameIndex() const { return m_frameManager.getCurrentFrameIndex(); }
+        FrameManager& getFrameManager() { return m_frameManager; }
 
-        std::span<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> materialsCPU();
-        void uploadMaterialsToGPU();
-        void repackMaterialsFromModel();
-        TextureHandle getShadowMapTexture() const { return m_shadowMap; }
-        uint32_t shadowMapBindlessIndex() const noexcept { return m_shadowMapBindlessIndex; }
-        uint32_t shadowMapDebugBindlessIndex() const noexcept { return m_shadowMapDebugBindlessIndex; }
-        void setShadowSettings(const ShadowSettings& settings) { m_shadowSettings = settings; }
-        int getShadowCasterIndex() const { return m_shadowCasterIndex; }
-        void setSSAOSettings(const SSAOSettings& settings) { m_ssaoSettings = settings; }
-        TextureHandle getSSAOTexture() const { return m_ssaoFinal; }
-        HDRSettings& hdrSettings() { return m_hdrSettings; }
-
-        // Culling Control
-        void setCullingMode(CullingMode mode) { m_cullingMode = mode; }
-        CullingMode getCullingMode() const { return m_cullingMode; }
-        void setFreezeCullingView(bool freeze) { m_freezeCullingView = freeze; }
-        void setDrawDebugBounds(bool draw) { m_drawDebugBounds = draw; }
+        TextureHandle getShadowMapTexture() const { return m_resources.shadowMap; }
+        TextureHandle getSSAOTexture() const { return m_resources.ssaoOutput; }
         uint32_t getVisibleMeshCount() const { return m_visibleMeshCount; }
 
+        GlobalMaterialHeap& getMaterialHeap() { return m_materialHeap; }
+        const GlobalMaterialHeap& getMaterialHeap() const { return m_materialHeap; }
+
+        GlobalJointBuffer& getJointBuffer() { return m_jointBuffer; }
+        const GlobalJointBuffer& getJointBuffer() const { return m_jointBuffer; }
+
+        physics::ClothSystem* getClothSystem() { return m_clothSystem.get(); }
+
+        void loadEnvironmentMap(const std::filesystem::path& path, bool flipY = false);
+        void setSkybox(TextureHandle skybox, bool flipY = false);
+
+        static void dispatchSkinning(rhi::RHICommandList *cmd);
+        TransientAllocation updateGlobalTransforms();
+        void uploadEnvironmentData();
+ 
     private:
-        void drawIndirect(rhi::RHICommandBuffer* cmd, const IndirectDrawBuffer& buffer, uint32_t frameIndex);
-        void createPipeline();
-        void createComputePipeline();
-        void buildBuffers();
-        void updateLights();
-        void uploadMaterialData();
-        void uploadEnvironmentData(TextureHandle brdf, TextureHandle irradiance, TextureHandle prefilter);
-        void createOffscreenResources(uint32_t width, uint32_t height);
-        void createHDRResources(uint32_t width, uint32_t height);
-        void createAdaptationResources();
+        IndirectDrawContext prepareFrame(rhi::RHICommandList* cmd, const scene::Camera& camera, uint32_t width, uint32_t height, debug::DebugLayer* debugLayer = nullptr);
+        void processCompletedTextures();
 
-        void initSSAO();
-        void createSSAOResources(uint32_t width, uint32_t height);
-        void dispatchSSAO(rhi::RHICommandBuffer* cmd, const scene::Camera& camera);
+        void updateMorphTargets(rhi::RHICommandList* cmd);
+        void updateLightsAndShadows(IndirectDrawContext& ctx);
+        void buildDrawLists(IndirectDrawContext& ctx, const scene::Camera& camera);
 
-        void dispatchCulling(rhi::RHICommandBuffer* cmd, 
-                             uint32_t frameIndex, 
-                             const scene::Camera& camera, 
-                             uint32_t drawCount);
+        static void calculateFrustumPlanes(const glm::mat4& viewProj, glm::vec4(&outPlanes)[6]);
+
+        template<typename T>
+        void registerPass(T*& outPtr)
+        {
+            auto pass = std::make_unique<T>();
+            outPtr = pass.get();
+            m_passes.push_back(std::move(pass));
+        }
 
         RHIRenderer* m_renderer = nullptr;
         RenderResourceManager m_resourceMgr;
         std::shared_ptr<scene::ModelDOD> m_model;
-        std::vector<uint32_t> m_skinOffsets;
 
-        // Per-frame resources for concurrency
-        std::vector<FrameResources> m_frames;
-        uint32_t m_currentFrameIndex = 0;
-        
-        // Scene data mirror (could be shared, but local for this sample)
-        BufferHandle m_environmentBuffer = INVALID_BUFFER_HANDLE;
-        std::vector<ShaderGen::indirect_frag::MetallicRoughnessDataGPU> m_materialsCPU;
+        FrameManager m_frameManager;
 
-        // Shared Resources
-        PipelineHandle m_skinningPipeline = INVALID_PIPELINE_HANDLE;
+        RenderGraphResources m_resources;
+        RenderSettings m_settings;
+        std::unique_ptr<FrameGraph> m_frameGraph;
+        std::unique_ptr<GlobalResourcePool> m_resourcePool;
+        std::unique_ptr<SceneUniformProvider> m_sceneUniforms;
+        std::unique_ptr<RenderPipeline> m_pipeline;
 
-        PipelineHandle m_pipeline = INVALID_PIPELINE_HANDLE; // Opaque
-        PipelineHandle m_pipelineTransparent = INVALID_PIPELINE_HANDLE; // Transparent
-        PipelineHandle m_pipelineWireframe = INVALID_PIPELINE_HANDLE;
-        PipelineHandle m_shadowPipeline = INVALID_PIPELINE_HANDLE;
+        std::vector<std::unique_ptr<IRenderPass>> m_passes;
 
-        bool m_drawWireframe = false;
+        class CullingPass* m_cullingPassPtr = nullptr;
+        class GeometryPass* m_geometryPassPtr = nullptr;
+        class ShadowPass* m_shadowPassPtr = nullptr;
+        class SSAOPass* m_ssaoPassPtr = nullptr;
+        class TransmissionPass* m_transmissionPassPtr = nullptr;
+        class OITPass* m_oitPassPtr = nullptr;
+        class WBOITPass* m_wboitPassPtr = nullptr;
+        class PostProcessPass* m_postProcessPassPtr = nullptr;
 
-        // Transmission / Offscreen Support
-        TextureHandle m_sceneColor = INVALID_TEXTURE_HANDLE;
-        TextureHandle m_msaaColor = INVALID_TEXTURE_HANDLE;
-        TextureHandle m_msaaDepth = INVALID_TEXTURE_HANDLE;
-        uint32_t m_msaaSamples = 4;
-        TextureHandle m_transmissionTexture = INVALID_TEXTURE_HANDLE;
-        TextureHandle m_shadowMap = INVALID_TEXTURE_HANDLE;
-        uint32_t m_shadowMapBindlessIndex = 0xFFFFFFFF;
-        uint32_t m_shadowMapDebugBindlessIndex = 0xFFFFFFFF;
-        rhi::ResourceLayout m_shadowLayout = rhi::ResourceLayout::Undefined;
+        PipelinePtr m_skinningPipeline;
+
+        GlobalMaterialHeap m_materialHeap;
+        GlobalJointBuffer m_jointBuffer;
+
+        scene::Skybox m_skybox;
+        TextureHandle m_sourceSkyboxHandle = INVALID_TEXTURE_HANDLE;
+        TextureHandle m_convertedSkyboxHandle = INVALID_TEXTURE_HANDLE;
+        bool m_skyboxFlipY = false;
+
+        uint32_t m_visibleMeshCount = 0;
         uint32_t m_width = 0;
         uint32_t m_height = 0;
-        uint32_t m_shadowDim = 2048;
-
-        // Shadow settings
-        ShadowSettings m_shadowSettings;
-        
-        int m_shadowCasterIndex = -1;
-
-        // Track layouts to avoid redundant barriers or validation errors
-        rhi::ResourceLayout m_sceneColorLayout = rhi::ResourceLayout::Undefined;
-        rhi::ResourceLayout m_transmissionLayout = rhi::ResourceLayout::Undefined;
-        rhi::ResourceLayout m_depthLayout = rhi::ResourceLayout::Undefined;
-
-        // SSAO
-        PipelineHandle m_depthResolvePipeline = INVALID_PIPELINE_HANDLE;
-        PipelineHandle m_ssaoPipeline = INVALID_PIPELINE_HANDLE;
-        PipelineHandle m_ssaoBlurPipeline = INVALID_PIPELINE_HANDLE;
-        PipelineHandle m_compositionPipeline = INVALID_PIPELINE_HANDLE;
-
-        TextureHandle m_depthResolved = INVALID_TEXTURE_HANDLE;
-        TextureHandle m_ssaoRaw = INVALID_TEXTURE_HANDLE;
-        TextureHandle m_ssaoBlur = INVALID_TEXTURE_HANDLE;
-        TextureHandle m_ssaoFinal = INVALID_TEXTURE_HANDLE;
-        TextureHandle m_ssaoNoise = INVALID_TEXTURE_HANDLE;
-
-        uint32_t m_ssaoNoiseIndex = 0xFFFFFFFF;
-        uint32_t m_depthResolvedStorageIndex = 0xFFFFFFFF;
-        uint32_t m_ssaoRawStorageIndex = 0xFFFFFFFF;
-        uint32_t m_ssaoBlurStorageIndex = 0xFFFFFFFF;
-        uint32_t m_ssaoFinalStorageIndex = 0xFFFFFFFF;
-
-        SSAOSettings m_ssaoSettings;
-
-        HDRSettings m_hdrSettings;
         float m_dt = 0.016f;
 
-        PipelineHandle m_brightPassPipeline = INVALID_PIPELINE_HANDLE;
-        PipelineHandle m_bloomPipeline = INVALID_PIPELINE_HANDLE;
-        PipelineHandle m_toneMapPipeline = INVALID_PIPELINE_HANDLE;
-        PipelineHandle m_adaptationPipeline = INVALID_PIPELINE_HANDLE;
+        std::unique_ptr<EnvironmentProcessor> m_envProcessor;
+        std::unique_ptr<physics::ClothSystem> m_clothSystem;
+        bool m_hasAsyncComputeWork = false;
 
-        TextureHandle m_texBrightPass = INVALID_TEXTURE_HANDLE;
-        TextureHandle m_texLuminance = INVALID_TEXTURE_HANDLE;
-        TextureHandle m_texBloom[2] = { INVALID_TEXTURE_HANDLE, INVALID_TEXTURE_HANDLE };
-        TextureHandle m_texAdaptedLum[2] = { INVALID_TEXTURE_HANDLE, INVALID_TEXTURE_HANDLE };
+        glm::mat4 m_cullingViewProj{1.0f};
 
-        uint32_t m_brightPassStorageIndex = 0xFFFFFFFF;
-        uint32_t m_luminanceStorageIndex = 0xFFFFFFFF;
-        uint32_t m_bloomStorageIndex[2] = { 0xFFFFFFFF, 0xFFFFFFFF };
-        uint32_t m_adaptedLumStorageIndex[2] = { 0xFFFFFFFF, 0xFFFFFFFF };
-
-        uint32_t m_currentAdaptedLumIndex = 0;
-
-        rhi::ResourceLayout m_brightPassLayout = rhi::ResourceLayout::Undefined;
-        rhi::ResourceLayout m_luminanceLayout = rhi::ResourceLayout::Undefined;
-        rhi::ResourceLayout m_bloomLayout[2] = { rhi::ResourceLayout::Undefined,
-                                                 rhi::ResourceLayout::Undefined };
-
-        // Indirect Helper Buffers
-        std::unique_ptr<IndirectDrawBuffer> m_mainDrawBuffer;
-        std::unique_ptr<IndirectDrawBuffer> m_opaqueDrawBuffer;
-        std::unique_ptr<IndirectDrawBuffer> m_transmissionDrawBuffer;
-        std::unique_ptr<IndirectDrawBuffer> m_transparentDrawBuffer;
-        std::unique_ptr<IndirectDrawBuffer> m_shadowDrawBuffer;
-
-        IndirectPipeline m_indirectPipeline;
-
-        // Culling State
-        CullingMode m_cullingMode = CullingMode::CPU;
-        bool m_freezeCullingView = false;
-        bool m_drawDebugBounds = false;
-        glm::mat4 m_cullingViewMatrix{ 1.0f };
-        glm::mat4 m_cullingProjMatrix{ 1.0f };
-        geometry::Frustum m_cullingFrustum;
-        uint32_t m_visibleMeshCount = 0;
-
-        PipelineHandle m_cullingPipeline = INVALID_PIPELINE_HANDLE;
-
-        struct CullingFrameResource {
-            BufferHandle cullingBuffer = INVALID_BUFFER_HANDLE;
-            BufferHandle visibilityBuffer = INVALID_BUFFER_HANDLE;
-            rhi::RHIDescriptorSet* descriptorSet = nullptr; 
-        };
-        std::vector<CullingFrameResource> m_cullingResources;
-        uint32_t m_lastOpaqueDrawCount = 0;
-        std::vector<scene::BoundingBox> m_lastOpaqueBounds;
     };
 }

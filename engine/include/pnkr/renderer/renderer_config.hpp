@@ -5,10 +5,11 @@ namespace pnkr::renderer {
 
 struct RendererConfig
 {
-    bool m_enableValidation = false;
-    bool m_useBindless = false;
-    uint32_t m_maxFramesInFlight = 2;
+    bool m_enableValidation = true;
+    bool m_useBindless = true;
+    uint32_t m_maxFramesInFlight = 3;
     bool m_enableBindless = true;
+    bool m_enableAsyncTextureLoading = true;
 };
 
 }
