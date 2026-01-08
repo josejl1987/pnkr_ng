@@ -1,48 +1,96 @@
-# CMake
+############################################
+# OS / editor noise
+############################################
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+*.code-workspace
+
+############################################
+# CMake / build output (out-of-source)
+############################################
+# Common build directories (yours: cmake-build-*)
+build/
+build-*/
+cmake-build-*/
+out/
+dist/
+
+# CMake-generated files when someone configures in-source (discouraged, but safe)
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
-*.cmake
-build/
-dist/
+CTestTestfile.cmake
+install_manifest.txt
+*.cmake.user
+compile_commands.json
 
-# Dependencies
-_deps/
+############################################
+# Dependencies / package managers
+############################################
+# vcpkg (manifest mode local install) and general build deps cache
 vcpkg_installed/
+vcpkg-manifest-install.log
+_deps/
 .cache/
 
-# IDE/Editor
-.vscode/
-.idea/
-*.code-workspace
-.DS_Store
+############################################
+# Visual Studio / MSVC
+############################################
+.vs/
+*.VC.db
+*.VC.db-shm
+*.VC.db-wal
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+ipch/
 
-# Build artifacts
+# VS / MSBuild / CMakeSettings
+CMakeSettings.json
+CMakePresets.json.user
+CMakeUserPresets.json
+
+############################################
+# Compilers / linkers output
+############################################
+# Object files
 *.o
+*.obj
+*.lo
+
+# Static libs
 *.a
+*.lib
+
+# Shared libs
 *.so
 *.dylib
 *.dll
+
+# Executables
 *.exe
+*.out
+*.app
+
+# Debug symbols / intermediates
 *.pdb
+*.idb
+*.ilk
+*.dSYM/
 
-# Compilation database
-compile_commands.json
+############################################
+# Test / tooling artifacts
+############################################
+Testing/
+LastTest.log
 
-/.vs/pnkr.slnx/FileContentIndex/193f8b79-ebcd-4294-bf35-e88c22b08395.vsidx
-/.vs/pnkr.slnx/FileContentIndex/49dfc9c6-8f65-4395-99af-88ab9f530526.vsidx
-/.vs/pnkr.slnx/FileContentIndex/53b81779-0072-4980-a34c-981983902a77.vsidx
-/.vs/pnkr.slnx/FileContentIndex/81b3e57a-cb3e-4983-b790-41bdfe928239.vsidx
-/.vs/pnkr.slnx/FileContentIndex/d185f539-dfaf-43b4-9e52-3886fd3fd24a.vsidx
-/.vs/pnkr.slnx/v18/ipch/AutoPCH/cad77e87c31d9941/RENDERER.ipch
-/.vs/pnkr.slnx/v18/.wsuo
-/.vs/pnkr.slnx/v18/Browse.VC.db
-/.vs/pnkr.slnx/v18/Browse.VC.db-shm
-/.vs/pnkr.slnx/v18/Browse.VC.db-wal
-/.vs/pnkr.slnx/v18/DocumentLayout.backup.json
-/.vs/pnkr.slnx/v18/DocumentLayout.json
-/.vs/CMake Overview
-/.vs/ProjectSettings.json
-/.vs/slnx.sqlite
-/.vs/VSWorkspaceState.json
+############################################
+# Runtime generated/config files
+############################################
+imgui.ini
+*.log

@@ -17,6 +17,8 @@ public:
 
   ~Window();
 
+  void close() { m_window.reset(); }
+
   Window(const Window &) = delete;
   Window &operator=(const Window &) = delete;
 

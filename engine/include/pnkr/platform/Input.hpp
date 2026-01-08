@@ -73,7 +73,7 @@ public:
 
 private:
   std::array<bool, SDL_SCANCODE_COUNT> m_keys{};
-  std::array<bool, 8> m_mouseButtons{}; // SDL supports up to 8 mouse buttons
+  std::array<bool, 8> m_mouseButtons{};
   glm::vec2 m_mousePos{0.0f, 0.0f};
   glm::vec2 m_mouseDelta{0.0f, 0.0f};
   float m_mouseWheel{0.0f};
