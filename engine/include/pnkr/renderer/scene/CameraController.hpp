@@ -22,7 +22,9 @@ public:
 
   void update(const platform::Input& input, float deltaTime) {
 
-    const float moveSpeed = m_moveSpeed * deltaTime;
+    // Shift key doubles speed
+    float speedMultiplier = input.isKeyDown(SDL_SCANCODE_LSHIFT) ? 2.0f : 1.0f;
+    const float moveSpeed = m_moveSpeed * speedMultiplier * deltaTime;
     const float sensitivity = m_mouseSensitivity;
 
     if (input.isKeyDown(SDL_SCANCODE_W)) {
@@ -43,12 +45,6 @@ public:
     }
     if (input.isKeyDown(SDL_SCANCODE_Q)) {
       m_position -= m_up * moveSpeed;
-    }
-
-    if (input.isKeyDown(SDL_SCANCODE_LSHIFT)) {
-      m_moveSpeed = 5.0f;
-    } else {
-      m_moveSpeed = 2.5f;
     }
 
     if (input.isMouseButtonDown(SDL_BUTTON_RIGHT)) {
@@ -92,6 +88,7 @@ public:
   [[nodiscard]] const glm::vec3& front() const { return m_front; }
   [[nodiscard]] float yaw() const { return m_yaw; }
   [[nodiscard]] float pitch() const { return m_pitch; }
+  [[nodiscard]] float& moveSpeed() { return m_moveSpeed; }
 
 private:
   void updateVectors() {
