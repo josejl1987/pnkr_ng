@@ -26,6 +26,7 @@ target_sources(pnkr_engine
     VulkanResourceFactory.cpp
     VulkanDeletionQueue.cpp
     VulkanSyncManager.cpp
+    VulkanBarrierBuilder.cpp
     AftermathIntegration.cpp
 )
 
