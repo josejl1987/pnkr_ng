@@ -379,12 +379,14 @@ namespace pnkr::app {
         catch (const cpptrace::exception& e)
         {
             pnkr::Log::critical("Unhandled cpptrace exception: {}", e.what());
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "PNKR Engine - Fatal Error", e.what(), nullptr);
             e.trace().print();
             return 1;
         }
         catch (const std::exception& e)
         {
             pnkr::Log::critical("Unhandled Exception: {}", e.what());
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "PNKR Engine - Fatal Error", e.what(), nullptr);
             cpptrace::generate_trace().print();
             return 1;
         }
