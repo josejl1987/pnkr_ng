@@ -24,8 +24,8 @@ namespace pnkr::renderer::io {
         auto& textureFiles = model->textureFilesMutable();
         auto& textureIsSrgb = model->textureIsSrgbMutable();
 
-        textures.resize(source.textures.size(), INVALID_TEXTURE_HANDLE);
-        pendingTextures.resize(source.textures.size(), INVALID_TEXTURE_HANDLE);
+        textures.resize(source.textures.size());
+        pendingTextures.resize(source.textures.size());
         textureFiles.resize(source.textures.size());
         textureIsSrgb.resize(source.textures.size());
 
@@ -51,9 +51,9 @@ namespace pnkr::renderer::io {
           if (idx < 0 || static_cast<size_t>(idx) >= textures.size()) {
             return INVALID_TEXTURE_HANDLE;
           }
-          TextureHandle handle = pendingTextures[idx];
+          TextureHandle handle = pendingTextures[idx].handle();
           if (handle == INVALID_TEXTURE_HANDLE) {
-            handle = textures[idx];
+            handle = textures[idx].handle();
           }
           return handle;
         };

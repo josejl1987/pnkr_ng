@@ -409,14 +409,14 @@ namespace pnkr::renderer::io
         return true;
     }
 
-    MaterialCPU ModelSerializer::toMaterialCPU(const MaterialData& md, const std::vector<TextureHandle>& textures)
+    MaterialCPU ModelSerializer::toMaterialCPU(const MaterialData& md, const std::vector<TexturePtr>& textures)
     {
         MaterialCPU mc{};
 
         std::unordered_map<TextureHandle, int32_t> texToIndex;
         texToIndex.reserve(textures.size());
         for (size_t i = 0; i < textures.size(); ++i) {
-          texToIndex[textures[i]] = (int32_t)i;
+          texToIndex[textures[i].handle()] = (int32_t)i;
         }
 
         auto getTexIndex = [&](TextureHandle h) -> int32_t {
@@ -485,7 +485,7 @@ namespace pnkr::renderer::io
         return mc;
     }
 
-    MaterialData ModelSerializer::fromMaterialCPU(const MaterialCPU& mc, const std::vector<TextureHandle>& textures)
+    MaterialData ModelSerializer::fromMaterialCPU(const MaterialCPU& mc, const std::vector<TexturePtr>& textures)
     {
         MaterialData md{};
 
@@ -493,7 +493,7 @@ namespace pnkr::renderer::io
           if (idx < 0 || static_cast<size_t>(idx) >= textures.size()) {
             return INVALID_TEXTURE_HANDLE;
           }
-          return textures[idx];
+          return textures[idx].handle();
         };
 
         auto copySlot = [&](const ImportedTextureSlot& src, TextureSlot& dst) {
@@ -811,7 +811,7 @@ namespace pnkr::renderer::io
             textureIsSrgb.push_back(srgb ? 1 : 0);
 
             if (texPath.empty()) {
-                textures.push_back(INVALID_TEXTURE_HANDLE);
+                textures.push_back(TexturePtr{});
             } else {
                 auto handle = renderer.assets()->loadTextureKTX(texPath, srgb);
                 textures.push_back(handle);

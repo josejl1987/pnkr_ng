@@ -435,10 +435,10 @@ namespace pnkr::renderer
             {
                 for (size_t i = 0; i < pending.size(); ++i)
                 {
-                    if (pending[i] == handle)
+                    if (pending[i].handle() == handle)
                     {
-                        textures[i] = handle;
-                        pending[i] = INVALID_TEXTURE_HANDLE;
+                        textures[i] = pending[i];
+                        pending[i] = TexturePtr{};
                         anyModelTextureUpdated = true;
                         break;
                     }
