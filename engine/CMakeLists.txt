@@ -436,7 +436,7 @@ endif()
 target_link_libraries(pnkr_engine PUBLIC ${PNKR_ENKITS_TARGET})
 
 # VTune ITT
-option(PNKR_ENABLE_VTUNE "Enable Intel VTune ITT instrumentation" OFF)
+option(PNKR_ENABLE_VTUNE "Enable Intel VTune ITT instrumentation" ON)
 if(PNKR_ENABLE_VTUNE)
   CPMAddPackage(
     NAME ittapi
