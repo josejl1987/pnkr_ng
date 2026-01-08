@@ -136,7 +136,15 @@ namespace pnkr::renderer::rhi
         virtual void pipelineBarrier(
             ShaderStageFlags srcStage,
             ShaderStageFlags dstStage,
-            const std::vector<RHIMemoryBarrier>& barriers) = 0;
+            std::span<const RHIMemoryBarrier> barriers) = 0;
+
+        void pipelineBarrier(
+            ShaderStageFlags srcStage,
+            ShaderStageFlags dstStage,
+            const RHIMemoryBarrier& barrier)
+        {
+            pipelineBarrier(srcStage, dstStage, std::span<const RHIMemoryBarrier>(&barrier, 1));
+        }
 
         virtual void copyBuffer(RHIBuffer* src, RHIBuffer* dst,
                                uint64_t srcOffset, uint64_t dstOffset, uint64_t size) = 0;

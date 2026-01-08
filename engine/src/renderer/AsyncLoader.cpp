@@ -44,6 +44,14 @@ namespace pnkr::renderer
     {
         m_stagingManager = std::make_unique<AsyncLoaderStagingManager>(m_renderer);
 
+        // Validate staging manager initialized successfully
+        if (!m_stagingManager->isInitialized()) {
+            core::Logger::Asset.error(
+                "AsyncLoader: Staging manager initialization failed. "
+                "Async texture loading will be disabled.");
+            return;  // Don't set m_initialized = true
+        }
+
         rhi::CommandPoolDescriptor poolDesc{};
         poolDesc.queueFamilyIndex = m_renderer->device()->transferQueueFamily();
         poolDesc.flags = rhi::CommandPoolFlags::ResetCommandBuffer;
@@ -125,7 +133,15 @@ namespace pnkr::renderer
     void AsyncLoader::requestTexture(const std::string& path, TextureHandle handle, bool srgb, LoadPriority priority, uint32_t baseMip)
     {
         PNKR_LOG_SCOPE(std::format("AsyncLoader::Request[{}]", path));
+
+        static std::atomic<uint32_t> warningCount{0};
         if (!m_initialized) {
+            if (warningCount.fetch_add(1) < 5) {  // Log first 5 times only
+                core::Logger::Asset.error(
+                    "AsyncLoader::requestTexture called but loader not initialized. "
+                    "Texture '{}' will not be loaded. Check previous error logs for "
+                    "initialization failures.", path);
+            }
           return;
         }
 
@@ -554,7 +570,7 @@ namespace pnkr::renderer
 
                             cmd->pipelineBarrier(rhi::ShaderStage::Transfer,
                                                  rhi::ShaderStage::None,
-                                                 {releaseBarrier});
+                                                 releaseBarrier);
 
                             rhi::RHIMemoryBarrier acquireBarrier =
                                 releaseBarrier;
@@ -631,7 +647,7 @@ namespace pnkr::renderer
               b.oldLayout = rhi::ResourceLayout::Undefined;
               b.newLayout = rhi::ResourceLayout::TransferDst;
               cmd->pipelineBarrier(rhi::ShaderStage::None,
-                                   rhi::ShaderStage::Transfer, {b});
+                                   rhi::ShaderStage::Transfer, b);
             }
             req.layoutInitialized = true;
         }
@@ -810,7 +826,7 @@ namespace pnkr::renderer
             bEnd.oldLayout = rhi::ResourceLayout::TransferDst;
             bEnd.newLayout = rhi::ResourceLayout::ShaderReadOnly;
             cmd->pipelineBarrier(rhi::ShaderStage::Transfer,
-                                 rhi::ShaderStage::Transfer, {bEnd});
+                                 rhi::ShaderStage::Transfer, bEnd);
 
             if (auto *vkTex =
                     dynamic_cast<rhi::vulkan::VulkanRHITexture *>(rhiTex)) {

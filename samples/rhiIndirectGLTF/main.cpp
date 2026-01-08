@@ -12,6 +12,7 @@
 #include "pnkr/core/RecentFiles.hpp"
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/CameraController.hpp"
+#include "pnkr/renderer/scene/Components.hpp"
 #include "pnkr/renderer/geometry/GeometryUtils.hpp"
 #include "pnkr/renderer/debug/DebugLayer.hpp"
 #include "pnkr/core/cvar.hpp"
@@ -339,7 +340,7 @@ public:
         m_model->dropCpuGeometry();
 
         // Add a default light if the model has none
-        if (m_model->lights().empty())
+        if (m_model->scene().registry().getPool<LightSource>().size() == 0)
         {
             Light l{};
             l.m_type = LightType::Directional;
@@ -974,6 +975,19 @@ public:
             {
                 if (auto* cloth = m_indirectRenderer->getClothSystem())
                 {
+                    if (ImGui::Button("Spawn Cloth"))
+                    {
+                        auto meshData = renderer::geometry::GeometryUtils::getPlane(5.0f, 5.0f, 20);
+                        cloth->createClothMesh(meshData);
+
+                        m_model->addPrimitiveToScene(*m_renderer, meshData, 0,
+                                                     glm::translate(glm::mat4(1.0f),
+                                                                    glm::vec3(0.0f, 2.5f, 0.0f)),
+                                                     "Cloth");
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(render upload pending)");
+
                     glm::vec3 wind = cloth->getWindDirection();
                     if (ImGui::DragFloat3("Wind Direction", &wind.x, 0.01f, -1.0f, 1.0f))
                     {
@@ -999,10 +1013,41 @@ public:
                     if (ImGui::Button("Reset Simulation")) {
                         cloth->resetSimulation();
                     }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("Current cloth rendering uses static mesh buffers.\n"
+                                          "Hook cloth output into ModelDOD vertex buffers to animate.");
+                    }
                 }
                 else
                 {
                     ImGui::TextDisabled("Cloth System not available");
+                }
+            }
+
+            if (ImGui::CollapsingHeader("System Meshes"))
+            {
+                if (ImGui::Button("Spawn Debug Sphere"))
+                {
+                    auto& scene = m_model->scene();
+                    ecs::Entity entity = scene.createNode(scene.root());
+
+                    auto& local = scene.registry().get<LocalTransform>(entity);
+                    local.matrix = glm::translate(glm::mat4(1.0f),
+                                                  m_cameraController.position() +
+                                                  m_cameraController.front() * 4.0f);
+
+                    auto& sys = scene.registry().emplace<SystemMeshRenderer>(entity);
+                    sys.type = renderer::SystemMeshType::Sphere;
+                    auto& lb = scene.registry().emplace<LocalBounds>(entity);
+                    lb.aabb.m_min = glm::vec3(-0.5f);
+                    lb.aabb.m_max = glm::vec3(0.5f);
+                    scene.registry().emplace<WorldBounds>(entity);
+                    scene.registry().emplace<Visibility>(entity);
+                    scene.registry().emplace<BoundsDirtyTag>(entity);
+                    scene.registry().emplace<Name>(entity, "DebugSphere");
+
+                    scene.onHierarchyChanged();
                 }
             }
         }

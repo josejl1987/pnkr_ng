@@ -18,6 +18,8 @@ public:
     static void initialize();
     static void shutdown();
 
+    static void setProjectRoot(const std::filesystem::path& root);
+
     static CompileResult compile(
         const std::filesystem::path& sourcePath,
         const std::string& entryPoint,
@@ -28,6 +30,7 @@ public:
 
 private:
     static void* s_slangSession;
+    static std::filesystem::path s_projectRoot;
 };
 
 }

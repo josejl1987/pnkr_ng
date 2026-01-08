@@ -9,7 +9,33 @@ namespace pnkr::renderer {
 void ShaderHotReloader::init(RHIRenderer* renderer) {
     m_renderer = renderer;
     ShaderCompiler::initialize();
+    
+    auto projectRoot = discoverProjectRoot();
+    if (!projectRoot.empty()) {
+        ShaderCompiler::setProjectRoot(projectRoot);
+    }
+    
     core::Logger::Render.info("Shader hot-reloader initialized");
+}
+
+std::filesystem::path ShaderHotReloader::discoverProjectRoot() {
+    std::filesystem::path current = std::filesystem::current_path();
+    
+    for (int depth = 0; depth < 10; ++depth) {
+        if (std::filesystem::exists(current / "CMakeLists.txt") &&
+            std::filesystem::exists(current / "engine")) {
+            return current;
+        }
+        
+        auto parent = current.parent_path();
+        if (parent == current) {
+            break;
+        }
+        current = parent;
+    }
+    
+    core::Logger::Render.warn("ShaderHotReloader: Could not discover project root. Hot reload may not work for source shaders.");
+    return {};
 }
 
 void ShaderHotReloader::shutdown() {
@@ -62,9 +88,9 @@ void ShaderHotReloader::update(float deltaTime) {
     }
 }
 
-PipelineHandle ShaderHotReloader::createGraphicsPipeline(
+PipelinePtr ShaderHotReloader::createGraphicsPipeline(
     const rhi::GraphicsPipelineDescriptor& desc,
-    const std::vector<ShaderSourceInfo>& sources
+    std::span<const ShaderSourceInfo> sources
 ) {
     rhi::GraphicsPipelineDescriptor finalDesc = desc;
     PipelineRecipe recipe;
@@ -79,7 +105,7 @@ PipelineHandle ShaderHotReloader::createGraphicsPipeline(
         if (!result.success) {
             core::Logger::Render.error("Initial shader compilation failed for {}: {}",
                 src.path.string(), result.error);
-            return PipelineHandle{};
+            return PipelinePtr{};
         }
 
         finalDesc.shaders[i].spirvCode = result.spirv;
@@ -89,7 +115,7 @@ PipelineHandle ShaderHotReloader::createGraphicsPipeline(
         recipe.shaderSources.push_back(sourceWithDeps);
     }
 
-    PipelineHandle handle = m_renderer->createGraphicsPipeline(finalDesc);
+    PipelinePtr handle = m_renderer->createGraphicsPipeline(finalDesc);
 
     if (!handle.isValid()) {
         core::Logger::Render.error("Failed to create graphics pipeline");
@@ -105,7 +131,7 @@ PipelineHandle ShaderHotReloader::createGraphicsPipeline(
     return handle;
 }
 
-PipelineHandle ShaderHotReloader::createComputePipeline(
+PipelinePtr ShaderHotReloader::createComputePipeline(
     const rhi::ComputePipelineDescriptor& desc,
     const ShaderSourceInfo& source
 ) {
@@ -113,13 +139,13 @@ PipelineHandle ShaderHotReloader::createComputePipeline(
 
     if (!result.success) {
         core::Logger::Render.error("Initial compute shader compilation failed: {}", result.error);
-        return PipelineHandle{};
+        return PipelinePtr{};
     }
 
     rhi::ComputePipelineDescriptor finalDesc = desc;
     finalDesc.shader.spirvCode = result.spirv;
 
-    PipelineHandle handle = m_renderer->createComputePipeline(finalDesc);
+    PipelinePtr handle = m_renderer->createComputePipeline(finalDesc);
 
     if (!handle.isValid()) {
         return handle;
@@ -170,7 +196,7 @@ void ShaderHotReloader::rebuildPipeline(PipelineHandle handle, const PipelineRec
         newDesc.shader.spirvCode = result.spirv;
 
         m_renderer->hotSwapPipeline(handle, newDesc);
-        core::Logger::Render.info("✓ Hot-swapped compute pipeline {}", handle.index);
+        core::Logger::Render.info("✓ Hot-swapped compute pipeline {}", (uint32_t)handle.index);
 
     } else {
         rhi::GraphicsPipelineDescriptor newDesc = recipe.gfxDesc;
@@ -193,7 +219,7 @@ void ShaderHotReloader::rebuildPipeline(PipelineHandle handle, const PipelineRec
 
         if (allSucceeded) {
             m_renderer->hotSwapPipeline(handle, newDesc);
-            core::Logger::Render.info("✓ Hot-swapped graphics pipeline {}", handle.index);
+            core::Logger::Render.info("✓ Hot-swapped graphics pipeline {}", (uint32_t)handle.index);
         } else {
             core::Logger::Render.warn("Keeping old pipeline due to compilation errors");
         }

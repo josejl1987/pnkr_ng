@@ -1,10 +1,12 @@
 #include "pnkr/renderer/passes/ShadowPass.hpp"
 #include "pnkr/renderer/passes/RenderPassUtils.hpp"
 #include "pnkr/core/common.hpp"
+#include "pnkr/renderer/ShaderHotReloader.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cstring>
 #include <cmath>
+#include <array>
 
 #include "pnkr/rhi/BindlessManager.hpp"
 
@@ -22,8 +24,9 @@ namespace pnkr::renderer
     }
 
     void ShadowPass::init(RHIRenderer *renderer, uint32_t ,
-                          uint32_t ) {
+                          uint32_t , ShaderHotReloader* hotReloader) {
       m_renderer = renderer;
+      m_hotReloader = hotReloader;
 
       rhi::TextureDescriptor shadowDesc{};
       shadowDesc.extent = {
@@ -65,16 +68,42 @@ namespace pnkr::renderer
           .setColorFormats({})
           .setName("ShadowPass");
 
-      m_shadowPipeline =
-          m_renderer->createGraphicsPipeline(shadowBuilder.buildGraphics());
+      auto pipelineDesc = shadowBuilder.buildGraphics();
+      if (m_hotReloader != nullptr) {
+        std::array sources = {
+            ShaderSourceInfo{
+                .path = "engine/src/renderer/shaders/renderer/indirect/shadow.slang",
+                .entryPoint = "vertexMain",
+                .stage = rhi::ShaderStage::Vertex,
+                .dependencies = {}
+            }
+        };
+        m_shadowPipeline = m_hotReloader->createGraphicsPipeline(pipelineDesc, sources);
+      } else {
+        m_shadowPipeline = m_renderer->createGraphicsPipeline(pipelineDesc);
+      }
       if (m_shadowPipeline.isValid()) {
           core::Logger::Render.info("ShadowPass: Main pipeline created successfully.");
       }
 
       shadowBuilder.setCullMode(rhi::CullMode::None)
           .setName("ShadowPassDoubleSided");
-      m_shadowPipelineDoubleSided =
-          m_renderer->createGraphicsPipeline(shadowBuilder.buildGraphics());
+      auto shadowDoubleDesc = shadowBuilder.buildGraphics();
+      if (m_hotReloader != nullptr) {
+        std::array sources = {
+            ShaderSourceInfo{
+                .path = "engine/src/renderer/shaders/renderer/indirect/shadow.slang",
+                .entryPoint = "vertexMain",
+                .stage = rhi::ShaderStage::Vertex,
+                .dependencies = {}
+            }
+        };
+        m_shadowPipelineDoubleSided =
+            m_hotReloader->createGraphicsPipeline(shadowDoubleDesc, sources);
+      } else {
+        m_shadowPipelineDoubleSided =
+            m_renderer->createGraphicsPipeline(shadowDoubleDesc);
+      }
       if (m_shadowPipelineDoubleSided.isValid()) {
           core::Logger::Render.info("ShadowPass: Double-sided pipeline created successfully.");
       }
@@ -144,10 +173,9 @@ namespace pnkr::renderer
 
             scene::BoundingBox sceneAABB{};
 
-            auto view = scene.registry().view<scene::WorldBounds, scene::Visibility, scene::MeshRenderer>();
-
-            view.each([&](ecs::Entity, const scene::WorldBounds& wb, const scene::Visibility& vis, const scene::MeshRenderer& mr) {
-                if (vis.visible && mr.meshID >= 0) {
+            auto view = scene.registry().view<scene::WorldBounds, scene::MeshRenderer>();
+            view.each([&](ecs::Entity, const scene::WorldBounds& wb, const scene::MeshRenderer& mr) {
+                if (mr.meshID >= 0) {
                     sceneAABB.combine(wb.aabb);
                 }
             });
@@ -207,7 +235,8 @@ namespace pnkr::renderer
             core::Logger::Render.debug("ShadowPass: LS Bounds X[{:.2f}, {:.2f}] Y[{:.2f}, {:.2f}] Z[{:.2f}, {:.2f}] TexelSize: {:.4f}",
                 minX, maxX, minY, maxY, -sceneAABB_LS.m_max.z - zPadding, -sceneAABB_LS.m_min.z + zPadding, worldUnitsPerTexel);
 
-            lightProjMat = glm::orthoRH_ZO(minX, maxX, minY, maxY, -sceneAABB_LS.m_max.z - zPadding, -sceneAABB_LS.m_min.z + zPadding);
+            const float padding = ctx.settings.shadow.extraXYPadding;
+            lightProjMat = glm::orthoRH_ZO(minX - padding, maxX + padding, minY - padding, maxY + padding, -sceneAABB_LS.m_max.z - zPadding, -sceneAABB_LS.m_min.z + zPadding);
 
             lightProjMat[1][1] *= -1.0f;
 

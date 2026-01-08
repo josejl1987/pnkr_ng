@@ -80,7 +80,7 @@ namespace pnkr::renderer::rhi::vulkan
         void pipelineBarrier(
             ShaderStageFlags srcStage,
             ShaderStageFlags dstStage,
-            const std::vector<RHIMemoryBarrier>& barriers) override;
+            std::span<const RHIMemoryBarrier> barriers) override;
 
         void copyBuffer(RHIBuffer* src, RHIBuffer* dst,
                        uint64_t srcOffset, uint64_t dstOffset, uint64_t size) override;

@@ -22,6 +22,8 @@ target_sources(pnkr_engine
     RHIPipelineCache.cpp
     ktx_utils.cpp
     SystemMeshes.cpp
+    ShaderHotReloader.cpp
+    ShaderCompiler.cpp
 
     # Debug
     debug/DebugLayer.cpp
@@ -127,6 +129,8 @@ target_sources(pnkr_engine
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/RHISwapchainManager.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/RHIPipelineCache.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/shader_payload_helpers.hpp"
+    "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/ShaderHotReloader.hpp"
+    "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/ShaderCompiler.hpp"
 
     # Debug
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/debug/DebugLayer.hpp"

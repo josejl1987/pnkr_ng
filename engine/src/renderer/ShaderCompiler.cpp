@@ -6,16 +6,10 @@
 namespace pnkr::renderer {
 
 void* ShaderCompiler::s_slangSession = nullptr;
+std::filesystem::path ShaderCompiler::s_projectRoot;
 
 void ShaderCompiler::initialize() {
     s_slangSession = spCreateSession();
-
-    SlangSessionDesc sessionDesc = {};
-    sessionDesc.structureSize = sizeof(SlangSessionDesc);
-
-    SlangPreprocessorMacroDesc macros[1] = {};
-    sessionDesc.preprocessorMacroCount = 0;
-    sessionDesc.preprocessorMacros = macros;
 
     core::Logger::Render.info("Slang shader compiler initialized");
 }
@@ -25,6 +19,11 @@ void ShaderCompiler::shutdown() {
         spDestroySession(static_cast<SlangSession*>(s_slangSession));
         s_slangSession = nullptr;
     }
+}
+
+void ShaderCompiler::setProjectRoot(const std::filesystem::path& root) {
+    s_projectRoot = root;
+    core::Logger::Render.info("ShaderCompiler: Project root set to {}", s_projectRoot.string());
 }
 
 CompileResult ShaderCompiler::compile(
@@ -49,6 +48,21 @@ CompileResult ShaderCompiler::compile(
 
     spAddSearchPath(request, "assets/shaders");
     spAddSearchPath(request, "include");
+    
+    if (!s_projectRoot.empty()) {
+        spAddSearchPath(request, s_projectRoot.string().c_str());
+        
+        auto engineInclude = s_projectRoot / "engine" / "include";
+        if (std::filesystem::exists(engineInclude)) {
+            spAddSearchPath(request, engineInclude.string().c_str());
+        }
+        
+        auto engineShaders = s_projectRoot / "engine" / "src" / "renderer" / "shaders";
+        if (std::filesystem::exists(engineShaders)) {
+            spAddSearchPath(request, engineShaders.string().c_str());
+        }
+    }
+    
     for (const auto& path : searchPaths) {
         spAddSearchPath(request, path.string().c_str());
     }
@@ -67,7 +81,16 @@ CompileResult ShaderCompiler::compile(
     }
 
     int translationUnitIndex = spAddTranslationUnit(request, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
-    spAddTranslationUnitSourceFile(request, translationUnitIndex, sourcePath.string().c_str());
+    
+    std::filesystem::path resolvedPath = sourcePath;
+    if (sourcePath.is_relative() && !s_projectRoot.empty()) {
+        auto candidate = s_projectRoot / sourcePath;
+        if (std::filesystem::exists(candidate)) {
+            resolvedPath = candidate;
+        }
+    }
+    
+    spAddTranslationUnitSourceFile(request, translationUnitIndex, resolvedPath.string().c_str());
 
     SlangStage slangStage;
     switch(stage) {

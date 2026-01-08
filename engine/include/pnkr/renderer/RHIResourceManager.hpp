@@ -176,12 +176,12 @@ namespace pnkr::renderer {
         TexturePtr createTexture(const char* name, const rhi::TextureDescriptor& desc, bool useBindless);
         TexturePtr createTextureView(const char* name, TextureHandle parent, const rhi::TextureViewDescriptor& desc, bool useBindless);
         BufferPtr createBuffer(const char* name, const rhi::BufferDescriptor& desc);
-        MeshPtr createMesh(const std::vector<struct Vertex>& vertices, const std::vector<uint32_t>& indices, bool enableVertexPulling);
+        MeshPtr createMesh(std::span<const struct Vertex> vertices, std::span<const uint32_t> indices, bool enableVertexPulling);
         PipelinePtr createGraphicsPipeline(const rhi::GraphicsPipelineDescriptor& desc);
         PipelinePtr createComputePipeline(const rhi::ComputePipelineDescriptor& desc);
 
-        MeshPtr loadNoVertexPulling(const std::vector<struct Vertex>& vertices, const std::vector<uint32_t>& indices);
-        MeshPtr loadVertexPulling(const std::vector<struct Vertex>& vertices, const std::vector<uint32_t>& indices);
+        MeshPtr loadNoVertexPulling(std::span<const struct Vertex> vertices, std::span<const uint32_t> indices);
+        MeshPtr loadVertexPulling(std::span<const struct Vertex> vertices, std::span<const uint32_t> indices);
 
         TextureHandle createWhiteTexture();
         TextureHandle createBlackTexture();

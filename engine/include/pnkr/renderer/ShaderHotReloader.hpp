@@ -1,11 +1,10 @@
-#pragma once
-#include <filesystem>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <span>
 #include "pnkr/core/Handle.h"
 #include "pnkr/rhi/rhi_pipeline.hpp"
 #include "pnkr/rhi/rhi_types.hpp"
+#include "pnkr/renderer/RHIResourceManager.hpp"
 
 namespace pnkr::renderer {
 
@@ -31,12 +30,12 @@ public:
     void shutdown();
     void update(float deltaTime);
 
-    PipelineHandle createGraphicsPipeline(
+    PipelinePtr createGraphicsPipeline(
         const rhi::GraphicsPipelineDescriptor& desc,
-        const std::vector<ShaderSourceInfo>& sources
+        std::span<const ShaderSourceInfo> sources
     );
 
-    PipelineHandle createComputePipeline(
+    PipelinePtr createComputePipeline(
         const rhi::ComputePipelineDescriptor& desc,
         const ShaderSourceInfo& source
     );
@@ -44,6 +43,7 @@ public:
 private:
     void rebuildPipeline(PipelineHandle handle, const PipelineRecipe& recipe);
     void registerDependencies(const ShaderSourceInfo& source, PipelineHandle handle);
+    static std::filesystem::path discoverProjectRoot();
 
     RHIRenderer* m_renderer = nullptr;
 

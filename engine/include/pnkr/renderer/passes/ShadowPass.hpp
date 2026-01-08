@@ -11,7 +11,8 @@ namespace pnkr::renderer
     class ShadowPass : public IRenderPass
     {
     public:
-        void init(RHIRenderer* renderer, uint32_t width, uint32_t height) override;
+        void init(RHIRenderer* renderer, uint32_t width, uint32_t height,
+                  ShaderHotReloader* hotReloader) override;
         void resize(uint32_t width, uint32_t height, const MSAASettings& msaa) override;
         void execute(const RenderPassContext& ctx) override;
         const char* getName() const override { return "ShadowPass"; }
@@ -24,6 +25,7 @@ namespace pnkr::renderer
 
     private:
         RHIRenderer* m_renderer = nullptr;
+        ShaderHotReloader* m_hotReloader = nullptr;
         PipelinePtr m_shadowPipeline;
         PipelinePtr m_shadowPipelineDoubleSided;
         TexturePtr m_shadowMap;

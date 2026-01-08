@@ -225,7 +225,23 @@ namespace pnkr::renderer
         : m_renderer(renderer)
     {
       if ((m_renderer != nullptr) && asyncEnabled) {
-        m_asyncLoader = std::make_unique<AsyncLoader>(*m_renderer);
+        try {
+            m_asyncLoader = std::make_unique<AsyncLoader>(*m_renderer);
+            if (!m_asyncLoader->isInitialized()) {
+                core::Logger::Asset.warn(
+                    "AssetManager: AsyncLoader created but not initialized. "
+                    "Textures will load synchronously.");
+                m_asyncLoader.reset();  // Remove non-functional loader
+            } else {
+                core::Logger::Asset.info(
+                    "AssetManager: Async texture loading enabled");
+            }
+        } catch (const std::exception& e) {
+            core::Logger::Asset.error(
+                "AssetManager: Failed to create AsyncLoader: {}. "
+                "Falling back to synchronous texture loading.", e.what());
+            m_asyncLoader.reset();
+        }
       }
 
 #ifdef _WIN32

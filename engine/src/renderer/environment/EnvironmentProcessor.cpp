@@ -4,6 +4,7 @@
 #include "pnkr/core/logger.hpp"
 #include <cmath>
 #include <algorithm>
+#include <array>
 
 namespace pnkr::renderer {
 
@@ -52,7 +53,7 @@ namespace pnkr::renderer {
             barrier.newLayout = rhi::ResourceLayout::General;
             barrier.srcAccessStage = rhi::ShaderStage::None;
             barrier.dstAccessStage = rhi::ShaderStage::Compute;
-            cmd->pipelineBarrier(rhi::ShaderStage::None, rhi::ShaderStage::Compute, {barrier});
+            cmd->pipelineBarrier(rhi::ShaderStage::None, rhi::ShaderStage::Compute, barrier);
 
             auto* pipe = m_renderer->getPipeline(m_brdfPipeline);
             auto* layout = pipe->descriptorSetLayout(0);
@@ -67,7 +68,7 @@ namespace pnkr::renderer {
             barrier.newLayout = rhi::ResourceLayout::ShaderReadOnly;
             barrier.srcAccessStage = rhi::ShaderStage::Compute;
             barrier.dstAccessStage = rhi::ShaderStage::Fragment;
-            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Fragment, {barrier});
+            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Fragment, barrier);
         });
 
         return lut;
@@ -106,7 +107,7 @@ namespace pnkr::renderer {
                 b.baseMipLevel = baseMip;
                 b.levelCount = mipCount;
                 b.layerCount = 6;
-                cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Compute, {b});
+                cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Compute, b);
             };
 
             barrier(result.irradianceMap, rhi::ResourceLayout::Undefined, rhi::ResourceLayout::General, 0, 1);
@@ -199,7 +200,7 @@ namespace pnkr::renderer {
             barrier.srcAccessStage = rhi::ShaderStage::None;
             barrier.dstAccessStage = rhi::ShaderStage::Compute;
             barrier.layerCount = 6;
-            cmd->pipelineBarrier(rhi::ShaderStage::None, rhi::ShaderStage::Compute, {barrier});
+            cmd->pipelineBarrier(rhi::ShaderStage::None, rhi::ShaderStage::Compute, barrier);
 
             auto* pipe = m_renderer->getPipeline(m_equiToCubePipeline);
 
@@ -230,7 +231,7 @@ namespace pnkr::renderer {
             barrier.newLayout = rhi::ResourceLayout::ShaderReadOnly;
             barrier.srcAccessStage = rhi::ShaderStage::Compute;
             barrier.dstAccessStage = rhi::ShaderStage::Fragment;
-            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Fragment, {barrier});
+            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Fragment, barrier);
         });
 
         return cubemap;

@@ -4,6 +4,7 @@
 #include "pnkr/renderer/scene/SceneUploader.hpp"
 #include "pnkr/rhi/rhi_command_buffer.hpp"
 #include "pnkr/core/logger.hpp"
+#include <array>
 #include <algorithm>
 
 namespace pnkr::renderer
@@ -120,7 +121,7 @@ namespace pnkr::renderer
           cmd->pipelineBarrier(rhi::ShaderStage::Transfer,
                                rhi::ShaderStage::Fragment |
                                    rhi::ShaderStage::Compute,
-                               {barrier});
+                               barrier);
         }
     }
 

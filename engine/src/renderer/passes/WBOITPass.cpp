@@ -8,14 +8,17 @@
 #include "pnkr/core/common.hpp"
 #include "pnkr/renderer/gpu_shared/OITShared.h"
 #include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
+#include "pnkr/renderer/ShaderHotReloader.hpp"
 
 namespace pnkr::renderer
 {
     using namespace gpu;
 
-    void WBOITPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height)
+    void WBOITPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height,
+                         ShaderHotReloader* hotReloader)
     {
         m_renderer = renderer;
+        m_hotReloader = hotReloader;
         m_width = width;
         m_height = height;
 
@@ -34,14 +37,34 @@ namespace pnkr::renderer
             .setDepthFormat(m_renderer->getDrawDepthFormat())
             .setColorFormats(
                 {rhi::Format::R16G16B16A16_SFLOAT, rhi::Format::R16_SFLOAT})
-            .setMultisampling(1, false, 1.0f)
+            .setMultisampling(m_msaa.sampleCount, false, 1.0f)
             .enableDepthTest(true, rhi::CompareOp::LessOrEqual, false)
             .setBlend(0, rhi::BlendOp::Add, rhi::BlendFactor::One,
                       rhi::BlendFactor::One)
             .setBlend(1, rhi::BlendOp::Add, rhi::BlendFactor::Zero,
                       rhi::BlendFactor::OneMinusSrcColor)
             .setName("WBOIT_Geometry");
-        m_geometryPipeline = m_renderer->createGraphicsPipeline(oitBuilder.buildGraphics());
+        auto geomDesc = oitBuilder.buildGraphics();
+        if (m_hotReloader != nullptr) {
+            std::array sources = {
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/indirect/"
+                        "wboit_geometry.slang",
+                    .entryPoint = "vertexMain",
+                    .stage = rhi::ShaderStage::Vertex,
+                    .dependencies = {}},
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/indirect/"
+                        "wboit_geometry.slang",
+                    .entryPoint = "fragmentMain",
+                    .stage = rhi::ShaderStage::Fragment,
+                    .dependencies = {}}};
+            m_geometryPipeline = m_hotReloader->createGraphicsPipeline(geomDesc, sources);
+        } else {
+            m_geometryPipeline = m_renderer->createGraphicsPipeline(geomDesc);
+        }
         auto sVertComp = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/wboit_composite.vert.spv");
         auto sFragComp = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/wboit_composite.frag.spv");
 
@@ -57,9 +80,30 @@ namespace pnkr::renderer
                    .setCullMode(rhi::CullMode::None)
                    .enableDepthTest(false)
                    .setColorFormat(rhi::Format::B10G11R11_UFLOAT_PACK32)
+                   .setMultisampling(1, false, 1.0f)
                    .setAlphaBlend()
                    .setName("WBOIT_Composite");
-        m_compositePipeline = m_renderer->createGraphicsPipeline(compBuilder.buildGraphics());
+        auto compDesc = compBuilder.buildGraphics();
+        if (m_hotReloader != nullptr) {
+            std::array sources = {
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/indirect/"
+                        "wboit_composite.slang",
+                    .entryPoint = "vertexMain",
+                    .stage = rhi::ShaderStage::Vertex,
+                    .dependencies = {}},
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/indirect/"
+                        "wboit_composite.slang",
+                    .entryPoint = "fragmentMain",
+                    .stage = rhi::ShaderStage::Fragment,
+                    .dependencies = {}}};
+            m_compositePipeline = m_hotReloader->createGraphicsPipeline(compDesc, sources);
+        } else {
+            m_compositePipeline = m_renderer->createGraphicsPipeline(compDesc);
+        }
         createResources(width, height);
     }
 
@@ -71,27 +115,41 @@ namespace pnkr::renderer
       m_msaa = msaa;
       m_width = width;
       m_height = height;
-      init(m_renderer, width, height);
+      init(m_renderer, width, height, m_hotReloader);
     }
 
     void WBOITPass::createResources(uint32_t width, uint32_t height)
     {
         using namespace passes::utils;
 
-        constexpr uint32_t samples = 1;
+        const uint32_t samples = m_msaa.sampleCount;
 
         createTextureAttachment(m_renderer, m_accumTexture, width, height,
             rhi::Format::R16G16B16A16_SFLOAT,
-            rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+            rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst | rhi::TextureUsage::TransferSrc,
             "WBOIT Accum", samples);
         createTextureAttachment(m_renderer, m_revealTexture, width, height,
             rhi::Format::R16_SFLOAT,
-            rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+            rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst | rhi::TextureUsage::TransferSrc,
             "WBOIT Reveal", samples);
         createTextureAttachment(m_renderer, m_sceneColorCopy, width, height,
             rhi::Format::B10G11R11_UFLOAT_PACK32,
             rhi::TextureUsage::TransferDst | rhi::TextureUsage::Sampled,
-            "WBOIT SceneColorCopy");
+            "WBOIT SceneColorCopy"); // No samples needed here as it's a copy
+
+        if (samples > 1) {
+            createTextureAttachment(m_renderer, m_accumResolved, width, height,
+                rhi::Format::R16G16B16A16_SFLOAT,
+                rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+                "WBOIT Accum Resolved", 1);
+            createTextureAttachment(m_renderer, m_revealResolved, width, height,
+                rhi::Format::R16_SFLOAT,
+                rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+                "WBOIT Reveal Resolved", 1);
+        } else {
+            m_accumResolved = {};
+            m_revealResolved = {};
+        }
     }
 
     void WBOITPass::clear(rhi::RHICommandList* cmd)
@@ -112,7 +170,7 @@ namespace pnkr::renderer
         cmd->clearImage(m_renderer->getTexture(m_revealTexture), clearReveal, rhi::ResourceLayout::General);
     }
 
-    void WBOITPass::executeGeometry(const RenderPassContext& ctx)
+    void WBOITPass::executeGeometry(const RenderPassContext& ctx, rhi::RHITexture* depthTexture)
     {
         const auto* dod = static_cast<const scene::GLTFUnifiedDODContext*>(ctx.resources.drawLists);
         uint32_t transparentCount =
@@ -152,7 +210,7 @@ namespace pnkr::renderer
 
         rhi::RenderingAttachment depthAttachment{};
 
-        depthAttachment.texture = m_renderer->getTexture(ctx.resources.sceneDepth);
+        depthAttachment.texture = depthTexture ? depthTexture : m_renderer->getTexture(ctx.resources.sceneDepth);
         depthAttachment.loadOp = rhi::LoadOp::Load;
         depthAttachment.storeOp = rhi::StoreOp::Store;
         renderInfo.depthAttachment = &depthAttachment;
@@ -189,16 +247,38 @@ namespace pnkr::renderer
         ctx.cmd->endRendering();
     }
 
-    void WBOITPass::executeComposite(const RenderPassContext& ctx)
+    void WBOITPass::executeComposite(const RenderPassContext& ctx, rhi::RHITexture* targetTexture)
     {
         PNKR_PROFILE_SCOPE("Record WBOIT Composite");
         using namespace passes::utils;
         ScopedGpuMarker compScope(ctx.cmd, "WBOIT Composite");
 
+        rhi::RHITexture* accumTex = m_renderer->getTexture(m_accumTexture);
+        rhi::RHITexture* revealTex = m_renderer->getTexture(m_revealTexture);
+
+        if (accumTex->sampleCount() > 1 && m_accumResolved.isValid() && m_revealResolved.isValid()) {
+            rhi::TextureCopyRegion region{};
+            region.srcSubresource = {.mipLevel = 0, .arrayLayer = 0};
+            region.dstSubresource = {.mipLevel = 0, .arrayLayer = 0};
+            region.extent = {.width = ctx.viewportWidth,
+                             .height = ctx.viewportHeight,
+                             .depth = 1};
+            region.srcOffsets[0] = {0, 0, 0};
+            region.dstOffsets[0] = {0, 0, 0};
+
+            ctx.cmd->resolveTexture(accumTex, rhi::ResourceLayout::General,
+                                    m_renderer->getTexture(m_accumResolved), rhi::ResourceLayout::General, region);
+            ctx.cmd->resolveTexture(revealTex, rhi::ResourceLayout::General,
+                                    m_renderer->getTexture(m_revealResolved), rhi::ResourceLayout::General, region);
+            
+            accumTex = m_renderer->getTexture(m_accumResolved);
+            revealTex = m_renderer->getTexture(m_revealResolved);
+        }
+
         RenderingInfoBuilder builder;
         builder.setRenderArea(ctx.viewportWidth, ctx.viewportHeight)
             .addColorAttachment(
-                m_renderer->getTexture(ctx.resources.sceneColor),
+                targetTexture ? targetTexture : m_renderer->getTexture(ctx.resources.sceneColor),
                 rhi::LoadOp::Load, rhi::StoreOp::Store);
 
         ctx.cmd->beginRendering(builder.get());
@@ -206,8 +286,8 @@ namespace pnkr::renderer
         ctx.cmd->bindPipeline(m_renderer->getPipeline(m_compositePipeline));
 
         WBOITCompositePushConstants cpc{};
-        cpc.accumTextureIndex = util::u32(m_renderer->getTextureBindlessIndex(m_accumTexture));
-        cpc.revealTextureIndex = util::u32(m_renderer->getTextureBindlessIndex(m_revealTexture));
+        cpc.accumTextureIndex = util::u32(accumTex->getBindlessHandle().index());
+        cpc.revealTextureIndex = util::u32(revealTex->getBindlessHandle().index());
         cpc.backgroundTextureIndex = util::u32(ctx.fg->getTexture(ctx.fgSceneColorCopy)->getBindlessHandle());
         cpc.samplerIndex = util::u32(m_renderer->getBindlessSamplerIndex(rhi::SamplerAddressMode::ClampToEdge));
         cpc.opacityBoost = 0.0F;

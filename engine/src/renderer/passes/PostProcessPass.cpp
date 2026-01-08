@@ -6,37 +6,119 @@
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/profiler.hpp"
 #include "pnkr/renderer/gpu_shared/PostProcessShared.h"
+#include "pnkr/renderer/ShaderHotReloader.hpp"
 #include <glm/gtc/packing.hpp>
+#include <array>
 
 namespace pnkr::renderer
 {
-    void PostProcessPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height)
+    void PostProcessPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height,
+                               ShaderHotReloader* hotReloader)
     {
         m_renderer = renderer;
+        m_hotReloader = hotReloader;
         m_width = width;
         m_height = height;
 
         rhi::RHIPipelineBuilder postBuilder;
         auto sBright = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/post_bright.spv");
-        m_brightPassPipeline = m_renderer->createComputePipeline(postBuilder.setComputeShader(sBright.get()).setName("HDR_BrightPass").buildCompute());
+        auto brightDesc =
+            postBuilder.setComputeShader(sBright.get()).setName("HDR_BrightPass").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .entryPoint = "brightMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_brightPassPipeline = m_hotReloader->createComputePipeline(brightDesc, source);
+        } else {
+            m_brightPassPipeline = m_renderer->createComputePipeline(brightDesc);
+        }
 
         auto sHist = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/post_histogram_build.spv");
-        m_histogramPipeline = m_renderer->createComputePipeline(postBuilder.setComputeShader(sHist.get()).setName("HDR_HistogramBuild").buildCompute());
+        auto histDesc =
+            postBuilder.setComputeShader(sHist.get()).setName("HDR_HistogramBuild").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .entryPoint = "histogramBuildMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_histogramPipeline = m_hotReloader->createComputePipeline(histDesc, source);
+        } else {
+            m_histogramPipeline = m_renderer->createComputePipeline(histDesc);
+        }
 
         auto sHistReduce = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/post_histogram_reduce.spv");
-        m_histogramReducePipeline = m_renderer->createComputePipeline(postBuilder.setComputeShader(sHistReduce.get()).setName("HDR_HistogramReduce").buildCompute());
+        auto histReduceDesc =
+            postBuilder.setComputeShader(sHistReduce.get()).setName("HDR_HistogramReduce").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .entryPoint = "histogramReduceMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_histogramReducePipeline =
+                m_hotReloader->createComputePipeline(histReduceDesc, source);
+        } else {
+            m_histogramReducePipeline = m_renderer->createComputePipeline(histReduceDesc);
+        }
 
         auto sAdapt = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/post_adaptation.spv");
-        m_adaptationPipeline = m_renderer->createComputePipeline(postBuilder.setComputeShader(sAdapt.get()).setName("HDR_Adaptation").buildCompute());
+        auto adaptDesc =
+            postBuilder.setComputeShader(sAdapt.get()).setName("HDR_Adaptation").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .entryPoint = "adaptationMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_adaptationPipeline = m_hotReloader->createComputePipeline(adaptDesc, source);
+        } else {
+            m_adaptationPipeline = m_renderer->createComputePipeline(adaptDesc);
+        }
 
         auto sBloom = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/post_bloom.spv");
-        m_bloomPipeline = m_renderer->createComputePipeline(postBuilder.setComputeShader(sBloom.get()).setName("HDR_Bloom").buildCompute());
+        auto bloomDesc =
+            postBuilder.setComputeShader(sBloom.get()).setName("HDR_Bloom").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .entryPoint = "bloomMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_bloomPipeline = m_hotReloader->createComputePipeline(bloomDesc, source);
+        } else {
+            m_bloomPipeline = m_renderer->createComputePipeline(bloomDesc);
+        }
 
         auto sDown = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/post_bloom_down.spv");
-        m_downsamplePipeline = m_renderer->createComputePipeline(postBuilder.setComputeShader(sDown.get()).setName("HDR_BloomDown").buildCompute());
+        auto downDesc =
+            postBuilder.setComputeShader(sDown.get()).setName("HDR_BloomDown").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .entryPoint = "bloomDownsampleMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_downsamplePipeline = m_hotReloader->createComputePipeline(downDesc, source);
+        } else {
+            m_downsamplePipeline = m_renderer->createComputePipeline(downDesc);
+        }
 
         auto sUp = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/post_bloom_up.spv");
-        m_upsamplePipeline = m_renderer->createComputePipeline(postBuilder.setComputeShader(sUp.get()).setName("HDR_BloomUp").buildCompute());
+        auto upDesc =
+            postBuilder.setComputeShader(sUp.get()).setName("HDR_BloomUp").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .entryPoint = "bloomUpsampleMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_upsamplePipeline = m_hotReloader->createComputePipeline(upDesc, source);
+        } else {
+            m_upsamplePipeline = m_renderer->createComputePipeline(upDesc);
+        }
 
         auto vComp = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/fullscreen_vert.spv");
         auto fTone = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/post_tonemap.spv");
@@ -50,7 +132,25 @@ namespace pnkr::renderer
                  .setNoBlend()
                  .setColorFormat(m_renderer->getSwapchainColorFormat())
                  .setName("ToneMapPass");
-        m_toneMapPipeline = m_renderer->createGraphicsPipeline(tmBuilder.buildGraphics());
+        auto toneDesc = tmBuilder.buildGraphics();
+        if (m_hotReloader != nullptr) {
+            std::array sources = {
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                    .entryPoint = "fullscreenVert",
+                    .stage = rhi::ShaderStage::Vertex,
+                    .dependencies = {}},
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                    .entryPoint = "tonemapMain",
+                    .stage = rhi::ShaderStage::Fragment,
+                    .dependencies = {}}};
+            m_toneMapPipeline = m_hotReloader->createGraphicsPipeline(toneDesc, sources);
+        } else {
+            m_toneMapPipeline = m_renderer->createGraphicsPipeline(toneDesc);
+        }
 
         createResources(width, height);
     }
@@ -298,7 +398,7 @@ namespace pnkr::renderer
             barrier.oldLayout = rhi::ResourceLayout::General;
             barrier.newLayout = rhi::ResourceLayout::General;
             ctx.cmd->pipelineBarrier(rhi::ShaderStage::Compute,
-                                     rhi::ShaderStage::Compute, {barrier});
+                                     rhi::ShaderStage::Compute, barrier);
 
             gpu::PostProcessPushConstants pc{};
             pc.inputTexIndex = util::u32(
@@ -336,7 +436,7 @@ namespace pnkr::renderer
             barrier.oldLayout = rhi::ResourceLayout::General;
             barrier.newLayout = rhi::ResourceLayout::General;
             ctx.cmd->pipelineBarrier(rhi::ShaderStage::Compute,
-                                     rhi::ShaderStage::Compute, {barrier});
+                                     rhi::ShaderStage::Compute, barrier);
 
             gpu::PostProcessPushConstants pc{};
             pc.inputTexIndex = util::u32(m_renderer->getTextureBindlessIndex(

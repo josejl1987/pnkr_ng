@@ -2,6 +2,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include "pnkr/core/ECS.hpp"
+#include "pnkr/renderer/SystemMeshes.hpp"
 #include "pnkr/renderer/scene/ModelAsset.hpp"
 #include <memory>
 
@@ -62,6 +63,11 @@ namespace pnkr::renderer::scene {
             : meshID(mesh) {}
         constexpr MeshRenderer(int32_t mesh, int32_t material)
             : meshID(mesh), materialOverride(material) {}
+    };
+
+    struct SystemMeshRenderer {
+        SystemMeshType type = SystemMeshType::Cube;
+        int32_t materialOverride = -1;
     };
 
     struct SkinnedMeshRenderer {

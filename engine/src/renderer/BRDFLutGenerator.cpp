@@ -5,6 +5,7 @@
 #include "pnkr/rhi/rhi_shader.hpp"
 #include <cstddef>
 #include <filesystem>
+#include <array>
 #include <ktx.h>
 
 namespace pnkr::renderer
@@ -67,13 +68,13 @@ namespace pnkr::renderer
 
         renderer->device()->immediateSubmit([&](rhi::RHICommandList* cmd) {
 
-            std::vector<rhi::RHIMemoryBarrier> barriers(1);
-            barriers[0].texture = dstTexture.get();
-            barriers[0].oldLayout = rhi::ResourceLayout::Undefined;
-            barriers[0].newLayout = rhi::ResourceLayout::General;
-            barriers[0].srcAccessStage = rhi::ShaderStage::All;
-            barriers[0].dstAccessStage = rhi::ShaderStage::Compute;
-            cmd->pipelineBarrier(rhi::ShaderStage::All, rhi::ShaderStage::Compute, barriers);
+            rhi::RHIMemoryBarrier barrier;
+            barrier.texture = dstTexture.get();
+            barrier.oldLayout = rhi::ResourceLayout::Undefined;
+            barrier.newLayout = rhi::ResourceLayout::General;
+            barrier.srcAccessStage = rhi::ShaderStage::All;
+            barrier.dstAccessStage = rhi::ShaderStage::Compute;
+            cmd->pipelineBarrier(rhi::ShaderStage::All, rhi::ShaderStage::Compute, barrier);
 
             cmd->bindPipeline(renderer->getPipeline(pipeline));
 
@@ -83,11 +84,11 @@ namespace pnkr::renderer
 
             cmd->dispatch((width + 15) / 16, (height + 15) / 16, 1);
 
-            barriers[0].oldLayout = rhi::ResourceLayout::General;
-            barriers[0].newLayout = rhi::ResourceLayout::TransferSrc;
-            barriers[0].srcAccessStage = rhi::ShaderStage::Compute;
-            barriers[0].dstAccessStage = rhi::ShaderStage::Transfer;
-            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Transfer, barriers);
+            barrier.oldLayout = rhi::ResourceLayout::General;
+            barrier.newLayout = rhi::ResourceLayout::TransferSrc;
+            barrier.srcAccessStage = rhi::ShaderStage::Compute;
+            barrier.dstAccessStage = rhi::ShaderStage::Transfer;
+            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Transfer, barrier);
         });
 
         const uint64_t bufferSize =

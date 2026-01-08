@@ -11,7 +11,8 @@ namespace pnkr::renderer
     class GeometryPass : public IRenderPass
     {
     public:
-        void init(RHIRenderer* renderer, uint32_t width, uint32_t height) override;
+        void init(RHIRenderer* renderer, uint32_t width, uint32_t height,
+                  ShaderHotReloader* hotReloader) override;
         void resize(uint32_t width, uint32_t height, const MSAASettings& msaa) override;
         void execute(const RenderPassContext& ctx) override;
         void executeMain(const RenderPassContext& ctx, rhi::RHITexture* color, rhi::RHITexture* depth, rhi::RHITexture* resolveColor, rhi::RHITexture* resolveDepth);
@@ -30,6 +31,7 @@ namespace pnkr::renderer
         PipelinePtr m_pipelineWireframe;
         PipelinePtr m_pipelineSkybox;
 
+        ShaderHotReloader* m_hotReloader = nullptr;
         MSAASettings m_msaa;
 
     };

@@ -658,7 +658,7 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::pipelineBarrier(
         ShaderStageFlags srcStage,
         ShaderStageFlags dstStage,
-        const std::vector<RHIMemoryBarrier>& barriers)
+        std::span<const RHIMemoryBarrier> barriers)
     {
         PNKR_PROFILE_FUNCTION();
         PNKR_ASSERT(!m_inRendering,

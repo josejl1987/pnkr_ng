@@ -2,26 +2,30 @@
 #include "pnkr/renderer/passes/RenderPassUtils.hpp"
 #include "pnkr/renderer/gpu_shared/PostProcessShared.h"
 #include "pnkr/core/common.hpp"
+#include "pnkr/renderer/ShaderHotReloader.hpp"
 #include <glm/gtc/matrix_inverse.hpp>
 #include <random>
+#include <array>
 
 namespace pnkr::renderer
 {
-    void SSAOPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height)
+    void SSAOPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height,
+                        ShaderHotReloader* hotReloader)
     {
         m_renderer = renderer;
+        m_hotReloader = hotReloader;
         m_width = width;
         m_height = height;
 
         std::uniform_real_distribution<float> randomFloats(0.0, 1.0);
         std::default_random_engine generator;
-        std::vector<glm::vec4> ssaoNoise;
+        std::array<glm::vec4, 16> ssaoNoise;
         for (uint32_t i = 0; i < 16; i++) {
           glm::vec3 noise((randomFloats(generator) * 2.0) - 1.0,
                           (randomFloats(generator) * 2.0) - 1.0,
                           (randomFloats(generator) * 2.0) - 1.0);
           noise = glm::normalize(noise);
-          ssaoNoise.emplace_back(noise, 0.0F);
+          ssaoNoise[i] = glm::vec4(noise, 0.0F);
         }
 
         rhi::TextureDescriptor noiseDesc{};
@@ -34,13 +38,46 @@ namespace pnkr::renderer
 
         rhi::RHIPipelineBuilder builder;
         auto sResolve = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/ssao_depth_resolve.spv");
-        m_depthResolvePipeline = m_renderer->createComputePipeline(builder.setComputeShader(sResolve.get()).setName("DepthResolve").buildCompute());
+        auto depthResolveDesc =
+            builder.setComputeShader(sResolve.get()).setName("DepthResolve").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/ssao/SSAO.slang",
+                .entryPoint = "depthResolveMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_depthResolvePipeline = m_hotReloader->createComputePipeline(depthResolveDesc, source);
+        } else {
+            m_depthResolvePipeline = m_renderer->createComputePipeline(depthResolveDesc);
+        }
 
         auto sGen = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/ssao.spv");
-        m_ssaoPipeline = m_renderer->createComputePipeline(builder.setComputeShader(sGen.get()).setName("SSAOGen").buildCompute());
+        auto ssaoDesc =
+            builder.setComputeShader(sGen.get()).setName("SSAOGen").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/ssao/SSAO.slang",
+                .entryPoint = "ssaoMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_ssaoPipeline = m_hotReloader->createComputePipeline(ssaoDesc, source);
+        } else {
+            m_ssaoPipeline = m_renderer->createComputePipeline(ssaoDesc);
+        }
 
         auto sBlur = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/ssao_blur.spv");
-        m_blurPipeline = m_renderer->createComputePipeline(builder.setComputeShader(sBlur.get()).setName("SSAOBlur").buildCompute());
+        auto blurDesc =
+            builder.setComputeShader(sBlur.get()).setName("SSAOBlur").buildCompute();
+        if (m_hotReloader != nullptr) {
+            ShaderSourceInfo source{
+                .path = "engine/src/renderer/shaders/renderer/ssao/SSAO.slang",
+                .entryPoint = "blurMain",
+                .stage = rhi::ShaderStage::Compute,
+                .dependencies = {}};
+            m_blurPipeline = m_hotReloader->createComputePipeline(blurDesc, source);
+        } else {
+            m_blurPipeline = m_renderer->createComputePipeline(blurDesc);
+        }
 
         createResources(width, height);
     }
@@ -116,13 +153,13 @@ namespace pnkr::renderer
         cmd->bindPipeline(m_renderer->getPipeline(m_blurPipeline.handle()));
 
         {
-            std::vector<rhi::RHIMemoryBarrier> barriers(1);
-            barriers[0].texture = m_renderer->getTexture(m_ssaoIntermediate);
-            barriers[0].srcAccessStage = rhi::ShaderStage::Compute;
-            barriers[0].dstAccessStage = rhi::ShaderStage::Compute;
-            barriers[0].oldLayout = rhi::ResourceLayout::Undefined;
-            barriers[0].newLayout = rhi::ResourceLayout::General;
-            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Compute, barriers);
+            rhi::RHIMemoryBarrier barrier{};
+            barrier.texture = m_renderer->getTexture(m_ssaoIntermediate);
+            barrier.srcAccessStage = rhi::ShaderStage::Compute;
+            barrier.dstAccessStage = rhi::ShaderStage::Compute;
+            barrier.oldLayout = rhi::ResourceLayout::Undefined;
+            barrier.newLayout = rhi::ResourceLayout::General;
+            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Compute, barrier);
 
             bpc.inputTexID = util::u32(ssaoRawIdx);
             bpc.outputTexID = ssaoIntermediateStorageIdx;
@@ -132,13 +169,13 @@ namespace pnkr::renderer
         }
 
         {
-            std::vector<rhi::RHIMemoryBarrier> barriers(1);
-            barriers[0].texture = m_renderer->getTexture(m_ssaoIntermediate);
-            barriers[0].srcAccessStage = rhi::ShaderStage::Compute;
-            barriers[0].dstAccessStage = rhi::ShaderStage::Compute;
-            barriers[0].oldLayout = rhi::ResourceLayout::General;
-            barriers[0].newLayout = rhi::ResourceLayout::ShaderReadOnly;
-            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Compute, barriers);
+            rhi::RHIMemoryBarrier barrier{};
+            barrier.texture = m_renderer->getTexture(m_ssaoIntermediate);
+            barrier.srcAccessStage = rhi::ShaderStage::Compute;
+            barrier.dstAccessStage = rhi::ShaderStage::Compute;
+            barrier.oldLayout = rhi::ResourceLayout::General;
+            barrier.newLayout = rhi::ResourceLayout::ShaderReadOnly;
+            cmd->pipelineBarrier(rhi::ShaderStage::Compute, rhi::ShaderStage::Compute, barrier);
 
             bpc.inputTexID = ssaoIntermediateSampledIdx;
             bpc.outputTexID = util::u32(ssaoBlurIdx);

@@ -15,6 +15,8 @@
 #include "pnkr/renderer/material/GlobalMaterialHeap.hpp"
 #include "pnkr/renderer/skinning/GlobalJointBuffer.hpp"
 #include "pnkr/renderer/IndirectDrawContext.hpp"
+#include "pnkr/renderer/ShaderHotReloader.hpp"
+#include "pnkr/renderer/scene/SpriteSystem.hpp"
 
 #include <memory>
 #include <vector>
@@ -75,6 +77,8 @@ namespace pnkr::renderer {
         const GlobalJointBuffer& getJointBuffer() const { return m_jointBuffer; }
 
         physics::ClothSystem* getClothSystem() { return m_clothSystem.get(); }
+        ShaderHotReloader* getHotReloader() { return m_hotReloader.get(); }
+        scene::SpriteSystem* getSpriteSystem() { return m_spriteSystem.get(); }
 
         void loadEnvironmentMap(const std::filesystem::path& path, bool flipY = false);
         void setSkybox(TextureHandle skybox, bool flipY = false);
@@ -141,7 +145,9 @@ namespace pnkr::renderer {
         float m_dt = 0.016f;
 
         std::unique_ptr<EnvironmentProcessor> m_envProcessor;
+        std::unique_ptr<ShaderHotReloader> m_hotReloader;
         std::unique_ptr<physics::ClothSystem> m_clothSystem;
+        std::unique_ptr<scene::SpriteSystem> m_spriteSystem;
         bool m_hasAsyncComputeWork = false;
 
         glm::mat4 m_cullingViewProj{1.0f};

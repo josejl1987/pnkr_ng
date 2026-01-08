@@ -16,9 +16,21 @@ namespace pnkr::renderer
 
         if (m_ringBuffer != nullptr) {
             m_ringBufferMapped = reinterpret_cast<uint8_t *>(m_ringBuffer->map());
+            if (m_ringBufferMapped != nullptr) {
+                m_initialized = true;
+                core::Logger::Asset.info(
+                    "AsyncLoaderStagingManager: Initialized ring buffer ({} MB)",
+                    kRingBufferSize / (1024 * 1024));
+            } else {
+                core::Logger::Asset.error(
+                    "AsyncLoaderStagingManager: Failed to map ring buffer memory");
+            }
+        } else {
+            core::Logger::Asset.error(
+                "AsyncLoaderStagingManager: Failed to create ring buffer ({} MB). "
+                "This may be due to insufficient GPU memory.",
+                kRingBufferSize / (1024 * 1024));
         }
-
-        m_initialized = (m_ringBuffer != nullptr);
     }
 
     AsyncLoaderStagingManager::~AsyncLoaderStagingManager()

@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <array>
 
 #include "pnkr/renderer/passes/OITPass.hpp"
 #include "pnkr/renderer/passes/RenderPassUtils.hpp"
@@ -9,13 +10,16 @@
 #include "pnkr/core/common.hpp"
 #include "pnkr/renderer/gpu_shared/OITShared.h"
 #include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
+#include "pnkr/renderer/ShaderHotReloader.hpp"
 
 namespace pnkr::renderer
 {
     using namespace gpu;
-    void OITPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height)
+    void OITPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height,
+                       ShaderHotReloader* hotReloader)
     {
         m_renderer = renderer;
+        m_hotReloader = hotReloader;
         m_width = width;
         m_height = height;
 
@@ -37,7 +41,25 @@ namespace pnkr::renderer
             .enableDepthTest(true, rhi::CompareOp::LessOrEqual)
             .setNoBlend()
             .setName("OIT_Geometry");
-        m_oitPipeline = m_renderer->createGraphicsPipeline(oitBuilder.buildGraphics());
+        auto oitDesc = oitBuilder.buildGraphics();
+        if (m_hotReloader != nullptr) {
+            std::array sources = {
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/indirect/indirect.slang",
+                    .entryPoint = "vertexMain",
+                    .stage = rhi::ShaderStage::Vertex,
+                    .dependencies = {}},
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/indirect/indirect.slang",
+                    .entryPoint = "oitFragmentMain",
+                    .stage = rhi::ShaderStage::Fragment,
+                    .dependencies = {}}};
+            m_oitPipeline = m_hotReloader->createGraphicsPipeline(oitDesc, sources);
+        } else {
+            m_oitPipeline = m_renderer->createGraphicsPipeline(oitDesc);
+        }
 
         auto vComp = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/fullscreen_vert.spv");
         auto sFragComp = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/oit_composite.frag.spv");
@@ -55,8 +77,28 @@ namespace pnkr::renderer
                    .enableDepthTest(false)
                    .setNoBlend()
                    .setColorFormat(rhi::Format::B10G11R11_UFLOAT_PACK32)
+                   .setMultisampling(m_msaa.sampleCount, m_msaa.sampleShading, m_msaa.minSampleShading)
                    .setName("OIT_Composite");
-        m_compositePipeline = m_renderer->createGraphicsPipeline(compBuilder.buildGraphics());
+        auto compDesc = compBuilder.buildGraphics();
+        if (m_hotReloader != nullptr) {
+            std::array sources = {
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                    .entryPoint = "fullscreenVert",
+                    .stage = rhi::ShaderStage::Vertex,
+                    .dependencies = {}},
+                ShaderSourceInfo{
+                    .path =
+                        "engine/src/renderer/shaders/renderer/indirect/"
+                        "oit_composite.slang",
+                    .entryPoint = "fragmentMain",
+                    .stage = rhi::ShaderStage::Fragment,
+                    .dependencies = {}}};
+            m_compositePipeline = m_hotReloader->createGraphicsPipeline(compDesc, sources);
+        } else {
+            m_compositePipeline = m_renderer->createGraphicsPipeline(compDesc);
+        }
 
         createResources(width, height);
     }
@@ -69,7 +111,7 @@ namespace pnkr::renderer
       m_msaa = msaa;
       m_width = width;
       m_height = height;
-      init(m_renderer, width, height);
+      init(m_renderer, width, height, m_hotReloader);
     }
 
     void OITPass::createResources(uint32_t width, uint32_t height)
@@ -88,7 +130,7 @@ namespace pnkr::renderer
             b.dstAccessStage = rhi::ShaderStage::Compute;
             b.oldLayout = rhi::ResourceLayout::Undefined;
             b.newLayout = rhi::ResourceLayout::General;
-            cmd->pipelineBarrier(rhi::ShaderStage::None, rhi::ShaderStage::Compute, {b});
+            cmd->pipelineBarrier(rhi::ShaderStage::None, rhi::ShaderStage::Compute, b);
         });
 
         m_oitCounter = m_renderer->createBuffer("OIT_Counters", {
@@ -128,7 +170,7 @@ namespace pnkr::renderer
         cmd->clearImage(m_renderer->getTexture(m_oitHeads), clearVal, rhi::ResourceLayout::General);
     }
 
-    void OITPass::executeGeometry(const RenderPassContext& ctx)
+    void OITPass::executeGeometry(const RenderPassContext& ctx, rhi::RHITexture* depthTexture)
     {
         const auto* dod = static_cast<const scene::GLTFUnifiedDODContext*>(ctx.resources.drawLists);
         uint32_t transparentCount =
@@ -145,7 +187,7 @@ namespace pnkr::renderer
         RenderingInfoBuilder builder;
         builder.setRenderArea(ctx.viewportWidth, ctx.viewportHeight)
             .setDepthAttachment(
-                m_renderer->getTexture(ctx.resources.sceneDepth),
+                depthTexture ? depthTexture : m_renderer->getTexture(ctx.resources.sceneDepth),
                 rhi::LoadOp::Load, rhi::StoreOp::Store);
 
         ctx.cmd->beginRendering(builder.get());
@@ -187,7 +229,7 @@ namespace pnkr::renderer
         ctx.cmd->endRendering();
     }
 
-    void OITPass::executeComposite(const RenderPassContext& ctx)
+    void OITPass::executeComposite(const RenderPassContext& ctx, rhi::RHITexture* targetTexture)
     {
         PNKR_PROFILE_SCOPE("Record OIT Composite");
         using namespace passes::utils;
@@ -196,7 +238,7 @@ namespace pnkr::renderer
         RenderingInfoBuilder builder;
         builder.setRenderArea(ctx.viewportWidth, ctx.viewportHeight)
             .addColorAttachment(
-                m_renderer->getTexture(ctx.resources.sceneColor),
+                targetTexture ? targetTexture : m_renderer->getTexture(ctx.resources.sceneColor),
                 rhi::LoadOp::Load, rhi::StoreOp::Store);
 
         ctx.cmd->beginRendering(builder.get());

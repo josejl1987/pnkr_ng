@@ -6,9 +6,11 @@
 
 namespace pnkr::renderer
 {
-    void TransmissionPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height)
+    void TransmissionPass::init(RHIRenderer* renderer, uint32_t width, uint32_t height,
+                                ShaderHotReloader* hotReloader)
     {
         m_renderer = renderer;
+        m_hotReloader = hotReloader;
         m_width = width;
         m_height = height;
         createResources(width, height);
@@ -61,7 +63,15 @@ namespace pnkr::renderer
         region.extent = {.width = ctx.viewportWidth,
                          .height = ctx.viewportHeight,
                          .depth = 1};
-        ctx.cmd->copyTexture(sceneColorTex, transTex, region);
+
+        if (sceneColorTex->sampleCount() > 1) {
+            region.srcOffsets[0] = {0,0,0};
+            region.dstOffsets[0] = {0,0,0};
+            ctx.cmd->resolveTexture(sceneColorTex, rhi::ResourceLayout::General,
+                                    transTex, rhi::ResourceLayout::General, region);
+        } else {
+            ctx.cmd->copyTexture(sceneColorTex, transTex, region);
+        }
 
         ctx.resources.transmissionTexture = m_transmissionTexture.handle();
     }

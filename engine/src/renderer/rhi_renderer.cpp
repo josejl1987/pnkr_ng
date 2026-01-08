@@ -311,7 +311,7 @@ namespace pnkr::renderer
             context.commandBuffer->pipelineBarrier(
                 rhi::ShaderStage::None,
                 rhi::ShaderStage::DepthStencilAttachment,
-                {depthBarrier}
+                depthBarrier
             );
 
             m_depthLayout = rhi::ResourceLayout::DepthStencilAttachment;
@@ -329,7 +329,7 @@ namespace pnkr::renderer
             context.commandBuffer->pipelineBarrier(
                 rhi::ShaderStage::None,
                 rhi::ShaderStage::RenderTarget,
-                {colorBarrier}
+                colorBarrier
             );
         }
     }
@@ -498,23 +498,22 @@ namespace pnkr::renderer
         createRenderTargets();
     }
 
-    MeshPtr RHIRenderer::loadNoVertexPulling(const std::vector<Vertex>& vertices,
-                                                const std::vector<uint32_t>& indices)
-    {
-        return m_resourceManager->loadNoVertexPulling(vertices, indices);
-    }
-
-    MeshPtr RHIRenderer::loadVertexPulling(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
-    {
-        return m_resourceManager->loadVertexPulling(vertices, indices);
-    }
-
-    MeshPtr RHIRenderer::createMesh(const std::vector<Vertex>& vertices,
-                                    const std::vector<uint32_t>& indices, bool enableVertexPulling)
-    {
-        return m_resourceManager->createMesh(vertices, indices, enableVertexPulling);
-    }
-
+        MeshPtr RHIRenderer::loadNoVertexPulling(std::span<const Vertex> vertices,
+                                                   std::span<const uint32_t> indices)
+        {
+            return m_resourceManager->loadNoVertexPulling(vertices, indices);
+        }
+    
+        MeshPtr RHIRenderer::loadVertexPulling(std::span<const Vertex> vertices, std::span<const uint32_t> indices)
+        {
+            return m_resourceManager->loadVertexPulling(vertices, indices);
+        }
+    
+        MeshPtr RHIRenderer::createMesh(std::span<const Vertex> vertices,
+                                          std::span<const uint32_t> indices, bool enableVertexPulling)
+        {
+            return m_resourceManager->createMesh(vertices, indices, enableVertexPulling);
+        }
     TexturePtr RHIRenderer::createTexture(const char* name, const rhi::TextureDescriptor& desc)
     {
         return m_resourceManager->createTexture(name, desc, m_useBindless);

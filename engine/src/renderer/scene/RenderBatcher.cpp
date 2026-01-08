@@ -78,6 +78,7 @@ namespace pnkr::renderer::scene
         };
 
         auto meshView = scene.registry().view<MeshRenderer, WorldTransform, Visibility, WorldBounds>();
+        auto sysView = scene.registry().view<SystemMeshRenderer, WorldTransform, Visibility, WorldBounds>();
 
         uint32_t totalInstances = 0;
         meshView.each([&](ecs::Entity, MeshRenderer &meshComp, WorldTransform &,
@@ -91,6 +92,13 @@ namespace pnkr::renderer::scene
             totalInstances +=
                 util::u32(meshes[meshComp.meshID].primitives.size());
           }
+        });
+        sysView.each([&](ecs::Entity, SystemMeshRenderer&, WorldTransform&,
+                         Visibility& vis, WorldBounds&) {
+          if (!ignoreVisibility && !vis.visible) {
+            return;
+          }
+          totalInstances += 1;
         });
 
         if (totalInstances == 0) {
@@ -240,6 +248,63 @@ namespace pnkr::renderer::scene
                        .meshIndex = meshId + systemMeshCount});
                 }
               }
+            });
+
+            sysView.each([&](ecs::Entity, SystemMeshRenderer& sysComp,
+                             WorldTransform& world, Visibility& vis,
+                             WorldBounds& bounds) {
+              if (!ignoreVisibility && !vis.visible) {
+                return;
+              }
+
+              const int32_t systemMeshIndex =
+                  -static_cast<int32_t>(sysComp.type) - 1;
+              if (systemMeshIndex < 0 ||
+                  systemMeshIndex >= static_cast<int32_t>(systemMeshCount)) {
+                return;
+              }
+
+              const glm::mat4 &m = world.matrix;
+              const glm::mat4 n = glm::inverseTranspose(m);
+
+              const auto &prim = systemMeshes.getPrimitive(sysComp.type);
+              uint32_t matIndex =
+                  (sysComp.materialOverride >= 0)
+                      ? util::u32(sysComp.materialOverride)
+                      : 0U;
+              if (matIndex >= materials.size()) {
+                matIndex = 0U;
+              }
+
+              SortingType st = classify(matIndex);
+
+              const uint32_t firstInstance = result.transformCount;
+              if (result.transformCount >= totalInstances) {
+                return;
+              }
+              result.transforms[result.transformCount++] = {
+                  .world = m,
+                  .worldIT = n,
+                  .vertexBufferPtr = systemMeshVertexBufferAddress,
+                  .materialIndex = matIndex,
+                  .meshIndex = util::u32(systemMeshIndex),
+                  ._pad = {0}};
+
+              uint32_t meshOrDepth = util::u32(systemMeshIndex);
+              if (st == SortingType::Transparent) {
+                float dist2 = glm::distance2(cameraPos, glm::vec3(m[3]));
+                meshOrDepth = ~floatToOrderedInt(dist2);
+              }
+
+              renderQueue.push_back(
+                  {.sortKey = buildSortKey(st, matIndex, meshOrDepth),
+                   .cmd = {.indexCount = prim.indexCount,
+                           .instanceCount = 1U,
+                           .firstIndex = prim.firstIndex,
+                           .vertexOffset = prim.vertexOffset,
+                           .firstInstance = firstInstance},
+                   .bounds = bounds.aabb,
+                   .meshIndex = util::u32(systemMeshIndex)});
             });
         }
 

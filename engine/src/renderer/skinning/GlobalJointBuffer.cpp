@@ -3,6 +3,7 @@
 #include "pnkr/renderer/FrameManager.hpp"
 #include "pnkr/rhi/rhi_command_buffer.hpp"
 #include "pnkr/core/logger.hpp"
+#include <array>
 #include <cstring>
 
 namespace pnkr::renderer
@@ -92,8 +93,9 @@ namespace pnkr::renderer
             barrier.srcAccessStage = rhi::ShaderStage::Transfer;
             barrier.dstAccessStage = rhi::ShaderStage::Compute;
 
+            std::array<rhi::RHIMemoryBarrier, 1> barriers{barrier};
             request.cmd.pipelineBarrier(rhi::ShaderStage::Transfer,
-                                        rhi::ShaderStage::Compute, {barrier});
+                                        rhi::ShaderStage::Compute, barriers);
           }
         }
     }

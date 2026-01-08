@@ -16,6 +16,7 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <string>
 #include <vector>
+#include <array>
 
 namespace pnkr::renderer::scene
 {
@@ -57,12 +58,12 @@ namespace pnkr::renderer::scene
 
     void SpriteRenderer::createQuadMesh()
     {
-        std::vector<Vertex> vertices(4);
+        std::array<Vertex, 4> vertices{};
         vertices[0].uv0 = {0.0F, 0.0F}; vertices[1].uv0 = {1.0F, 0.0F};
         vertices[2].uv0 = {1.0F, 1.0F}; vertices[3].uv0 = {0.0F, 1.0F};
         vertices[0].uv1 = {-0.5F, -0.5F}; vertices[1].uv1 = {0.5F, -0.5F};
         vertices[2].uv1 = {0.5F, 0.5F}; vertices[3].uv1 = {-0.5F, 0.5F};
-        std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
+        std::array<uint32_t, 6> indices = {0, 1, 2, 2, 3, 0};
         m_quadMesh = m_renderer.createMesh(vertices, indices, false);
     }
 

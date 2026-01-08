@@ -11,6 +11,8 @@
 
 namespace pnkr::renderer {
 
+    class ShaderHotReloader;
+
     struct RenderGraphResources {
         TextureHandle sceneColor = INVALID_TEXTURE_HANDLE;
         TextureHandle sceneDepth = INVALID_TEXTURE_HANDLE;
@@ -95,7 +97,8 @@ namespace pnkr::renderer {
     public:
         virtual ~IRenderPass() = default;
 
-        virtual void init(RHIRenderer* renderer, uint32_t width, uint32_t height) = 0;
+        virtual void init(RHIRenderer* renderer, uint32_t width, uint32_t height,
+                          ShaderHotReloader* hotReloader) = 0;
         virtual void resize(uint32_t width, uint32_t height, const MSAASettings& msaa) = 0;
         virtual void execute(const RenderPassContext& ctx) = 0;
         virtual const char* getName() const = 0;

@@ -8,7 +8,8 @@ namespace pnkr::renderer
     class PostProcessPass : public IRenderPass
     {
     public:
-        void init(RHIRenderer* renderer, uint32_t width, uint32_t height) override;
+        void init(RHIRenderer* renderer, uint32_t width, uint32_t height,
+                  ShaderHotReloader* hotReloader) override;
         void resize(uint32_t width, uint32_t height, const MSAASettings& msaa) override;
         void execute(const RenderPassContext& ctx) override;
         const char* getName() const override { return "PostProcessPass"; }
@@ -36,6 +37,7 @@ namespace pnkr::renderer
 
     private:
         RHIRenderer* m_renderer = nullptr;
+        ShaderHotReloader* m_hotReloader = nullptr;
         uint32_t m_width = 0;
         uint32_t m_height = 0;
 

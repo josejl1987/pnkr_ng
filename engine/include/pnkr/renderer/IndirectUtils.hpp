@@ -119,7 +119,7 @@ namespace pnkr::renderer {
             cmd->pipelineBarrier(
                 rhi::ShaderStage::Transfer,
                 rhi::ShaderStage::DrawIndirect | rhi::ShaderStage::Compute,
-                { barrier }
+                barrier
             );
         }
 

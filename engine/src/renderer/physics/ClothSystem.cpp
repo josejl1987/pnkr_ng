@@ -5,6 +5,7 @@
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/renderer/gpu_shared/PhysicsShared.h"
 #include "pnkr/renderer/passes/RenderPassUtils.hpp"
+#include <array>
 
 namespace pnkr::renderer::physics {
 
@@ -136,9 +137,10 @@ namespace pnkr::renderer::physics {
 
       cmd->pipelineBarrier(rhi::ShaderStage::Transfer,
                            rhi::ShaderStage::Compute,
-                           {{.buffer = m_physicsSceneBuffer.get(),
-                             .srcAccessStage = rhi::ShaderStage::Transfer,
-                             .dstAccessStage = rhi::ShaderStage::Compute}});
+                           rhi::RHIMemoryBarrier{
+                               .buffer = m_physicsSceneBuffer.get(),
+                               .srcAccessStage = rhi::ShaderStage::Transfer,
+                               .dstAccessStage = rhi::ShaderStage::Compute});
 
       cmd->bindPipeline(m_resourceManager->getPipeline(m_simulationPipeline));
 

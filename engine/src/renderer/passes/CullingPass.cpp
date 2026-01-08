@@ -7,6 +7,8 @@
 #include "pnkr/rhi/rhi_buffer.hpp"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
+#include "pnkr/renderer/ShaderHotReloader.hpp"
+#include <array>
 #include <algorithm>
 #include <cstring>
 #include <glm/glm.hpp>
@@ -15,8 +17,9 @@
 namespace pnkr::renderer
 {
 void CullingPass::init(RHIRenderer *renderer, uint32_t ,
-                       uint32_t ) {
+                       uint32_t , ShaderHotReloader* hotReloader) {
   m_renderer = renderer;
+  m_hotReloader = hotReloader;
 
   if (!m_zeroU32Buffer.isValid()) {
     m_zeroU32Buffer = m_renderer->createBuffer(
@@ -39,10 +42,18 @@ void CullingPass::init(RHIRenderer *renderer, uint32_t ,
   auto sCull =
       rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/culling.spv");
   rhi::RHIPipelineBuilder builder;
-  m_cullingPipeline =
-      m_renderer->createComputePipeline(builder.setComputeShader(sCull.get())
-                                            .setName("GPU_Culling")
-                                            .buildCompute());
+  auto desc =
+      builder.setComputeShader(sCull.get()).setName("GPU_Culling").buildCompute();
+  if (m_hotReloader != nullptr) {
+    ShaderSourceInfo source{
+        .path = "engine/src/renderer/shaders/renderer/indirect/culling.slang",
+        .entryPoint = "computeMain",
+        .stage = rhi::ShaderStage::Compute,
+        .dependencies = {}};
+    m_cullingPipeline = m_hotReloader->createComputePipeline(desc, source);
+  } else {
+    m_cullingPipeline = m_renderer->createComputePipeline(desc);
+  }
 
   uint32_t flightCount = m_renderer->getSwapchain()->framesInFlight();
   m_cullingResources.resize(flightCount);
@@ -256,8 +267,8 @@ void CullingPass::prepare(const RenderPassContext &ctx) {
               barrier.buffer = vBuf;
               barrier.srcAccessStage = rhi::ShaderStage::Transfer;
               barrier.dstAccessStage = rhi::ShaderStage::Compute;
-              
-              ctx.cmd->pipelineBarrier(rhi::ShaderStage::Transfer, rhi::ShaderStage::Compute, {barrier});
+
+              ctx.cmd->pipelineBarrier(rhi::ShaderStage::Transfer, rhi::ShaderStage::Compute, barrier);
           }
 
           ctx.cmd->dispatch(groupCount, 1, 1);

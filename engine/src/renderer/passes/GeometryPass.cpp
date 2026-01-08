@@ -4,15 +4,18 @@
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/profiler.hpp"
+#include "pnkr/renderer/ShaderHotReloader.hpp"
 #include "pnkr/renderer/gpu_shared/SkyboxShared.h"
 #include "pnkr/renderer/scene/GLTFUnifiedDOD.hpp"
+#include <array>
 
 namespace pnkr::renderer
 {
     using namespace gpu;
     void GeometryPass::init(RHIRenderer *renderer, uint32_t ,
-                            uint32_t ) {
+                            uint32_t , ShaderHotReloader* hotReloader) {
       m_renderer = renderer;
+      m_hotReloader = hotReloader;
 
       auto sVert = rhi::Shader::load(rhi::ShaderStage::Vertex,
                                      "shaders/indirect.vert.spv");
@@ -37,19 +40,51 @@ namespace pnkr::renderer
           .setColorFormat(rhi::Format::B10G11R11_UFLOAT_PACK32)
           .setName("IndirectSolid");
 
-      m_pipeline = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+      auto desc = builder.buildGraphics();
+      auto createGraphicsPipeline = [&](const rhi::GraphicsPipelineDescriptor& pipelineDesc,
+                                         std::span<const ShaderSourceInfo> sources) {
+        if (m_hotReloader != nullptr) {
+          return m_hotReloader->createGraphicsPipeline(pipelineDesc, sources);
+        }
+        return m_renderer->createGraphicsPipeline(pipelineDesc);
+      };
+      std::array indirectSources = {
+          ShaderSourceInfo{
+              .path = "engine/src/renderer/shaders/renderer/indirect/indirect.slang",
+              .entryPoint = "vertexMain",
+              .stage = rhi::ShaderStage::Vertex,
+              .dependencies = {}
+          },
+          ShaderSourceInfo{
+              .path = "engine/src/renderer/shaders/renderer/indirect/indirect.slang",
+              .entryPoint = "fragmentMain",
+              .stage = rhi::ShaderStage::Fragment,
+              .dependencies = {}
+          }
+      };
+
+      m_pipeline = createGraphicsPipeline(desc, indirectSources);
+      if (!m_pipeline.isValid()) {
+          core::Logger::Render.error("GeometryPass: Failed to create opaque pipeline");
+      }
 
       builder.setCullMode(rhi::CullMode::None, true, false)
           .setName("IndirectSolidDoubleSided");
       m_pipelineDoubleSided =
-          m_renderer->createGraphicsPipeline(builder.buildGraphics());
+          createGraphicsPipeline(builder.buildGraphics(), indirectSources);
+      if (!m_pipelineDoubleSided.isValid()) {
+          core::Logger::Render.error("GeometryPass: Failed to create double-sided pipeline");
+      }
 
       builder.setCullMode(rhi::CullMode::Back, true, false)
           .setAlphaBlend()
           .enableDepthTest(true, rhi::CompareOp::LessOrEqual, false)
           .setName("IndirectTransparent");
       m_pipelineTransparent =
-          m_renderer->createGraphicsPipeline(builder.buildGraphics());
+          createGraphicsPipeline(builder.buildGraphics(), indirectSources);
+      if (!m_pipelineTransparent.isValid()) {
+          core::Logger::Render.error("GeometryPass: Failed to create transparent pipeline");
+      }
 
       builder.setCullMode(rhi::CullMode::Back, true, false)
           .setBlend(0, rhi::BlendOp::Add, rhi::BlendFactor::SrcAlpha,
@@ -58,17 +93,26 @@ namespace pnkr::renderer
           .enableDepthTest(true, rhi::CompareOp::LessOrEqual, false)
           .setName("IndirectTransmission");
       m_pipelineTransmission =
-          m_renderer->createGraphicsPipeline(builder.buildGraphics());
+          createGraphicsPipeline(builder.buildGraphics(), indirectSources);
+      if (!m_pipelineTransmission.isValid()) {
+          core::Logger::Render.error("GeometryPass: Failed to create transmission pipeline");
+      }
 
       builder.setCullMode(rhi::CullMode::None, true, false)
           .setName("IndirectTransmissionDoubleSided");
       m_pipelineTransmissionDoubleSided =
-          m_renderer->createGraphicsPipeline(builder.buildGraphics());
+          createGraphicsPipeline(builder.buildGraphics(), indirectSources);
+      if (!m_pipelineTransmissionDoubleSided.isValid()) {
+          core::Logger::Render.error("GeometryPass: Failed to create transmission double-sided pipeline");
+      }
 
       builder.setPolygonMode(rhi::PolygonMode::Line)
           .setName("IndirectWireframe");
       m_pipelineWireframe =
-          m_renderer->createGraphicsPipeline(builder.buildGraphics());
+          createGraphicsPipeline(builder.buildGraphics(), indirectSources);
+      if (!m_pipelineWireframe.isValid()) {
+          core::Logger::Render.error("GeometryPass: Failed to create wireframe pipeline");
+      }
 
       // Skybox Pipeline
       auto sSkyboxVert = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/skybox.vert.spv");
@@ -85,7 +129,25 @@ namespace pnkr::renderer
               .setColorFormat(rhi::Format::B10G11R11_UFLOAT_PACK32)
               .setName("IndirectSkybox");
           
-          m_pipelineSkybox = m_renderer->createGraphicsPipeline(builder.buildGraphics());
+          std::array skyboxSources = {
+              ShaderSourceInfo{
+                  .path = "engine/src/renderer/shaders/renderer/skybox.slang",
+                  .entryPoint = "skyboxMain",
+                  .stage = rhi::ShaderStage::Vertex,
+                  .dependencies = {}
+              },
+              ShaderSourceInfo{
+                  .path = "engine/src/renderer/shaders/renderer/skybox.slang",
+                  .entryPoint = "skyboxFrag",
+                  .stage = rhi::ShaderStage::Fragment,
+                  .dependencies = {}
+              }
+          };
+          m_pipelineSkybox =
+              createGraphicsPipeline(builder.buildGraphics(), skyboxSources);
+          if (!m_pipelineSkybox.isValid()) {
+              core::Logger::Render.error("GeometryPass: Failed to create skybox pipeline");
+          }
       } else {
           core::Logger::Render.error("GeometryPass: Failed to load skybox shaders.");
       }
@@ -96,7 +158,7 @@ namespace pnkr::renderer
         if (m_msaa.sampleCount != msaa.sampleCount || m_msaa.sampleShading != msaa.sampleShading)
         {
             m_msaa = msaa;
-            init(m_renderer, width, height);
+            init(m_renderer, width, height, m_hotReloader);
         }
     }
 
@@ -190,9 +252,15 @@ namespace pnkr::renderer
             ctx.cmd->bindIndexBuffer(m_renderer->getBuffer(ctx.model->indexBuffer()), 0, false);
         }
 
+        auto* opaquePipelinePtr = m_renderer->getPipeline(opaquePipeline);
+        if (opaquePipelinePtr == nullptr) {
+            core::Logger::Render.error("GeometryPass::drawOpaque: opaque pipeline is null, skipping draw");
+            return;
+        }
+
         auto* outBuf = m_renderer->getBuffer(ctx.frameBuffers.opaqueCompactedSlice.buffer);
         if (outBuf != nullptr) {
-          ctx.cmd->bindPipeline(m_renderer->getPipeline(opaquePipeline));
+          ctx.cmd->bindPipeline(opaquePipelinePtr);
           ctx.cmd->pushConstants(
               rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
 
@@ -220,7 +288,7 @@ namespace pnkr::renderer
               (dodLists != nullptr) ? dodLists->opaqueCount : 0;
 
           if ((fallbackBuf != nullptr) && drawCount > 0) {
-            ctx.cmd->bindPipeline(m_renderer->getPipeline(opaquePipeline));
+            ctx.cmd->bindPipeline(opaquePipelinePtr);
             ctx.cmd->pushConstants(
                 rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
             ctx.cmd->drawIndexedIndirect(fallbackBuf, commandsOffset, drawCount,
@@ -228,9 +296,10 @@ namespace pnkr::renderer
           }
         }
 
+        auto* doubleSidedPipelinePtr = m_renderer->getPipeline(doubleSidedPipeline);
         auto* dsOutBuf = m_renderer->getBuffer(ctx.frameBuffers.opaqueDoubleSidedCompactedSlice.buffer);
-        if (dsOutBuf != nullptr) {
-          ctx.cmd->bindPipeline(m_renderer->getPipeline(doubleSidedPipeline));
+        if (dsOutBuf != nullptr && doubleSidedPipelinePtr != nullptr) {
+          ctx.cmd->bindPipeline(doubleSidedPipelinePtr);
           ctx.cmd->pushConstants(
               rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
 
@@ -246,7 +315,7 @@ namespace pnkr::renderer
           ctx.cmd->drawIndexedIndirectCount(
               dsOutBuf, commandsOffset, dsOutBuf, countOffset, maxDrawCountDS,
               sizeof(DrawIndexedIndirectCommandGPU));
-        } else {
+        } else if (doubleSidedPipelinePtr != nullptr) {
           auto *dsBuf = m_renderer->getBuffer(
               ctx.frameBuffers.indirectOpaqueDoubleSidedBuffer.buffer);
           const auto &sDS = ctx.frameBuffers.indirectOpaqueDoubleSidedBuffer;
@@ -258,7 +327,7 @@ namespace pnkr::renderer
               (dodLists != nullptr) ? dodLists->opaqueDoubleSidedCount : 0;
 
           if ((dsBuf != nullptr) && dsDrawCount > 0) {
-            ctx.cmd->bindPipeline(m_renderer->getPipeline(doubleSidedPipeline));
+            ctx.cmd->bindPipeline(doubleSidedPipelinePtr);
             ctx.cmd->pushConstants(
                 rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
             ctx.cmd->drawIndexedIndirect(dsBuf, dsCommandsOffset, dsDrawCount,
@@ -296,9 +365,10 @@ namespace pnkr::renderer
             pcCopy.indirect.transmissionSamplerIndex = static_cast<uint32_t>(m_renderer->getBindlessSamplerIndex(rhi::SamplerAddressMode::ClampToEdge));
         }
 
+        auto* transmissionPipelinePtr = m_renderer->getPipeline(transmissionPipeline);
         auto* transBuf = m_renderer->getBuffer(ctx.frameBuffers.indirectTransmissionBuffer.buffer);
-        if (drawTransmission && (transBuf != nullptr) && transCount > 0) {
-          ctx.cmd->bindPipeline(m_renderer->getPipeline(transmissionPipeline));
+        if (drawTransmission && (transBuf != nullptr) && transCount > 0 && transmissionPipelinePtr != nullptr) {
+          ctx.cmd->bindPipeline(transmissionPipelinePtr);
           ctx.cmd->pushConstants(
               rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pcCopy);
           ctx.cmd->drawIndexedIndirect(
@@ -306,10 +376,10 @@ namespace pnkr::renderer
               transCount, sizeof(DrawIndexedIndirectCommandGPU));
         }
 
+        auto* transmissionDSPipelinePtr = m_renderer->getPipeline(transmissionDSPipeline);
         auto* transDSBuf = m_renderer->getBuffer(ctx.frameBuffers.indirectTransmissionDoubleSidedBuffer.buffer);
-        if (drawTransmission && (transDSBuf != nullptr) && transDSCount > 0) {
-          ctx.cmd->bindPipeline(
-              m_renderer->getPipeline(transmissionDSPipeline));
+        if (drawTransmission && (transDSBuf != nullptr) && transDSCount > 0 && transmissionDSPipelinePtr != nullptr) {
+          ctx.cmd->bindPipeline(transmissionDSPipelinePtr);
           ctx.cmd->pushConstants(
               rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pcCopy);
           ctx.cmd->drawIndexedIndirect(
@@ -319,10 +389,11 @@ namespace pnkr::renderer
               transDSCount, sizeof(DrawIndexedIndirectCommandGPU));
         }
 
+        auto* transparentPipelinePtr = m_renderer->getPipeline(m_pipelineTransparent);
         auto* transparentBuf = m_renderer->getBuffer(ctx.frameBuffers.indirectTransparentBuffer.buffer);
         if (drawTransparentObjects && (transparentBuf != nullptr) &&
-            transparentCount > 0) {
-          ctx.cmd->bindPipeline(m_renderer->getPipeline(m_pipelineTransparent));
+            transparentCount > 0 && transparentPipelinePtr != nullptr) {
+          ctx.cmd->bindPipeline(transparentPipelinePtr);
           ctx.cmd->pushConstants(
               rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pcCopy);
           ctx.cmd->drawIndexedIndirect(
@@ -345,7 +416,13 @@ namespace pnkr::renderer
         ctx.cmd->beginRendering(builder.get());
         setFullViewport(ctx.cmd, ctx.viewportWidth, ctx.viewportHeight);
 
-        ctx.cmd->bindPipeline(m_renderer->getPipeline(m_pipelineSkybox));
+        auto* skyboxPipelinePtr = m_renderer->getPipeline(m_pipelineSkybox);
+        if (skyboxPipelinePtr == nullptr) {
+            core::Logger::Render.warn("GeometryPass::drawSkybox: skybox pipeline is null, skipping");
+            ctx.cmd->endRendering();
+            return;
+        }
+        ctx.cmd->bindPipeline(skyboxPipelinePtr);
         
         gpu::SkyboxPushConstants pc{};
         pc.invViewProj = glm::inverse(ctx.camera->proj() * glm::mat4(glm::mat3(ctx.camera->view())));

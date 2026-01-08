@@ -75,7 +75,8 @@ void GlobalResourcePool::createResources(uint32_t width, uint32_t height)
                             rhi::Format::B10G11R11_UFLOAT_PACK32,
                             rhi::TextureUsage::ColorAttachment |
                                 rhi::TextureUsage::Sampled |
-                                rhi::TextureUsage::TransferSrc,
+                                rhi::TextureUsage::TransferSrc |
+                                rhi::TextureUsage::TransferDst,
                             "SceneColor");
     m_resources->sceneColor = m_ownedResources.sceneColor.handle();
 
@@ -101,7 +102,8 @@ void GlobalResourcePool::createResources(uint32_t width, uint32_t height)
         createTextureAttachment(m_renderer, m_ownedResources.sceneDepth, width, height,
                                 m_renderer->getDrawDepthFormat(),
                                 rhi::TextureUsage::DepthStencilAttachment |
-                                    rhi::TextureUsage::Sampled,
+                                    rhi::TextureUsage::Sampled |
+                                    rhi::TextureUsage::TransferDst,
                                 "SceneDepth_Resolved");
         m_resources->sceneDepth = m_ownedResources.sceneDepth.handle();
     } else {

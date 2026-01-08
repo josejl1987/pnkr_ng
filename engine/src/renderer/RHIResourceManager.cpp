@@ -258,7 +258,7 @@ namespace pnkr::renderer {
         return { this, m_buffers.emplace(std::move(bufferData)) };
     }
 
-    MeshPtr RHIResourceManager::createMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, bool enableVertexPulling) {
+    MeshPtr RHIResourceManager::createMesh(std::span<const Vertex> vertices, std::span<const uint32_t> indices, bool enableVertexPulling) {
         RHIMeshData mesh{};
         mesh.m_vertexPulling = enableVertexPulling;
 
@@ -324,11 +324,11 @@ namespace pnkr::renderer {
         return { this, m_pipelines.emplace(std::move(data)) };
     }
 
-    MeshPtr RHIResourceManager::loadNoVertexPulling(const std::vector<struct Vertex>& vertices, const std::vector<uint32_t>& indices) {
+    MeshPtr RHIResourceManager::loadNoVertexPulling(std::span<const struct Vertex> vertices, std::span<const uint32_t> indices) {
         return createMesh(vertices, indices, false);
     }
 
-    MeshPtr RHIResourceManager::loadVertexPulling(const std::vector<struct Vertex>& vertices, const std::vector<uint32_t>& indices) {
+    MeshPtr RHIResourceManager::loadVertexPulling(std::span<const struct Vertex> vertices, std::span<const uint32_t> indices) {
         return createMesh(vertices, indices, true);
     }
 

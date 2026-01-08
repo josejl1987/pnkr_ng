@@ -10,7 +10,7 @@ class FrameManager;
 class RHIRenderer;
 struct RenderGraphResources;
 struct RenderSettings;
-namespace scene { class ModelDOD; }
+namespace scene { class ModelDOD; class SpriteSystem; }
 namespace physics { class ClothSystem; }
 
 class CullingPass;
@@ -41,6 +41,7 @@ public:
         WBOITPass* wboitPass = nullptr;
         PostProcessPass* postProcessPass = nullptr;
         physics::ClothSystem* clothSystem = nullptr;
+        scene::SpriteSystem* spriteSystem = nullptr;
     };
 
     explicit IndirectPipeline(const Dependencies& deps);
@@ -58,6 +59,8 @@ private:
                            const IndirectDrawContext& drawCtx);
     void addPostProcessPasses(FrameGraph& fg, const RenderPassContext& ctx);
     void addClothPass(FrameGraph& fg, const RenderPassContext& ctx);
+    void addSpritePass(FrameGraph& fg, const RenderPassContext& ctx,
+                       FGHandle color, FGHandle depth);
 
     struct GeometryPassData {
         FGHandle color;
@@ -78,7 +81,7 @@ private:
                       FGHandle& ioColor, FGHandle& ioDepth);
     void addWBOITPasses(FrameGraph& fg, const RenderPassContext& ctx,
                         const IndirectDrawContext& drawCtx,
-                        FGHandle& ioColor, FGHandle& ioDepth);
+                        FGHandle& ioColor, FGHandle& ioDepth, FGHandle resolveTarget = {});
     void addTransmissionGeometryPass(FrameGraph& fg, const RenderPassContext& ctx,
                                      FGHandle color, FGHandle depth,
                                      FGHandle transFull);

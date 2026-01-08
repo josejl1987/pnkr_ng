@@ -16,6 +16,7 @@
 #include "pnkr/renderer/passes/WBOITPass.hpp"
 #include "pnkr/renderer/physics/ClothSystem.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
+#include "pnkr/renderer/scene/SpriteSystem.hpp"
 
 namespace pnkr::renderer {
 
@@ -98,6 +99,47 @@ void IndirectPipeline::addClothPass(FrameGraph& fg, const RenderPassContext& ctx
                               rhi::RHICommandList* cmd) {
                               m_deps.clothSystem->update(cmd, ctx.dt);
                           });
+}
+
+void IndirectPipeline::addSpritePass(FrameGraph& fg, const RenderPassContext& ctx,
+                                     FGHandle color, FGHandle depth)
+{
+    if (!m_deps.spriteSystem) {
+        return;
+    }
+
+    struct SpriteData {
+        FGHandle m_color;
+        FGHandle m_depth;
+    };
+
+    fg.addPass<SpriteData>(
+        "SpritePass",
+        [&](FrameGraphBuilder& builder, SpriteData& data) {
+            data.m_color =
+                builder.write(color, FGAccess::ColorAttachmentWrite);
+            data.m_depth = builder.read(depth, FGAccess::DepthAttachmentRead);
+        },
+        [&](const SpriteData& data, const FrameGraphResources& res,
+            rhi::RHICommandList* c) {
+            using namespace passes::utils;
+            ScopedGpuMarker scope(c, "SpritePass");
+
+            RenderingInfoBuilder builder;
+            builder.setRenderArea(ctx.viewportWidth, ctx.viewportHeight)
+                .addColorAttachment(res.getTexture(data.m_color),
+                                    rhi::LoadOp::Load, rhi::StoreOp::Store)
+                .setDepthAttachment(res.getTexture(data.m_depth),
+                                    rhi::LoadOp::Load, rhi::StoreOp::Store);
+
+            c->beginRendering(builder.get());
+            setFullViewport(c, ctx.viewportWidth, ctx.viewportHeight);
+
+            m_deps.spriteSystem->render(c, *ctx.camera, ctx.viewportWidth,
+                                        ctx.viewportHeight, ctx.frameIndex);
+
+            c->endRendering();
+        });
 }
 
 void IndirectPipeline::addShadowPass(FrameGraph& fg, const RenderPassContext& ctx)
@@ -278,24 +320,33 @@ void IndirectPipeline::addGeometryPasses(FrameGraph& fg,
 
     addSSAOPasses(fg, ctx, geomData.resolveDepth);
 
-    [[maybe_unused]] FGHandle sceneColor = color;
-
-    if (ctx.settings.oitMethod != OITMethod::None &&
-        ctx.dodContext.transparentCount > 0) {
-        if (ctx.settings.oitMethod == OITMethod::WBOIT && m_deps.wboitPass) {
-            addWBOITPasses(fg, ctx, drawCtx, color, depth);
-        } else if (m_deps.oitPass) {
-            addOITPasses(fg, ctx, drawCtx, color, depth);
-        }
-    }
-
-    auto transFull = addTransmissionPasses(fg, ctx, geomData.resolveColor);
+    auto transFull = addTransmissionPasses(fg, ctx, color);
     addTransmissionGeometryPass(fg, ctx, color, depth, transFull);
     addTransparentPass(fg, ctx, color, depth, transFull);
 
-    if (ctx.settings.oitMethod != OITMethod::None /*&& ctx.settings.oitDrawDither*/) { // Disabled pending dither setting
-        // addResolvePass(fg, ctx, sceneColor, color); // This was removed in the original edit
+    bool oitActive = false;
+    if (ctx.settings.oitMethod != OITMethod::None &&
+        ctx.dodContext.transparentCount > 0) {
+        if (ctx.settings.oitMethod == OITMethod::WBOIT && m_deps.wboitPass) {
+             addWBOITPasses(fg, ctx, drawCtx, color, depth, geomData.resolveColor);
+             oitActive = true;
+        } else if (m_deps.oitPass) {
+            addOITPasses(fg, ctx, drawCtx, color, depth);
+            oitActive = true;
+        }
     }
+
+    if (ctx.msaaSamples > 1 && !oitActive) {
+        addResolvePass(fg, ctx, color, geomData.resolveColor);
+    }
+
+    FGHandle spriteColor = (ctx.msaaSamples > 1 && !oitActive)
+                                ? geomData.resolveColor
+                                : color;
+    FGHandle spriteDepth = (ctx.msaaSamples > 1 && !oitActive)
+                                ? geomData.resolveDepth
+                                : depth;
+    addSpritePass(fg, ctx, spriteColor, spriteDepth);
 }
 
 IndirectPipeline::GeometryPassData
@@ -554,7 +605,7 @@ void IndirectPipeline::addOITPasses(FrameGraph& fg,
             passCtxCopy.fg = &res;
             passCtxCopy.fgOITHeads = data.m_heads;
             ScopedGpuMarker scope(c, "OIT_Geometry");
-            m_deps.oitPass->executeGeometry(passCtxCopy);
+            m_deps.oitPass->executeGeometry(passCtxCopy, res.getTexture(data.m_sceneDepth));
         });
 
     struct CopyData {
@@ -589,8 +640,16 @@ void IndirectPipeline::addOITPasses(FrameGraph& fg,
             region.extent = {.width = ctx.viewportWidth,
                              .height = ctx.viewportHeight,
                              .depth = 1};
-            c->copyTexture(res.getTexture(data.m_sceneColor),
-                           res.getTexture(data.m_sceneColorCopy), region);
+
+            if (ctx.msaaSamples > 1) {
+                region.srcOffsets[0] = {0,0,0};
+                region.dstOffsets[0] = {0,0,0};
+                c->resolveTexture(res.getTexture(data.m_sceneColor), rhi::ResourceLayout::General,
+                                  res.getTexture(data.m_sceneColorCopy), rhi::ResourceLayout::General, region);
+            } else {
+                c->copyTexture(res.getTexture(data.m_sceneColor),
+                               res.getTexture(data.m_sceneColorCopy), region);
+            }
         });
 
     struct CompositeData {
@@ -622,7 +681,7 @@ void IndirectPipeline::addOITPasses(FrameGraph& fg,
             passCtxCopy.fg = &fgRes;
             passCtxCopy.fgSceneColorCopy = data.m_sceneColorCopy;
             ScopedGpuMarker scope(c, "OIT_Composite");
-            m_deps.oitPass->executeComposite(passCtxCopy);
+            m_deps.oitPass->executeComposite(passCtxCopy, fgRes.getTexture(data.m_sceneColor));
         });
 
     ioColor = compositeSceneColor;
@@ -633,7 +692,8 @@ void IndirectPipeline::addWBOITPasses(FrameGraph& fg,
                                      const RenderPassContext& ctx,
                                      const IndirectDrawContext& drawCtx,
                                      FGHandle& ioColor,
-                                     FGHandle& ioDepth)
+                                     FGHandle& ioDepth,
+                                     FGHandle resolveTarget)
 {
     (void)drawCtx;
     FGHandle wboitSceneColor;
@@ -673,13 +733,13 @@ void IndirectPipeline::addWBOITPasses(FrameGraph& fg,
             wboitAccum = data.m_accum;
             wboitReveal = data.m_reveal;
         },
-        [&](const WBOITData&, const FrameGraphResources&,
+        [&](const WBOITData& data, const FrameGraphResources& res,
             rhi::RHICommandList* c) {
             using namespace passes::utils;
             auto passCtxCopy = ctx;
             passCtxCopy.cmd = c;
             ScopedGpuMarker scope(c, "WBOIT_Geometry");
-            m_deps.wboitPass->executeGeometry(passCtxCopy);
+            m_deps.wboitPass->executeGeometry(passCtxCopy, res.getTexture(data.m_sceneDepth));
         });
 
     struct CopyData {
@@ -714,8 +774,17 @@ void IndirectPipeline::addWBOITPasses(FrameGraph& fg,
             region.extent = {.width = ctx.viewportWidth,
                              .height = ctx.viewportHeight,
                              .depth = 1};
-            c->copyTexture(res.getTexture(data.m_sceneColor),
-                           res.getTexture(data.m_sceneColorCopy), region);
+
+            if (ctx.msaaSamples > 1) {
+                // Initialize offsets
+                region.srcOffsets[0] = {0,0,0};
+                region.dstOffsets[0] = {0,0,0};
+                c->resolveTexture(res.getTexture(data.m_sceneColor), rhi::ResourceLayout::General,
+                                  res.getTexture(data.m_sceneColorCopy), rhi::ResourceLayout::General, region);
+            } else {
+                c->copyTexture(res.getTexture(data.m_sceneColor),
+                               res.getTexture(data.m_sceneColorCopy), region);
+            }
         });
 
     struct CompositeData {
@@ -723,6 +792,7 @@ void IndirectPipeline::addWBOITPasses(FrameGraph& fg,
         FGHandle m_sceneColorCopy;
         FGHandle m_accum;
         FGHandle m_reveal;
+        FGHandle m_target;
     };
     
     FGHandle wboitCompositeSceneColor;
@@ -730,8 +800,10 @@ void IndirectPipeline::addWBOITPasses(FrameGraph& fg,
     fg.addPass<CompositeData>(
         "WBOIT_Composite",
         [&](FrameGraphBuilder& builder, CompositeData& data) {
-            data.m_sceneColor =
-                builder.write(wboitCopySceneColor, FGAccess::ColorAttachmentWrite);
+            // Write to resolveTarget if provided, otherwise overwrite wboitCopySceneColor
+            FGHandle targetHandle = resolveTarget.isValid() ? resolveTarget : wboitCopySceneColor;
+            
+            data.m_target = builder.write(targetHandle, FGAccess::ColorAttachmentWrite);
             data.m_sceneColorCopy =
                 builder.read(wboitCopySceneColorCopy, FGAccess::SampledRead);
             data.m_accum =
@@ -739,7 +811,7 @@ void IndirectPipeline::addWBOITPasses(FrameGraph& fg,
             data.m_reveal =
                 builder.read(wboitReveal, FGAccess::SampledRead);
             
-            wboitCompositeSceneColor = data.m_sceneColor;
+            wboitCompositeSceneColor = data.m_target;
         },
         [&](const CompositeData& data, const FrameGraphResources& fgRes,
             rhi::RHICommandList* c) {
@@ -749,7 +821,7 @@ void IndirectPipeline::addWBOITPasses(FrameGraph& fg,
             passCtxCopy.fg = &fgRes;
             passCtxCopy.fgSceneColorCopy = data.m_sceneColorCopy;
             ScopedGpuMarker scope(c, "WBOIT_Composite");
-            m_deps.wboitPass->executeComposite(passCtxCopy);
+            m_deps.wboitPass->executeComposite(passCtxCopy, fgRes.getTexture(data.m_target));
         });
 
     ioColor = wboitCompositeSceneColor;

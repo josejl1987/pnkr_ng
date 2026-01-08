@@ -85,7 +85,7 @@ namespace pnkr::app {
                             layoutBarrier.newLayout = renderer::rhi::ResourceLayout::ColorAttachment;
                             layoutBarrier.srcAccessStage = renderer::rhi::ShaderStage::RenderTarget;
                             layoutBarrier.dstAccessStage = renderer::rhi::ShaderStage::RenderTarget;
-                            ctx.commandBuffer->pipelineBarrier(renderer::rhi::ShaderStage::RenderTarget, renderer::rhi::ShaderStage::RenderTarget, {layoutBarrier});
+                            ctx.commandBuffer->pipelineBarrier(renderer::rhi::ShaderStage::RenderTarget, renderer::rhi::ShaderStage::RenderTarget, layoutBarrier);
 
                             renderer::rhi::RenderingInfo info{};
                             const auto& extent = ctx.backBuffer->extent();
@@ -179,6 +179,11 @@ namespace pnkr::app {
     int Application::run()
     {
         cpptrace::register_terminate_handler();
+        
+        // Ensure the working directory is set to the application's base directory
+        // so that relative paths (shaders/, assets/) work correctly.
+        std::filesystem::current_path(m_baseDir);
+
         try
         {
             pnkr::Log::init("[%H:%M:%S] [%-8l] %v");

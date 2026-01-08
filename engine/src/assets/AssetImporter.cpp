@@ -562,6 +562,88 @@ namespace pnkr::assets
                                        std::memory_order_relaxed);
         }
 
+        // Initialize textures vector and collect texture info from materials
+        model->textures.resize(gltf.textures.size());
+        std::vector<TextureInfo> textureInfo(gltf.textures.size());
+
+        // Mark which textures are SRGB based on their usage in materials
+        for (const auto& mat : gltf.materials) {
+            auto markSRGB = [&](size_t texIdx) {
+                if (texIdx < textureInfo.size()) {
+                    textureInfo[texIdx].m_isSrgb = true;
+                }
+            };
+            auto markLinear = [&](size_t texIdx) {
+                if (texIdx < textureInfo.size()) {
+                    // Keep default (false) but could set priority here
+                }
+            };
+            auto markSRGBOpt = [&](const auto& texOpt) {
+                if (texOpt.has_value()) markSRGB(texOpt->textureIndex);
+            };
+            auto markLinearOpt = [&](const auto& texOpt) {
+                if (texOpt.has_value()) markLinear(texOpt->textureIndex);
+            };
+
+            // SRGB textures
+            const auto& pbr = mat.pbrData;
+            markSRGBOpt(pbr.baseColorTexture);
+
+            if (mat.specularGlossiness) {
+                markSRGBOpt(mat.specularGlossiness->diffuseTexture);
+                markSRGBOpt(mat.specularGlossiness->specularGlossinessTexture);
+            }
+            markSRGBOpt(mat.emissiveTexture);
+            if (mat.sheen) {
+                markSRGBOpt(mat.sheen->sheenColorTexture);
+            }
+            if (mat.specular) {
+                markSRGBOpt(mat.specular->specularColorTexture);
+            }
+            if (mat.iridescence) {
+                markSRGBOpt(mat.iridescence->iridescenceTexture);
+            }
+            if (mat.clearcoat) {
+                markSRGBOpt(mat.clearcoat->clearcoatTexture);
+            }
+
+            // Linear textures
+            markLinearOpt(mat.normalTexture);
+            markLinearOpt(pbr.metallicRoughnessTexture);
+            markLinearOpt(mat.occlusionTexture);
+            if (mat.clearcoat) {
+                markLinearOpt(mat.clearcoat->clearcoatRoughnessTexture);
+                markLinearOpt(mat.clearcoat->clearcoatNormalTexture);
+            }
+            if (mat.transmission) {
+                markLinearOpt(mat.transmission->transmissionTexture);
+            }
+        }
+
+        // Process textures using the TaskSystem
+        if (!gltf.textures.empty())
+        {
+            core::Logger::Asset.info("AssetImporter: Processing {} textures...", gltf.textures.size());
+
+            TextureProcessTask textureTask;
+            textureTask.m_gltf = &gltf;
+            textureTask.m_textures = &model->textures;
+            textureTask.m_textureInfo = &textureInfo;
+            textureTask.m_assetPath = path.parent_path();
+            textureTask.m_cacheDir = path.parent_path() / ".cache" / "textures";
+            textureTask.m_maxTextureSize = 4096;  // TODO: make configurable
+            textureTask.m_progress = progress;
+
+            const uint32_t numBatches = (gltf.textures.size() + TextureProcessTask::K_TEXTURES_PER_BATCH - 1) /
+                                       TextureProcessTask::K_TEXTURES_PER_BATCH;
+            textureTask.m_SetSize = numBatches;
+
+            core::TaskSystem::scheduler().AddTaskSetToPipe(&textureTask);
+            core::TaskSystem::scheduler().WaitforTask(&textureTask);
+
+            core::Logger::Asset.info("AssetImporter: Texture processing complete");
+        }
+
         GLTFParser::populateModel(*model, gltf, progress);
 
         auto endTime = std::chrono::high_resolution_clock::now();

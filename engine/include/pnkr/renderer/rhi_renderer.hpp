@@ -67,13 +67,13 @@ namespace pnkr::renderer
         void drawFrame();
         void endFrame();
         void resize(int width, int height);
-        MeshPtr loadNoVertexPulling(const std::vector<Vertex>& vertices,
-                                       const std::vector<uint32_t>& indices);
-        MeshPtr loadVertexPulling(const std::vector<Vertex>& vertices,
-                                       const std::vector<uint32_t>& indices);
+        MeshPtr loadNoVertexPulling(std::span<const Vertex> vertices,
+                                       std::span<const uint32_t> indices);
+        MeshPtr loadVertexPulling(std::span<const Vertex> vertices,
+                                       std::span<const uint32_t> indices);
 
-        MeshPtr createMesh(const std::vector<struct Vertex>& vertices,
-                              const std::vector<uint32_t>& indices, bool enableVertexPulling);
+        MeshPtr createMesh(std::span<const struct Vertex> vertices,
+                              std::span<const uint32_t> indices, bool enableVertexPulling);
 
         TexturePtr createTexture(const char* name, const rhi::TextureDescriptor& desc);
         TexturePtr createTexture(const rhi::TextureDescriptor& desc)

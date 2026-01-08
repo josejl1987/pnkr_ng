@@ -23,6 +23,7 @@
 #include "pnkr/renderer/shader_payload_helpers.hpp"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
+#include <array>
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
@@ -57,6 +58,9 @@ namespace pnkr::renderer
       if (m_renderer != nullptr) {
         m_renderer->device()->waitIdle();
       }
+        if (m_hotReloader) {
+            m_hotReloader->shutdown();
+        }
         m_resourceMgr.purgeAll();
         m_frameManager.shutdown();
     }
@@ -72,6 +76,9 @@ namespace pnkr::renderer
 
         m_frameGraph = std::make_unique<FrameGraph>(renderer);
         m_frameGraph->setResourceManager(&m_resourceMgr);
+
+        m_hotReloader = std::make_unique<ShaderHotReloader>();
+        m_hotReloader->init(m_renderer);
 
         m_resourcePool = std::make_unique<GlobalResourcePool>();
         m_resourcePool->init(m_renderer, &m_settings, &m_resources);
@@ -97,13 +104,15 @@ namespace pnkr::renderer
 
         for (auto& pass : m_passes)
         {
-            pass->init(m_renderer, width, height);
+            pass->init(m_renderer, width, height, m_hotReloader.get());
         }
 
         m_envProcessor = std::make_unique<EnvironmentProcessor>(renderer);
 
         m_clothSystem = std::make_unique<physics::ClothSystem>();
         m_clothSystem->init(m_renderer->device(), m_renderer->resourceManager());
+
+        m_spriteSystem = std::make_unique<scene::SpriteSystem>(*m_renderer);
 
         createGlobalResources(width, height);
 
@@ -200,6 +209,7 @@ namespace pnkr::renderer
             .wboitPass = m_wboitPassPtr,
             .postProcessPass = m_postProcessPassPtr,
             .clothSystem = m_clothSystem.get(),
+            .spriteSystem = m_spriteSystem.get(),
         });
 
         m_materialHeap.initialize(m_renderer, 10000);
@@ -274,6 +284,9 @@ namespace pnkr::renderer
         }
 
         m_dt = dt;
+        if (m_hotReloader) {
+            m_hotReloader->update(dt);
+        }
         processCompletedTextures();
         if (m_model)
         {
@@ -297,6 +310,10 @@ namespace pnkr::renderer
             }
 
             updateWorldBounds(m_model->scene());
+        }
+
+        if (m_spriteSystem) {
+            m_spriteSystem->update(dt);
         }
     }
 
@@ -924,6 +941,7 @@ namespace pnkr::renderer
 
         resize(width, height);
 
+
         uint32_t rhiFrameIndex = m_renderer->getFrameIndex();
         m_frameManager.beginFrame(rhiFrameIndex);
 
@@ -935,7 +953,7 @@ namespace pnkr::renderer
             barrier.srcAccessStage = rhi::ShaderStage::None;
             barrier.dstAccessStage = rhi::ShaderStage::RenderTarget;
 
-            cmd->pipelineBarrier(rhi::ShaderStage::None, rhi::ShaderStage::RenderTarget, {barrier});
+            cmd->pipelineBarrier(rhi::ShaderStage::None, rhi::ShaderStage::RenderTarget, barrier);
         }
 
         if (auto* profiler = m_renderer->device()->gpuProfiler())
@@ -946,7 +964,15 @@ namespace pnkr::renderer
             }
         }
 
-        IndirectDrawContext drawCtx = prepareFrame(cmd, camera, width, height, debugLayer);
+        const Camera* activeCamera = &camera;
+        Camera lightCamera;
+        if (m_settings.debugLightView && m_shadowPassPtr != nullptr) {
+          lightCamera.setViewMatrix(m_shadowPassPtr->getLightView());
+          lightCamera.setProjMatrix(m_shadowPassPtr->getLightProj());
+          activeCamera = &lightCamera;
+        }
+
+        IndirectDrawContext drawCtx = prepareFrame(cmd, *activeCamera, width, height, debugLayer);
 
         m_visibleMeshCount = drawCtx.dodContext.opaqueCount +
             drawCtx.dodContext.opaqueDoubleSidedCount +
@@ -966,7 +992,7 @@ namespace pnkr::renderer
         RenderPassContext passCtx = {
             .cmd = cmd,
             .model = m_model.get(),
-            .camera = &camera,
+            .camera = activeCamera,
             .frameBuffers = m_frameManager.getCurrentFrameBuffers(),
             .frameManager = m_frameManager,
             .resources = m_resources,
