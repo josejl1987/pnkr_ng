@@ -959,6 +959,10 @@ namespace pnkr::renderer
               m_transmissionPassPtr->getTextureHandle();
         }
 
+        if (m_ssaoPassPtr != nullptr) {
+            m_resources.ssaoOutput = m_ssaoPassPtr->getSSAOTexture();
+        }
+
         RenderPassContext passCtx = {
             .cmd = cmd,
             .model = m_model.get(),

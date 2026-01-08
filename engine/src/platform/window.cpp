@@ -8,47 +8,55 @@ namespace pnkr::platform
     Window::Window(const std::string& title, int width, int height,
                    SDL_WindowFlags flags)
     {
-        if (!SDL_Init(SDL_INIT_VIDEO))
+        SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+        if (!SDL_InitSubSystem(SDL_INIT_VIDEO))
         {
-            throw cpptrace::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
+            throw cpptrace::runtime_error(std::string("SDL_InitSubSystem(VIDEO) failed: ") + SDL_GetError());
         }
 
         SDL_Window* rawWindow =
             SDL_CreateWindow(title.c_str(), width, height,
-                             flags | SDL_WINDOW_VULKAN // Enable Vulkan support
+                             flags | SDL_WINDOW_VULKAN
             );
 
         if (rawWindow == nullptr)
         {
-            SDL_Quit();
+            SDL_QuitSubSystem(SDL_INIT_VIDEO);
             throw cpptrace::runtime_error(std::string("SDL_CreateWindow failed: ") +
                 SDL_GetError());
         }
 
         m_window.reset(rawWindow);
 
-        pnkr::core::Logger::info("Window created: {}x{}", width, height);
+        int w;
+        int h;
+        SDL_GetWindowSize(m_window.get(), &w, &h);
+        SDL_DisplayID display = SDL_GetDisplayForWindow(m_window.get());
+        const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(display);
+        float refresh = (mode != nullptr) ? mode->refresh_rate : 60.0F;
+
+        pnkr::core::Logger::Platform.info("Window created: {}x{} @ {:.1f}Hz (Title: '{}')", w, h, refresh, title);
     }
 
-    Window::~Window() { SDL_Quit(); }
+    Window::~Window()
+    {
+        m_window.reset();
+    }
 
     void Window::processEvents(Input* input, const EventCallback& callback) noexcept
     {
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
-            // 1. Pass to optional generic callback (e.g., ImGui)
             if (callback) {
                 callback(event);
             }
 
-            // 2. Pass to Input system
             if (input != nullptr)
             {
                 input->processEvent(event);
             }
 
-            // 3. Handle Window lifecycle
             switch (event.type)
             {
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
@@ -56,16 +64,16 @@ namespace pnkr::platform
                 break;
 
             case SDL_EVENT_WINDOW_RESIZED:
-                pnkr::core::Logger::debug("Window resized to {}x{}", event.window.data1,
+                pnkr::core::Logger::Platform.debug("Window resized to {}x{}", event.window.data1,
                                           event.window.data2);
                 break;
 
             case SDL_EVENT_WINDOW_MINIMIZED:
-                pnkr::core::Logger::debug("Window minimized");
+                pnkr::core::Logger::Platform.debug("Window minimized");
                 break;
 
             case SDL_EVENT_WINDOW_RESTORED:
-                pnkr::core::Logger::debug("Window restored");
+                pnkr::core::Logger::Platform.debug("Window restored");
                 break;
 
             default:
@@ -76,12 +84,13 @@ namespace pnkr::platform
 
     void* Window::nativeHandle() const noexcept
     {
-#if defined(_WIN32)
-        // SDL3 exposes platform handles via window properties.
-        SDL_PropertiesID props = SDL_GetWindowProperties(m_window.get());
-        return SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+#ifdef _WIN32
+
+      SDL_PropertiesID props = SDL_GetWindowProperties(m_window.get());
+      return SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER,
+                                    nullptr);
 #else
-        return nullptr;
+      return nullptr;
 #endif
     }
 
@@ -103,4 +112,4 @@ namespace pnkr::platform
         SDL_GetWindowSize(m_window.get(), nullptr, &height);
         return height;
     }
-} // namespace pnkr::platform
+}

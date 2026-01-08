@@ -1,0 +1,6 @@
+function(bin_to_header input_file output_file variable_name)
+    file(READ "${input_file}" hex_content HEX)
+    string(REGEX REPLACE "(..)" "0x\\1," hex_content "${hex_content}")
+    string(REGEX REPLACE ",$" "" hex_content "${hex_content}")
+    file(WRITE "${output_file}" "#pragma once\n#include <cstddef>\n#include <cstdint>\n\nconst uint8_t ${variable_name}[] = { ${hex_content} };\nconst size_t ${variable_name}_size = sizeof(${variable_name});\n")
+endfunction()

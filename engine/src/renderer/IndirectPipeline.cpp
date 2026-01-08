@@ -276,7 +276,7 @@ void IndirectPipeline::addGeometryPasses(FrameGraph& fg,
         color = addSkyboxPass(fg, ctx, color, depth);
     // }
 
-    addSSAOPasses(fg, ctx);
+    addSSAOPasses(fg, ctx, geomData.resolveDepth);
 
     [[maybe_unused]] FGHandle sceneColor = color;
 
@@ -392,7 +392,7 @@ FGHandle IndirectPipeline::addSkyboxPass(FrameGraph& fg,
     return outColor;
 }
 
-void IndirectPipeline::addSSAOPasses(FrameGraph& fg, const RenderPassContext& ctx)
+void IndirectPipeline::addSSAOPasses(FrameGraph& fg, const RenderPassContext& ctx, FGHandle depthResolved)
 {
     if (!m_deps.ssaoPass) {
         return;
@@ -403,14 +403,16 @@ void IndirectPipeline::addSSAOPasses(FrameGraph& fg, const RenderPassContext& ct
         FGHandle m_ssao;
     };
 
-    const auto& ssaoPass = fg.addPass<SSAOData>(
+    FGHandle ssaoRawHandle;
+    fg.addPass<SSAOData>(
         "SSAO",
         [&](FrameGraphBuilder& builder, SSAOData& data) {
-            data.m_depth = builder.read(ctx.fgSceneDepth, FGAccess::SampledRead);
+            data.m_depth = builder.read(depthResolved, FGAccess::SampledRead);
             data.m_ssao = builder.import(
                 "SSAO", m_deps.renderer->getTexture(m_deps.ssaoPass->getSSAORawTexture()),
                 rhi::ResourceLayout::Undefined);
             builder.write(data.m_ssao, FGAccess::StorageWrite);
+            ssaoRawHandle = data.m_ssao;
         },
         [&](const SSAOData& data, const FrameGraphResources& res,
             rhi::RHICommandList* c) {
@@ -419,19 +421,22 @@ void IndirectPipeline::addSSAOPasses(FrameGraph& fg, const RenderPassContext& ct
             passCtxCopy.cmd = c;
             passCtxCopy.fg = &res;
             passCtxCopy.fgSSAORaw = data.m_ssao;
+            passCtxCopy.fgDepthResolved = data.m_depth;
             ScopedGpuMarker scope(c, "SSAO");
-            m_deps.ssaoPass->execute(passCtxCopy);
+            m_deps.ssaoPass->executeGen(passCtxCopy, c);
         });
 
     struct SSAOBlurData {
         FGHandle m_input;
         FGHandle m_output;
+        FGHandle m_depth;
     };
 
     fg.addPass<SSAOBlurData>(
         "SSAO_Blur",
         [&](FrameGraphBuilder& builder, SSAOBlurData& data) {
-            data.m_input = builder.read(ssaoPass, FGAccess::SampledRead);
+            data.m_input = builder.read(ssaoRawHandle, FGAccess::SampledRead);
+            data.m_depth = builder.read(depthResolved, FGAccess::SampledRead);
             data.m_output = builder.import(
                 "SSAO_Blur",
                 m_deps.renderer->getTexture(m_deps.ssaoPass->getSSAOTexture()),
@@ -446,6 +451,7 @@ void IndirectPipeline::addSSAOPasses(FrameGraph& fg, const RenderPassContext& ct
             passCtxCopy.fg = &res;
             passCtxCopy.fgSSAORaw = data.m_input;
             passCtxCopy.fgSSAOBlur = data.m_output;
+            passCtxCopy.fgDepthResolved = data.m_depth;
             ScopedGpuMarker scope(c, "SSAO_Blur");
             m_deps.ssaoPass->executeBlur(passCtxCopy, c);
         });
@@ -920,6 +926,7 @@ void IndirectPipeline::addPostProcessPasses(FrameGraph& fg,
         FGHandle m_meteredLum;
         FGHandle m_adaptedLum;
         FGHandle m_prevAdaptedLum;
+        FGHandle m_ssao;
     };
 
     fg.addPass<PostData>(
@@ -932,13 +939,13 @@ void IndirectPipeline::addPostProcessPasses(FrameGraph& fg,
                 builder.write(fg.getResourceHandle("Backbuffer"),
                               FGAccess::ColorAttachmentWrite);
 
-            FGHandle ssaoHandle = fg.getResourceHandle("SSAO");
+            FGHandle ssaoHandle = fg.getResourceHandle("SSAO_Blur");
             if (ssaoHandle.isValid()) {
-                builder.read(ssaoHandle, FGAccess::SampledRead);
+                data.m_ssao = builder.read(ssaoHandle, FGAccess::SampledRead);
             } else {
                 core::Logger::warn(
-                    "PostProcess: Resource 'SSAO' handle is invalid. SSAO will "
-                    "be disabled.");
+                    "PostProcess: Resource 'SSAO_Blur' handle is invalid. SSAO "
+                    "will be disabled.");
             }
 
             const uint32_t fi = ctx.frameIndex;

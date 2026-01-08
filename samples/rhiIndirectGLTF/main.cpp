@@ -338,6 +338,18 @@ public:
         }
         m_model->dropCpuGeometry();
 
+        // Add a default light if the model has none
+        if (m_model->lights().empty())
+        {
+            Light l{};
+            l.m_type = LightType::Directional;
+            l.m_intensity = 3.0f;
+            l.m_direction = glm::normalize(glm::vec3(-1.0f, -3.0f, -1.0f));
+            l.m_range = 100.0f;
+            m_model->addLight(l, glm::mat4(1.0f), "Default Sun");
+            core::Logger::info("Added default directional light");
+        }
+
         if (!m_model->animations().empty())
         {
             auto& state = m_model->animationState();

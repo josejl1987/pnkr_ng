@@ -114,15 +114,15 @@ namespace pnkr::renderer
         builder.setRenderArea(ctx.viewportWidth, ctx.viewportHeight);
         
         if (resolveColor && resolveColor != color) {
-            builder.addColorAttachment(color, rhi::LoadOp::Load, rhi::StoreOp::Store, resolveColor);
+            builder.addColorAttachment(color, rhi::LoadOp::Clear, rhi::StoreOp::Store, resolveColor);
         } else {
-             builder.addColorAttachment(color, rhi::LoadOp::Load, rhi::StoreOp::Store);
+             builder.addColorAttachment(color, rhi::LoadOp::Clear, rhi::StoreOp::Store);
         }
 
         if (resolveDepth && resolveDepth != depth) {
-             builder.setDepthAttachment(depth, rhi::LoadOp::Load, rhi::StoreOp::Store, resolveDepth);
+             builder.setDepthAttachment(depth, rhi::LoadOp::Clear, rhi::StoreOp::Store, resolveDepth);
         } else {
-             builder.setDepthAttachment(depth, rhi::LoadOp::Load, rhi::StoreOp::Store);
+             builder.setDepthAttachment(depth, rhi::LoadOp::Clear, rhi::StoreOp::Store);
         }
 
         ctx.cmd->beginRendering(builder.get());

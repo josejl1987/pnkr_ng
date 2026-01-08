@@ -1,0 +1,6 @@
+if(NOT DEFINED INPUT_FILE OR NOT DEFINED OUTPUT_FILE OR NOT DEFINED VARIABLE_NAME)
+    message(FATAL_ERROR "RunBinToHeader.cmake requires INPUT_FILE, OUTPUT_FILE, and VARIABLE_NAME.")
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/BinToHeader.cmake")
+bin_to_header("${INPUT_FILE}" "${OUTPUT_FILE}" "${VARIABLE_NAME}")

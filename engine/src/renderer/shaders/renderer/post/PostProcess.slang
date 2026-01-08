@@ -242,7 +242,13 @@ float4 tonemapMain(VSOutput input) : SV_Target {
     float3 color = textureBindless2D(g_TonemapPush.texColor, g_TonemapPush.samplerID, uv).rgb;
 
     // Apply exposure
-    color *= g_TonemapPush.exposure;
+    if (g_TonemapPush.useAutoExposure != 0) {
+         float avgLum = textureBindless2D(g_TonemapPush.texLuminance, g_TonemapPush.samplerID, float2(0.5, 0.5)).r;
+         avgLum = max(avgLum, 0.0001);
+         color *= (g_TonemapPush.exposure / avgLum);
+    } else {
+         color *= g_TonemapPush.exposure;
+    }
 
     // Add bloom
     float3 bloom = textureBindless2D(g_TonemapPush.texBloom, g_TonemapPush.samplerID, uv).rgb;
@@ -261,8 +267,6 @@ float4 tonemapMain(VSOutput input) : SV_Target {
     // Apply SSAO
     float ssao = textureBindless2D(g_TonemapPush.texSSAO, g_TonemapPush.samplerID, uv).r;
     tonemapped = lerp(tonemapped, tonemapped * ssao, g_TonemapPush.ssaoStrength);
-
-
 
     return float4(tonemapped, 1.0);
 }
