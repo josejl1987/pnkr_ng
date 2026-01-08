@@ -16,6 +16,7 @@ target_sources(pnkr_engine
     IndirectPipeline.cpp
     rhi_renderer.cpp
     RHIDeviceContext.cpp
+    RenderDevice.cpp
     RenderContext.cpp
     RHIResourceManager.cpp
     RHISwapchainManager.cpp
@@ -115,6 +116,7 @@ target_sources(pnkr_engine
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/IndirectRenderer.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/IndirectUtils.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/RenderPipeline.hpp"
+    "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/RenderDevice.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/RenderContext.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/RenderResourceManager.h"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/RenderSettings.hpp"
