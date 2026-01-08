@@ -1,17 +1,18 @@
 #include "pnkr/renderer/rhi_renderer.hpp"
-#include "pnkr/renderer/ktx_utils.hpp"
 #include "pnkr/rhi/rhi_factory.hpp"
-#include "pnkr/rhi/vulkan/vulkan_device.hpp"
-#include "pnkr/rhi/vulkan/vulkan_swapchain.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
+#include "pnkr/renderer/AssetManager.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
+#include "pnkr/rhi/BindlessManager.hpp"
+#include "pnkr/renderer/profiling/gpu_profiler.hpp"
+#include "pnkr/rhi/rhi_command_buffer.hpp"
 
-#include <ktx.h>
-#include <stb_image.h>
 #include <algorithm>
 #include <cstddef>
 #include <string>
+
+#include "rhi/vulkan/vulkan_device.hpp"
 
 using namespace pnkr::util;
 
@@ -21,11 +22,11 @@ namespace pnkr::renderer
     {
         struct GPUVertex
         {
-            glm::vec4 pos;
-            glm::vec4 color;
-            glm::vec4 normal;
-            glm::vec4 uv;
-            glm::vec4 tangent;
+          glm::vec4 m_pos;
+          glm::vec4 m_color;
+          glm::vec4 m_normal;
+          glm::vec4 m_uv;
+          glm::vec4 m_tangent;
         };
     }
 
@@ -35,19 +36,9 @@ namespace pnkr::renderer
 #ifdef TRACY_ENABLE
         tracy::SetThreadName("Main");
 #endif
-        // 1. Load RenderDoc DLL and setup hooks BEFORE Vulkan initializes.
-        if (m_renderdoc.init())
-        {
-            core::Logger::info("RenderDoc: Loaded successfully at startup.");
-        }
-        else
-        {
-            core::Logger::warn("RenderDoc: Failed to load at startup. Captures will likely fail if loaded later.");
-        }
 
-        core::Logger::info("Creating RHI Renderer");
+        core::Logger::Render.info("Creating RHI Renderer (Modular)");
 
-        // Create device
         rhi::DeviceDescriptor deviceDesc{};
         deviceDesc.enableValidation = config.m_enableValidation;
         deviceDesc.enableBindless = config.m_enableBindless;
@@ -61,205 +52,208 @@ namespace pnkr::renderer
             deviceDesc.requiredExtensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
         }
 
-        if (m_renderdoc.isAvailable())
-        {
-            deviceDesc.enableValidation = false;
-            core::Logger::warn("RenderDoc detected: Vulkan validation layers disabled to avoid loader conflicts.");
-        }
+        m_deviceContext = std::make_unique<RHIDeviceContext>(rhi::RHIBackend::Vulkan, deviceDesc);
+        auto* device = m_deviceContext->device();
 
-        m_device = rhi::RHIFactory::createDeviceAuto(rhi::RHIBackend::Vulkan, deviceDesc);
-
-        if (!m_device)
-        {
-            throw cpptrace::runtime_error("Failed to create RHI device");
-        }
-
-        // Check bindless support
-        m_bindlessSupported = m_device->physicalDevice().capabilities().bindlessTextures;
+        m_bindlessSupported = device->physicalDevice().capabilities().bindlessTextures;
         m_useBindless = m_bindlessSupported && config.m_enableBindless;
 
-        // Create swapchain (WSI)
-        m_swapchain = rhi::RHIFactory::createSwapchain(
-            m_device.get(),
-            m_window,
-            rhi::Format::B8G8R8A8_UNORM);
+        m_swapchainManager = std::make_unique<RHISwapchainManager>(device, m_window, rhi::Format::B8G8R8A8_UNORM);
+        auto* swapchain = m_swapchainManager->swapchain();
+        m_renderContext = std::make_unique<RenderContext>(m_deviceContext.get(), swapchain);
 
-        if (!m_swapchain)
-        {
-            throw cpptrace::runtime_error("Failed to create RHI swapchain");
-        }
+        const uint32_t framesInFlight = std::max(1U, swapchain->framesInFlight());
+        m_deviceContext->initCommandBuffers(framesInFlight);
+        m_resourceManager = std::make_unique<RHIResourceManager>(device, framesInFlight);
+        m_pipelineCache = std::make_unique<RHIPipelineCache>(device);
 
-        if (m_renderdoc.isAvailable())
-        {
-            core::Logger::info("RenderDoc: Initialized at startup.");
-        }
+        m_assets = std::make_unique<AssetManager>(this, config.m_enableAsyncTextureLoading);
 
-
-        // Create per-frame command buffers.
-        const uint32_t framesInFlight = std::max(1U, m_swapchain->framesInFlight());
-        m_commandBuffers.reserve(framesInFlight);
-        for (uint32_t i = 0; i < framesInFlight; ++i)
-        {
-            m_commandBuffers.push_back(m_device->createCommandBuffer());
-        }
-
-        // Create default sampler
-        m_defaultSampler = m_device->createSampler(
+        m_defaultSampler = device->createSampler(
             rhi::Filter::Linear,
             rhi::Filter::Linear,
             rhi::SamplerAddressMode::Repeat
         );
         if (m_useBindless)
         {
-            m_repeatSamplerIndex = m_device->registerBindlessSampler(m_defaultSampler.get()).index;
-            m_clampSampler = m_device->createSampler(
+            auto* bindless = device->getBindlessManager();
+            if (bindless == nullptr) {
+              core::Logger::Render.error(
+                  "Bindless manager unavailable; disabling bindless usage");
+              m_useBindless = false;
+            }
+        }
+
+        if (m_useBindless)
+        {
+            auto* bindless = device->getBindlessManager();
+            m_repeatSamplerIndex = bindless->registerSampler(m_defaultSampler.get());
+            m_clampSampler = device->createSampler(
                 rhi::Filter::Linear,
                 rhi::Filter::Linear,
                 rhi::SamplerAddressMode::ClampToEdge
             );
-            m_mirrorSampler = m_device->createSampler(
+            m_mirrorSampler = device->createSampler(
                 rhi::Filter::Linear,
                 rhi::Filter::Linear,
                 rhi::SamplerAddressMode::MirroredRepeat
             );
-            m_clampSamplerIndex = m_device->registerBindlessSampler(m_clampSampler.get()).index;
-            m_mirrorSamplerIndex = m_device->registerBindlessSampler(m_mirrorSampler.get()).index;
+            m_clampSamplerIndex = bindless->registerSampler(m_clampSampler.get());
+            m_mirrorSamplerIndex = bindless->registerSampler(m_mirrorSampler.get());
 
-            // Nearest variants
-            m_repeatSamplerNearest = m_device->createSampler(
+            m_repeatSamplerNearest = device->createSampler(
                 rhi::Filter::Nearest,
                 rhi::Filter::Nearest,
                 rhi::SamplerAddressMode::Repeat
             );
-            m_clampSamplerNearest = m_device->createSampler(
+            m_clampSamplerNearest = device->createSampler(
                 rhi::Filter::Nearest,
                 rhi::Filter::Nearest,
                 rhi::SamplerAddressMode::ClampToEdge
             );
-            m_mirrorSamplerNearest = m_device->createSampler(
+            m_mirrorSamplerNearest = device->createSampler(
                 rhi::Filter::Nearest,
                 rhi::Filter::Nearest,
                 rhi::SamplerAddressMode::MirroredRepeat
             );
-            m_repeatSamplerNearestIndex = m_device->registerBindlessSampler(m_repeatSamplerNearest.get()).index;
-            m_clampSamplerNearestIndex = m_device->registerBindlessSampler(m_clampSamplerNearest.get()).index;
-            m_mirrorSamplerNearestIndex = m_device->registerBindlessSampler(m_mirrorSamplerNearest.get()).index;
+            m_repeatSamplerNearestIndex = bindless->registerSampler(m_repeatSamplerNearest.get());
+            m_clampSamplerNearestIndex = bindless->registerSampler(m_clampSamplerNearest.get());
+            m_mirrorSamplerNearestIndex = bindless->registerSampler(m_mirrorSamplerNearest.get());
 
-            m_shadowSampler = m_device->createSampler(
+            m_shadowSampler = device->createSampler(
                 rhi::Filter::Linear,
                 rhi::Filter::Linear,
                 rhi::SamplerAddressMode::ClampToBorder,
                 rhi::CompareOp::LessOrEqual
             );
-            m_shadowSamplerIndex = m_device->registerBindlessShadowSampler(m_shadowSampler.get()).index;
-            m_shadowSampler->setBindlessHandle({m_shadowSamplerIndex});
+            m_shadowSamplerIndex = bindless->registerShadowSampler(m_shadowSampler.get());
+            m_shadowSampler->setBindlessHandle(m_shadowSamplerIndex);
         }
 
-        // Create render targets
         createRenderTargets();
 
-        // Create global lighting layout
         rhi::DescriptorSetLayout lightingLayoutDesc{};
         lightingLayoutDesc.bindings = {
-            {0, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment}, // Irradiance
-            {1, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment}, // Prefilter
-            {2, rhi::DescriptorType::CombinedImageSampler, 1, rhi::ShaderStage::Fragment} // BRDF LUT
-        };
-        m_globalLightingLayout = m_device->createDescriptorSetLayout(lightingLayoutDesc);
-        m_globalLightingSet = m_device->allocateDescriptorSet(m_globalLightingLayout.get());
+            {.binding = 0,
+             .type = rhi::DescriptorType::CombinedImageSampler,
+             .count = 1,
+             .stages = rhi::ShaderStage::Fragment,
+             .name = "lightingMap_0"},
+            {.binding = 1,
+             .type = rhi::DescriptorType::CombinedImageSampler,
+             .count = 1,
+             .stages = rhi::ShaderStage::Fragment,
+             .name = "lightingMap_1"},
+            {.binding = 2,
+             .type = rhi::DescriptorType::CombinedImageSampler,
+             .count = 1,
+             .stages = rhi::ShaderStage::Fragment,
+             .name = "lightingMap_2"}};
+        m_globalLightingLayout = device->createDescriptorSetLayout(lightingLayoutDesc);
+        m_globalLightingSet = device->allocateDescriptorSet(m_globalLightingLayout.get());
 
-        // Create default resources
+        createPersistentStagingBuffer(static_cast<uint64_t>(128 * 1024 * 1024));
+
+        m_systemMeshes.init(*this);
+
+        core::Logger::Render.info("RHI Renderer created successfully (Modular)");
+        core::Logger::Render.trace("Bindless rendering: {}", m_useBindless ? "ENABLED" : "DISABLED");
+
         createDefaultResources();
-
-        core::Logger::info("RHI Renderer created successfully");
-        core::Logger::info("Bindless rendering: {}", m_useBindless ? "ENABLED" : "DISABLED");
     }
 
     RHIRenderer::~RHIRenderer()
     {
-        if (m_device)
+        if (m_deviceContext)
         {
-            m_device->waitIdle();
+            m_deviceContext->waitIdle();
         }
 
-        core::Logger::info("RHI Renderer destroyed");
+        m_systemMeshes.shutdown(*this);
+
+        m_assets.reset();
+
+        destroyPersistentStagingBuffer();
+
+        if (m_resourceManager)
+        {
+            m_resourceManager->clear();
+        }
+
+        m_resourceManager.reset();
+
+        m_globalLightingSet.reset();
+        m_globalLightingLayout.reset();
+
+        m_defaultSampler.reset();
+        m_repeatSampler.reset();
+        m_clampSampler.reset();
+        m_mirrorSampler.reset();
+        m_shadowSampler.reset();
+        m_repeatSamplerNearest.reset();
+        m_clampSamplerNearest.reset();
+        m_mirrorSamplerNearest.reset();
+
+        m_depthTarget.reset();
+        m_swapchainManager.reset();
+
+        m_deviceContext.reset();
+
+        core::Logger::Render.info("RHI Renderer destroyed");
     }
 
     void RHIRenderer::beginFrame(float deltaTime)
     {
+        PNKR_PROFILE_FRAME_BEGIN();
         PNKR_PROFILE_SCOPE("RHIRenderer::beginFrame");
-        if (m_frameInProgress)
+        if (m_assets)
         {
-            core::Logger::warn("beginFrame called while frame already in progress");
-            return;
-        }
-
-        if (!m_swapchain)
-        {
-            core::Logger::error("beginFrame: swapchain not created");
-            return;
+            m_assets->syncToGPU();
         }
 
         m_deltaTime = deltaTime;
         m_frameInProgress = true;
+        m_frameIndex++;
+        m_resourceManager->setCurrentFrameIndex(m_frameIndex);
 
-        if (m_commandBuffers.empty())
-        {
-            core::Logger::error("beginFrame: no command buffers available");
-            m_frameInProgress = false;
-            return;
+        auto* swapchain = m_renderContext ? m_renderContext->swapchain() : nullptr;
+        if ((swapchain == nullptr) || !m_renderContext) {
+          m_frameInProgress = false;
+          return;
         }
 
-        const uint32_t frameSlot = m_frameIndex % u32(m_commandBuffers.size());
-        m_activeCommandBuffer = m_commandBuffers[frameSlot].get();
+        const uint32_t currentFrameSlot = m_frameIndex % swapchain->framesInFlight();
+        m_resourceManager->flush(currentFrameSlot);
 
-        if (auto* vkDevice = dynamic_cast<rhi::vulkan::VulkanRHIDevice*>(m_device.get()))
+        if (!m_renderContext->beginFrame(m_frameIndex, m_activeCommandBuffer, m_currentFrame))
         {
-            const uint32_t framesInFlight = m_swapchain->framesInFlight();
-            const uint64_t currentFrame = vkDevice->getFrameCount();
-            if (currentFrame >= framesInFlight)
-            {
-                const uint64_t waitValue = currentFrame - framesInFlight + 1;
-                vkDevice->waitForTimelineValue(waitValue);
-            }
-        }
-
-        // Acquire swapchain image and transition it to ColorAttachment.
-        if (!m_swapchain->beginFrame(m_frameIndex, m_activeCommandBuffer, m_currentFrame))
-        {
-            // Swapchain may have been recreated; skip this frame.
             m_activeCommandBuffer = nullptr;
             m_frameInProgress = false;
             return;
         }
 
-        if (auto* vkSwapchain = dynamic_cast<rhi::vulkan::VulkanRHISwapchain*>(m_swapchain.get()))
-        {
-            m_activeCommandBuffer->setProfilingContext(vkSwapchain->getTracyContext());
-        }
-
+        m_activeCommandBuffer->setProfilingContext(swapchain->getProfilingContext());
         m_backbuffer = m_currentFrame.color;
     }
-
 
     void RHIRenderer::drawFrame()
     {
         if (!m_frameInProgress)
         {
-            core::Logger::error("drawFrame called without beginFrame");
+            core::Logger::Render.error("drawFrame called without beginFrame");
             return;
         }
 
         if (!m_recordCallback && !m_computeRecordCallback)
         {
-            core::Logger::warn("No record callback set (m_recordCallback={}, m_computeRecordCallback={})",
+            core::Logger::Render.warn("No record callback set (m_recordCallback={}, m_computeRecordCallback={})",
                                (bool)m_recordCallback, (bool)m_computeRecordCallback);
             return;
         }
 
         if (m_activeCommandBuffer == nullptr)
         {
-            core::Logger::error("drawFrame: command buffer not available");
+            core::Logger::Render.error("drawFrame: command buffer not available");
             return;
         }
 
@@ -280,13 +274,31 @@ namespace pnkr::renderer
             return;
         }
 
-        if ((m_backbuffer == nullptr) || !m_depthTarget)
+        if (m_backbuffer == nullptr)
         {
-            core::Logger::error("drawFrame: missing backbuffer or depth target");
+            core::Logger::Render.error("drawFrame: missing backbuffer");
             return;
         }
 
-        // Transition depth target to attachment layout (track layout across frames).
+        if (!m_useDefaultRenderPass)
+        {
+            ScopedDebugGroup mainPass(m_activeCommandBuffer, "Main Render Pass");
+            m_recordCallback(context);
+            return;
+        }
+
+        if (!m_depthTarget)
+        {
+            core::Logger::Render.error("drawFrame: missing depth target");
+            return;
+        }
+
+        prepareRenderPass(context);
+        executeRenderPass(context);
+    }
+
+    void RHIRenderer::prepareRenderPass(const RHIFrameContext& context)
+    {
         if (m_depthLayout != rhi::ResourceLayout::DepthStencilAttachment)
         {
             rhi::RHIMemoryBarrier depthBarrier{};
@@ -296,7 +308,7 @@ namespace pnkr::renderer
             depthBarrier.oldLayout = m_depthLayout;
             depthBarrier.newLayout = rhi::ResourceLayout::DepthStencilAttachment;
 
-            m_activeCommandBuffer->pipelineBarrier(
+            context.commandBuffer->pipelineBarrier(
                 rhi::ShaderStage::None,
                 rhi::ShaderStage::DepthStencilAttachment,
                 {depthBarrier}
@@ -305,15 +317,32 @@ namespace pnkr::renderer
             m_depthLayout = rhi::ResourceLayout::DepthStencilAttachment;
         }
 
-        // Begin rendering into the swapchain backbuffer.
+        if (context.backBuffer != nullptr)
+        {
+            rhi::RHIMemoryBarrier colorBarrier{};
+            colorBarrier.texture = context.backBuffer;
+            colorBarrier.srcAccessStage = rhi::ShaderStage::None;
+
+            colorBarrier.oldLayout = rhi::ResourceLayout::Undefined;
+            colorBarrier.newLayout = rhi::ResourceLayout::ColorAttachment;
+
+            context.commandBuffer->pipelineBarrier(
+                rhi::ShaderStage::None,
+                rhi::ShaderStage::RenderTarget,
+                {colorBarrier}
+            );
+        }
+    }
+
+    void RHIRenderer::executeRenderPass(const RHIFrameContext& context)
+    {
         rhi::RenderingInfo renderingInfo{};
         renderingInfo.renderArea = rhi::Rect2D{
             .x = 0, .y = 0,
-            .width = m_swapchain->extent().width,
-            .height = m_swapchain->extent().height
+            .width = m_swapchainManager->extent().width,
+            .height = m_swapchainManager->extent().height
         };
 
-        // Color attachment (swapchain image)
         rhi::RenderingAttachment colorAttachment{};
         colorAttachment.texture = m_backbuffer;
         colorAttachment.loadOp = rhi::LoadOp::Clear;
@@ -325,7 +354,6 @@ namespace pnkr::renderer
         colorAttachment.clearValue.color.float32[3] = 1.0F;
         renderingInfo.colorAttachments.push_back(colorAttachment);
 
-        // Depth attachment
         rhi::RenderingAttachment depthAttachment{};
         depthAttachment.texture = m_depthTarget.get();
         depthAttachment.loadOp = rhi::LoadOp::Clear;
@@ -335,32 +363,30 @@ namespace pnkr::renderer
         depthAttachment.clearValue.depthStencil.stencil = 0;
         renderingInfo.depthAttachment = &depthAttachment;
 
-        m_activeCommandBuffer->beginRendering(renderingInfo);
+        context.commandBuffer->beginRendering(renderingInfo);
 
-        // Viewport/scissor
         rhi::Viewport viewport{};
         viewport.x = 0.0F;
         viewport.y = 0.0F;
-        viewport.width = toFloat(m_swapchain->extent().width);
-        viewport.height = toFloat(m_swapchain->extent().height);
+        viewport.width = toFloat(m_swapchainManager->extent().width);
+        viewport.height = toFloat(m_swapchainManager->extent().height);
         viewport.minDepth = 0.0F;
         viewport.maxDepth = 1.0F;
-        m_activeCommandBuffer->setViewport(viewport);
+        context.commandBuffer->setViewport(viewport);
 
         rhi::Rect2D scissor{};
         scissor.x = 0;
         scissor.y = 0;
-        scissor.width = m_swapchain->extent().width;
-        scissor.height = m_swapchain->extent().height;
-        m_activeCommandBuffer->setScissor(scissor);
+        scissor.width = m_swapchainManager->extent().width;
+        scissor.height = m_swapchainManager->extent().height;
+        context.commandBuffer->setScissor(scissor);
 
         {
-            ScopedDebugGroup mainPass(m_activeCommandBuffer, "Main Render Pass");
-            // Call user record callback
+            ScopedDebugGroup mainPass(context.commandBuffer, "Main Render Pass");
             m_recordCallback(context);
         }
 
-        m_activeCommandBuffer->endRendering();
+        context.commandBuffer->endRendering();
     }
 
     void RHIRenderer::endFrame()
@@ -368,828 +394,343 @@ namespace pnkr::renderer
         PNKR_PROFILE_SCOPE("RHIRenderer::endFrame");
         if (!m_frameInProgress)
         {
-            core::Logger::error("endFrame called without beginFrame");
+            core::Logger::Render.error("endFrame called without beginFrame");
             return;
         }
 
-        if (!m_swapchain)
+        if (m_renderContext)
         {
-            core::Logger::error("endFrame: swapchain not created");
-            if (m_activeCommandBuffer != nullptr)
-            {
-                m_activeCommandBuffer->end();
-            }
-            m_frameInProgress = false;
-            m_activeCommandBuffer = nullptr;
-            return;
+            m_renderContext->endFrame(m_frameIndex, m_activeCommandBuffer);
         }
 
-        // Transition to Present, end, submit, and present.
-        if (m_activeCommandBuffer != nullptr)
-        {
-            const bool ready = m_swapchain->endFrame(m_frameIndex, m_activeCommandBuffer);
-            if (ready)
-            {
-                auto* vkDevice = dynamic_cast<rhi::vulkan::VulkanRHIDevice*>(m_device.get());
-                auto* vkSwapchain = dynamic_cast<rhi::vulkan::VulkanRHISwapchain*>(m_swapchain.get());
-                if (vkDevice && vkSwapchain)
-                {
-                    const uint64_t signalValue = vkDevice->advanceFrame();
-
-                    std::vector<vk::Semaphore> waits = {vkSwapchain->getCurrentAcquireSemaphore()};
-
-                    // Optimized: Only wait at ColorAttachmentOutput.
-                    // This allows Vertex and Compute stages to start immediately even if the
-                    // presentation engine hasn't fully released the image yet.
-                    std::vector<vk::PipelineStageFlags> waitStages = {
-                        vk::PipelineStageFlagBits::eColorAttachmentOutput
-                    };
-
-                    std::vector<vk::Semaphore> signals = {vkSwapchain->getCurrentRenderFinishedSemaphore()};
-
-                    vkDevice->submitCommands(
-                        m_activeCommandBuffer,
-                        waits,
-                        waitStages,
-                        signals,
-                        signalValue);
-
-                    (void)m_swapchain->present(m_frameIndex);
-                }
-                else
-                {
-                    core::Logger::error("endFrame: Vulkan device/swapchain not available for submission");
-                }
-            }
-        }
         m_frameInProgress = false;
         m_activeCommandBuffer = nullptr;
-        m_frameIndex++;
+
+        updateMemoryStatistics();
+
         PNKR_PROFILE_FRAME_MARK();
+    }
+
+    void RHIRenderer::updateMemoryStatistics()
+    {
+        auto* profiler = device()->gpuProfiler();
+        if (profiler == nullptr)
+        {
+            return;
+        }
+
+        auto* vkDevice = dynamic_cast<rhi::vulkan::VulkanRHIDevice*>(device());
+        if (vkDevice == nullptr)
+        {
+            return;
+        }
+
+        VmaBudget budget[VK_MAX_MEMORY_HEAPS];
+        vmaGetHeapBudgets(vkDevice->allocator(), budget);
+
+        GPUMemoryStatistics memStats;
+        memStats.budgetBytes = budget[0].budget;
+        memStats.usedBytes = budget[0].usage;
+        memStats.allocatedBytes = budget[0].statistics.allocationBytes;
+
+        memStats.textureBytes = 0;
+        memStats.bufferBytes = 0;
+        memStats.textureCount = (uint32_t)m_resourceManager->textures().size();
+        memStats.bufferCount = (uint32_t)m_resourceManager->buffers().size();
+        memStats.textureList.clear();
+
+        m_resourceManager->textures().for_each(
+            [&](const RHITextureData &entry, TextureHandle handle) {
+              if (!entry.texture) {
+                return;
+              }
+              const uint64_t texBytes = entry.texture->memorySize();
+              if (texBytes == 0) {
+                return;
+              }
+              memStats.textureBytes += texBytes;
+
+              TextureMemoryInfo info{};
+              info.handle = handle;
+              info.name = entry.texture->debugName();
+              if (info.name.empty()) {
+                info.name = "Texture#" + std::to_string(static_cast<uint32_t>(handle.index));
+              }
+              info.sizeBytes = texBytes;
+              info.width = entry.texture->extent().width;
+              info.height = entry.texture->extent().height;
+              info.mipLevels = entry.texture->mipLevels();
+              info.format = entry.texture->format();
+              memStats.textureList.push_back(std::move(info));
+            });
+
+        m_resourceManager->buffers().for_each([&](const RHIBufferData& entry, BufferHandle) {
+            if (entry.buffer) {
+                memStats.bufferBytes += entry.buffer->size();
+            }
+        });
+        profiler->updateMemoryStatistics(memStats);
+
+#ifdef TRACY_ENABLE
+        PNKR_TRACY_PLOT("GPU Memory Used (MB)", static_cast<double>(memStats.usedBytes) / (1024.0 * 1024.0));
+        PNKR_TRACY_PLOT("GPU Memory Budget (MB)", static_cast<double>(memStats.budgetBytes) / (1024.0 * 1024.0));
+        PNKR_TRACY_PLOT("Texture Memory (MB)", static_cast<double>(memStats.textureBytes) / (1024.0 * 1024.0));
+        PNKR_TRACY_PLOT("Buffer Memory (MB)", static_cast<double>(memStats.bufferBytes) / (1024.0 * 1024.0));
+#endif
     }
 
     void RHIRenderer::resize(int width, int height)
     {
-        core::Logger::info("Resizing renderer to {}x{}", width, height);
+        PNKR_PROFILE_FUNCTION();
+        core::Logger::Render.info("RHI: Resizing swapchain to {}x{}", width, height);
 
-        if (!m_swapchain)
-        {
-            return;
+        auto* sc = getSwapchain();
+        if (sc == nullptr) {
+          return;
         }
 
-        m_device->waitIdle();
-
-        m_swapchain->recreate(u32(width), u32(height));
-
-        // Recreate depth target for new extent.
+        device()->waitIdle();
+        m_swapchainManager->recreate(u32(width), u32(height));
+        if (m_renderContext)
+        {
+            m_renderContext->setSwapchain(m_swapchainManager->swapchain());
+        }
         createRenderTargets();
     }
 
-
-    MeshHandle RHIRenderer::loadNoVertexPulling(const std::vector<Vertex>& vertices,
+    MeshPtr RHIRenderer::loadNoVertexPulling(const std::vector<Vertex>& vertices,
                                                 const std::vector<uint32_t>& indices)
     {
-        MeshData mesh{};
-
-        // Create vertex buffer
-        uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
-        mesh.m_vertexBuffer = m_device->createBuffer({
-            .size = vertexBufferSize,
-            .usage = rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::TransferDst |
-            rhi::BufferUsage::ShaderDeviceAddress,
-            .memoryUsage = rhi::MemoryUsage::GPUOnly,
-            .data = vertices.data(),
-            .debugName = "VertexBuffer"
-        });
-
-        // Create index buffer
-        uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
-        mesh.m_indexBuffer = m_device->createBuffer({
-            .size = indexBufferSize,
-            .usage = rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::TransferDst,
-            .memoryUsage = rhi::MemoryUsage::GPUOnly,
-            .data = indices.data(),
-            .debugName = "IndexBuffer"
-        });
-
-        mesh.m_vertexCount = u32(vertices.size());
-        mesh.m_indexCount = u32(indices.size());
-
-        MeshHandle handle{u32(m_meshes.size())};
-        m_meshes.push_back(std::move(mesh));
-
-        core::Logger::info("Created mesh: {} vertices, {} indices",
-                           mesh.m_vertexCount, mesh.m_indexCount);
-
-        return handle;
+        return m_resourceManager->loadNoVertexPulling(vertices, indices);
     }
 
-    MeshHandle RHIRenderer::loadVertexPulling(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
+    MeshPtr RHIRenderer::loadVertexPulling(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
     {
-        MeshData mesh{};
-
-        mesh.m_vertexPulling = true;
-        std::vector<GPUVertex> gpuVertices;
-        gpuVertices.reserve(vertices.size());
-
-        for (const auto& v : vertices)
-        {
-            GPUVertex gv{};
-            gv.pos = glm::vec4(v.m_position, 1.0f);
-            gv.color = glm::vec4(v.m_color, 1.0f);
-            gv.normal = glm::vec4(v.m_normal, 0.0f);
-            gv.tangent = v.m_tangent;
-            gv.uv.x = v.m_texCoord0.x;
-            gv.uv.y = v.m_texCoord0.y;
-            gv.uv.z = v.m_texCoord1.x;
-            gv.uv.w = v.m_texCoord1.y;
-            gpuVertices.push_back(gv);
-        }
-
-        // Create vertex buffer
-        uint64_t vertexBufferSize = gpuVertices.size() * sizeof(GPUVertex);
-        mesh.m_vertexBuffer = m_device->createBuffer({
-            .size = vertexBufferSize,
-            .usage = rhi::BufferUsage::StorageBuffer | rhi::BufferUsage::ShaderDeviceAddress |
-            rhi::BufferUsage::TransferDst,
-            .memoryUsage = rhi::MemoryUsage::GPUOnly,
-            .data = gpuVertices.data(),
-            .debugName = "VertexPullingVertexBuffer"
-        });
-
-        // Create index buffer
-        uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
-        mesh.m_indexBuffer = m_device->createBuffer({
-            .size = indexBufferSize,
-            .usage = rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::TransferDst,
-            .memoryUsage = rhi::MemoryUsage::GPUOnly,
-            .data = indices.data(),
-            .debugName = "VertexPullingIndexBuffer"
-        });
-
-        mesh.m_vertexCount = u32(vertices.size());
-        mesh.m_indexCount = u32(indices.size());
-
-        MeshHandle handle{u32(m_meshes.size())};
-        m_meshes.push_back(std::move(mesh));
-
-        core::Logger::info("Created mesh: {} vertices, {} indices",
-                           mesh.m_vertexCount, mesh.m_indexCount);
-
-
-        return handle;
+        return m_resourceManager->loadVertexPulling(vertices, indices);
     }
 
-    MeshHandle RHIRenderer::createMesh(const std::vector<Vertex>& vertices,
-                                       const std::vector<uint32_t>& indices, bool enableVertexPulling)
+    MeshPtr RHIRenderer::createMesh(const std::vector<Vertex>& vertices,
+                                    const std::vector<uint32_t>& indices, bool enableVertexPulling)
     {
-        auto meshHandle = enableVertexPulling
-                              ? loadVertexPulling(vertices, indices)
-                              : loadNoVertexPulling(vertices, indices);
-        return meshHandle;
+        return m_resourceManager->createMesh(vertices, indices, enableVertexPulling);
     }
 
-
-    TextureHandle RHIRenderer::createTexture(const unsigned char* data,
-                                             int width, int height, int channels,
-                                             bool srgb, bool isSigned)
+    TexturePtr RHIRenderer::createTexture(const char* name, const rhi::TextureDescriptor& desc)
     {
-        rhi::Format format;
-        switch (channels)
-        {
-        case 1: format = isSigned ? rhi::Format::R8_SNORM : rhi::Format::R8_UNORM;
-            break;
-        case 2: format = isSigned ? rhi::Format::R8G8_SNORM : rhi::Format::R8G8_UNORM;
-            break;
-        case 3: format = isSigned ? rhi::Format::R8G8B8_SNORM : rhi::Format::R8G8B8_UNORM;
-            break;
-        case 4: format = srgb
-                             ? rhi::Format::R8G8B8A8_SRGB
-                             : isSigned
-                             ? rhi::Format::R8G8B8A8_SNORM
-                             : rhi::Format::R8G8B8A8_UNORM;
-            break;
-        default:
-            core::Logger::error("Unsupported channel count: {}", channels);
-            return INVALID_TEXTURE_HANDLE;
-        }
-
-        auto textureUnique = m_device->createTexture(
-            rhi::Extent3D{.width = u32(width), .height = u32(height), .depth = 1},
-            format,
-            rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
-            1, 1
-        );
-        std::shared_ptr<rhi::RHITexture> texture = std::move(textureUnique);
-
-        // Upload texture data
-        uint64_t imageSize = static_cast<uint64_t>(width * height * channels);
-        texture->uploadData(data, imageSize);
-
-        if (m_useBindless && m_device)
-        {
-            auto bindlessHandle = m_device->registerBindlessTexture2D(
-                texture.get()
-            );
-            texture->setBindlessHandle(bindlessHandle);
-        }
-
-        TextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
-
-        TextureHandle handle{u32(m_textures.size())};
-        m_textures.push_back(std::move(texData));
-
-        core::Logger::info("Created texture: {}x{}, {} channels", width, height, channels);
-
-        return handle;
+        return m_resourceManager->createTexture(name, desc, m_useBindless);
     }
 
-    TextureHandle RHIRenderer::createTexture(const rhi::TextureDescriptor& desc)
+    TexturePtr RHIRenderer::createTextureView(const char* name, TextureHandle parent, const rhi::TextureViewDescriptor& desc)
     {
-        auto textureUnique = m_device->createTexture(desc);
-        std::shared_ptr<rhi::RHITexture> texture = std::move(textureUnique);
-
-        if (m_useBindless && m_device)
-        {
-            auto bindlessHandle = m_device->registerBindlessTexture2D(
-                texture.get()
-            );
-            texture->setBindlessHandle(bindlessHandle);
-        }
-
-        TextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
-
-        TextureHandle handle{u32(m_textures.size())};
-        m_textures.push_back(std::move(texData));
-
-        core::Logger::info("Created texture (desc): {}x{} mips={}", desc.extent.width, desc.extent.height,
-                           desc.mipLevels);
-
-        return handle;
-    }
-
-    TextureHandle RHIRenderer::createTextureView(TextureHandle parent, const rhi::TextureViewDescriptor& desc)
-    {
-        if (parent.id >= m_textures.size() || !m_textures[parent.id].texture)
-        {
-            return INVALID_TEXTURE_HANDLE;
-        }
-        auto parentShared = m_textures[parent.id].texture;
-        auto* parentTex = parentShared.get();
-
-        auto textureUnique = m_device->createTextureView(parentTex, desc);
-        std::shared_ptr<rhi::RHITexture> texture = std::move(textureUnique);
-        texture->setParent(parentShared);
-
-        if (m_useBindless && m_device)
-        {
-            auto bindlessHandle = m_device->registerBindlessTexture2D(
-                texture.get()
-            );
-            texture->setBindlessHandle(bindlessHandle);
-        }
-
-        TextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
-
-        TextureHandle handle{u32(m_textures.size())};
-        m_textures.push_back(std::move(texData));
-
-        return handle;
-    }
-
-    TextureHandle RHIRenderer::loadTexture(const std::filesystem::path& filepath, bool srgb)
-    {
-        int width;
-        int height;
-        int channels;
-        stbi_set_flip_vertically_on_load(1);
-
-        unsigned char* data = stbi_load(filepath.string().c_str(),
-                                        &width, &height, &channels, 0);
-
-        if (data == nullptr)
-        {
-            core::Logger::error("Failed to load texture: {}", filepath.string());
-            return INVALID_TEXTURE_HANDLE;
-        }
-
-        TextureHandle handle = createTexture(data, width, height, channels, srgb);
-
-        stbi_image_free(data);
-
-        core::Logger::info("Loaded texture from: {}", filepath.string());
-
-        return handle;
-    }
-
-    TextureHandle RHIRenderer::loadTextureKTX(const std::filesystem::path& filepath, bool srgb)
-    {
-        KTXTextureData ktxData{};
-        std::string error;
-        if (!KTXUtils::loadFromFile(filepath, ktxData, &error))
-        {
-            core::Logger::error("Failed to load KTX texture: {} ({})", filepath.string(), error);
-            return INVALID_TEXTURE_HANDLE;
-        }
-
-        struct DestroyGuard
-        {
-            KTXTextureData* d;
-            ~DestroyGuard() { if (d) KTXUtils::destroy(*d); }
-        } guard{&ktxData};
-
-        if (ktxData.type == rhi::TextureType::TextureCube && ktxData.numFaces != 6)
-        {
-            core::Logger::error("KTX cubemap must have 6 faces: {}", filepath.string());
-            return INVALID_TEXTURE_HANDLE;
-        }
-
-        if (ktxData.type == rhi::TextureType::Texture3D && ktxData.numLayers > 1)
-        {
-            core::Logger::error("KTX 3D arrays are not supported: {}", filepath.string());
-            return INVALID_TEXTURE_HANDLE;
-        }
-
-        rhi::Format finalFormat = ktxData.format;
-        if (srgb)
-        {
-            if (finalFormat == rhi::Format::R8G8B8A8_UNORM) finalFormat = rhi::Format::R8G8B8A8_SRGB;
-            else if (finalFormat == rhi::Format::B8G8R8A8_UNORM) finalFormat = rhi::Format::B8G8R8A8_SRGB;
-            else if (finalFormat == rhi::Format::BC1_RGB_UNORM) finalFormat = rhi::Format::BC1_RGB_SRGB;
-            else if (finalFormat == rhi::Format::BC3_UNORM) finalFormat = rhi::Format::BC3_SRGB;
-            else if (finalFormat == rhi::Format::BC7_UNORM) finalFormat = rhi::Format::BC7_SRGB;
-        }
-        else
-        {
-            if (finalFormat == rhi::Format::R8G8B8A8_SRGB) finalFormat = rhi::Format::R8G8B8A8_UNORM;
-            else if (finalFormat == rhi::Format::B8G8R8A8_SRGB) finalFormat = rhi::Format::B8G8R8A8_UNORM;
-            else if (finalFormat == rhi::Format::BC1_RGB_SRGB) finalFormat = rhi::Format::BC1_RGB_UNORM;
-            else if (finalFormat == rhi::Format::BC3_SRGB) finalFormat = rhi::Format::BC3_UNORM;
-            else if (finalFormat == rhi::Format::BC7_SRGB) finalFormat = rhi::Format::BC7_UNORM;
-        }
-
-        rhi::TextureDescriptor desc{};
-        desc.extent = ktxData.extent;
-        desc.format = finalFormat;
-        desc.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
-        desc.mipLevels = ktxData.mipLevels;
-        desc.type = ktxData.type;
-
-        // Use the flattened arrayLayers (numLayers * numFaces) from KTXUtils
-        desc.arrayLayers = ktxData.arrayLayers;
-
-        if (desc.type == rhi::TextureType::TextureCube && (desc.arrayLayers % 6u) != 0u)
-        {
-            core::Logger::error("KTX cube arrayLayers must be multiple of 6: {}", filepath.string());
-            return INVALID_TEXTURE_HANDLE;
-        }
-
-        auto textureUnique = m_device->createTexture(desc);
-        std::shared_ptr<rhi::RHITexture> texture = std::move(textureUnique);
-
-        if (!texture)
-        {
-            core::Logger::error("Failed to create RHI texture for: {}", filepath.string());
-            return INVALID_TEXTURE_HANDLE;
-        }
-
-        const auto* srcData = ktxData.data.data();
-        const auto dataSize = ktxData.data.size();
-        const uint32_t numLayers = ktxData.numLayers;
-        const uint32_t numFaces = ktxData.numFaces;
-
-        for (uint32_t level = 0; level < ktxData.mipLevels; ++level)
-        {
-            const ktx_size_t imageSize = ktxTexture_GetImageSize(ktxData.texture, level);
-
-            for (uint32_t layer = 0; layer < numLayers; ++layer)
-            {
-                for (uint32_t face = 0; face < numFaces; ++face)
-                {
-                    ktx_size_t offset = 0;
-                    if (ktxTexture_GetImageOffset(ktxData.texture, level, layer, face, &offset) != KTX_SUCCESS)
-                    {
-                        core::Logger::error("KTX offset query failed: {}", filepath.string());
-                        return INVALID_TEXTURE_HANDLE;
-                    }
-
-                    if (offset + imageSize > dataSize)
-                    {
-                        core::Logger::error("KTX data range out of bounds: {}", filepath.string());
-                        return INVALID_TEXTURE_HANDLE;
-                    }
-
-                    rhi::TextureSubresource subresource{};
-                    subresource.mipLevel = level;
-                    subresource.arrayLayer = layer * numFaces + face; // matches desc.arrayLayers flattening
-
-                    texture->uploadData(srcData + offset, imageSize, subresource);
-                }
-            }
-        }
-
-        if (m_useBindless && m_device)
-        {
-            if (ktxData.type == rhi::TextureType::TextureCube)
-            {
-                auto bindlessHandle = m_device->registerBindlessCubemapImage(
-                    texture.get()
-                );
-                texture->setBindlessHandle(bindlessHandle);
-            }
-            else
-            {
-                auto bindlessHandle = m_device->registerBindlessTexture2D(
-                    texture.get()
-                );
-                texture->setBindlessHandle(bindlessHandle);
-            }
-        }
-
-        TextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
-
-        TextureHandle handle{u32(m_textures.size())};
-        m_textures.push_back(std::move(texData));
-
-        core::Logger::debug("Loaded KTX texture: {}, index {}, bindlessIndex {}", filepath.string(),
-                            m_textures.size() - 1, texData.bindlessIndex);
-
-        return handle;
-    }
-
-
-    TextureHandle RHIRenderer::createCubemap(const std::vector<std::filesystem::path>& faces, bool srgb)
-    {
-        if (faces.size() != 6)
-        {
-            core::Logger::error("createCubemap: Exactly 6 face images required, got {}", faces.size());
-            return INVALID_TEXTURE_HANDLE;
-        }
-
-        // Load all 6 faces first to validate they have the same dimensions
-        std::vector<std::unique_ptr<unsigned char[], void(*)(void*)>> faceData;
-        std::vector<int> widths;
-        std::vector<int> heights;
-        std::vector<int> channels;
-
-        for (const auto& facePath : faces)
-        {
-            int w;
-            int h;
-            int c;
-            stbi_set_flip_vertically_on_load(0); // Don't flip for cubemaps
-            unsigned char* data = stbi_load(facePath.string().c_str(), &w, &h, &c, STBI_rgb_alpha);
-
-            if (data == nullptr)
-            {
-                core::Logger::error("Failed to load cubemap face: {}", facePath.string());
-                return INVALID_TEXTURE_HANDLE;
-            }
-
-            faceData.emplace_back(data, stbi_image_free);
-            widths.push_back(w);
-            heights.push_back(h);
-            channels.push_back(STBI_rgb_alpha);
-        }
-
-        // Validate all faces have the same dimensions
-        for (size_t i = 1; i < widths.size(); ++i)
-        {
-            if (widths[i] != widths[0] || heights[i] != heights[0])
-            {
-                core::Logger::error("All cubemap faces must have the same dimensions");
-                return INVALID_TEXTURE_HANDLE;
-            }
-        }
-
-        // Determine format
-        rhi::Format format;
-        switch (channels[0])
-        {
-        case 1: format = rhi::Format::R8_UNORM;
-            break;
-        case 2: format = rhi::Format::R8G8_UNORM;
-            break;
-        case 3: format = rhi::Format::R8G8B8_UNORM;
-            break;
-        case 4: format = srgb ? rhi::Format::R8G8B8A8_SRGB : rhi::Format::R8G8B8A8_UNORM;
-            break;
-        default:
-            core::Logger::error("Unsupported channel count: {}", channels[0]);
-            return INVALID_TEXTURE_HANDLE;
-        }
-
-        // Create cubemap texture
-        auto texture = m_device->createCubemap(
-            rhi::Extent3D{.width = u32(widths[0]), .height = u32(heights[0]), .depth = 1},
-            format,
-            rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
-            1 // mipLevels
-        );
-
-        // Upload each face
-        uint64_t faceSize = static_cast<uint64_t>(widths[0] * heights[0] * 4);
-        // Always use RGBA after STBI_rgb_alpha conversion
-        for (uint32_t i = 0; i < 6; ++i)
-        {
-            rhi::TextureSubresource subresource{};
-            subresource.mipLevel = 0;
-            subresource.arrayLayer = i; // Each face is a different array layer
-
-            texture->uploadData(faceData[i].get(), faceSize, subresource);
-        }
-
-        if (m_useBindless && m_device)
-        {
-            auto bindlessHandle = m_device->registerBindlessCubemapImage(
-                texture.get()
-            );
-            texture->setBindlessHandle(bindlessHandle);
-        }
-
-        TextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = texData.texture->getBindlessHandle().index;
-
-        TextureHandle handle{u32(m_textures.size())};
-        m_textures.push_back(std::move(texData));
-
-        core::Logger::info("Created cubemap: {}x{}, {} faces", widths[0], heights[0], 6);
-
-        return handle;
+        return m_resourceManager->createTextureView(name, parent, desc, m_useBindless);
     }
 
     void RHIRenderer::destroyTexture(TextureHandle handle)
     {
-        if (handle.id < m_textures.size())
-        {
-            auto& data = m_textures[handle.id];
-            if (data.texture)
-            {
-                // The Bindless release is handled in VulkanRHITexture destructor
-                data.texture.reset();
-                data.bindlessIndex = 0xFFFFFFFFU;
-            }
-        }
+        m_resourceManager->destroyTexture(handle, m_frameIndex);
+    }
+
+    void RHIRenderer::replaceTexture(TextureHandle handle, TextureHandle source)
+    {
+        m_resourceManager->replaceTexture(handle, source, m_frameIndex, m_useBindless);
+    }
+
+    bool RHIRenderer::isValid(TextureHandle handle) const
+    {
+        return m_resourceManager->textures().validate(handle);
     }
 
     void RHIRenderer::destroyBuffer(BufferHandle handle)
     {
-        if (handle.id < m_buffers.size())
-        {
-            auto& data = m_buffers[handle.id];
-            if (data.buffer)
-            {
-                // If it was registered for bindless, we should ideally release it.
-                // Currently VulkanRHIDevice::releaseBindlessBuffer(handle) exists.
-                // VulkanRHIBuffer destructor doesn't seem to release its bindless handle automatically.
-                if (data.buffer->getBindlessHandle().isValid())
-                {
-                    m_device->releaseBindlessBuffer(data.buffer->getBindlessHandle());
-                }
-                data.buffer.reset();
-                data.bindlessIndex = 0xFFFFFFFFU;
-            }
-        }
+        m_resourceManager->destroyBuffer(handle, m_frameIndex);
+    }
+
+    void RHIRenderer::deferDestroyBuffer(BufferHandle handle)
+    {
+        destroyBuffer(handle);
     }
 
     void RHIRenderer::destroyMesh(MeshHandle handle)
     {
-        if (handle.id < m_meshes.size())
-        {
-            auto& mesh = m_meshes[handle.id];
-            mesh.m_vertexBuffer.reset();
-            mesh.m_indexBuffer.reset();
-            mesh.m_vertexCount = 0;
-            mesh.m_indexCount = 0;
-        }
+        m_resourceManager->destroyMesh(handle);
     }
 
-    BufferHandle RHIRenderer::createBuffer(const rhi::BufferDescriptor& desc)
+    BufferPtr RHIRenderer::createBuffer(const char* name, const rhi::BufferDescriptor& desc)
     {
-        // 1. Create the hardware resource via device
-        auto buffer = m_device->createBuffer(desc);
-
-        // 2. Automatically register with Bindless if it's a Storage Buffer
-        if (m_useBindless && hasFlag(desc.usage, rhi::BufferUsage::StorageBuffer))
-        {
-            auto bindlessHandle = m_device->registerBindlessBuffer(buffer.get());
-            buffer->setBindlessHandle(bindlessHandle);
-        }
-
-        BufferData data{};
-        data.buffer = std::move(buffer);
-        data.bindlessIndex = data.buffer->getBindlessHandle().index;
-
-        // 3. Store and return handle
-        BufferHandle handle{u32(m_buffers.size())};
-        m_buffers.push_back(std::move(data));
-
-        core::Logger::info("Created Buffer: handle={}, size={}, bindless={}",
-                           handle.id, desc.size, data.bindlessIndex);
-        return handle;
+        return m_resourceManager->createBuffer(name, desc);
     }
 
-    PipelineHandle RHIRenderer::createGraphicsPipeline(const rhi::GraphicsPipelineDescriptor& desc)
+    PipelinePtr RHIRenderer::createGraphicsPipeline(const rhi::GraphicsPipelineDescriptor& desc)
     {
-        auto pipeline = m_device->createGraphicsPipeline(desc);
-
-        PipelineHandle handle{u32(m_pipelines.size())};
-        m_pipelines.push_back(std::move(pipeline));
-
-        core::Logger::info("Created graphics pipeline");
-
-        return handle;
+        return m_resourceManager->createGraphicsPipeline(desc);
     }
 
-    PipelineHandle RHIRenderer::createComputePipeline(const rhi::ComputePipelineDescriptor& desc)
+    PipelinePtr RHIRenderer::createComputePipeline(const rhi::ComputePipelineDescriptor& desc)
     {
-        auto pipeline = m_device->createComputePipeline(desc);
-
-        PipelineHandle handle{u32(m_pipelines.size())};
-        m_pipelines.push_back(std::move(pipeline));
-
-        core::Logger::info("Created compute pipeline");
-
-        return handle;
+        return m_resourceManager->createComputePipeline(desc);
     }
 
-    void RHIRenderer::setRecordFunc(const RHIRecordFunc& callback)
+    void RHIRenderer::hotSwapPipeline(PipelineHandle handle, const rhi::GraphicsPipelineDescriptor& desc)
     {
-        core::Logger::info("RHIRenderer: Record callback set.");
-        m_recordCallback = callback;
+        m_resourceManager->hotSwapPipeline(handle, desc);
     }
 
-    void RHIRenderer::bindPipeline(rhi::RHICommandBuffer* cmd, PipelineHandle handle)
+    void RHIRenderer::hotSwapPipeline(PipelineHandle handle, const rhi::ComputePipelineDescriptor& desc)
     {
-        if (handle.id >= m_pipelines.size())
-        {
-            core::Logger::error("Invalid pipeline handle: {}", handle.id);
-            return;
+        m_resourceManager->hotSwapPipeline(handle, desc);
+    }
+
+void RHIRenderer::setRecordFunc(const RHIRecordFunc& callback)
+{
+    core::Logger::Render.info("RHIRenderer: Record callback set.");
+    m_recordCallback = callback;
+}
+
+    std::optional<MeshView> RHIRenderer::getMeshView(MeshHandle handle) const
+    {
+        const auto* mesh = m_resourceManager->getMesh(handle);
+        if (mesh == nullptr) {
+          return std::nullopt;
         }
 
-        cmd->bindPipeline(m_pipelines[handle.id].get());
-    }
-
-    void RHIRenderer::bindMesh(rhi::RHICommandBuffer* cmd, MeshHandle handle)
-    {
-        if (handle.id >= m_meshes.size())
-        {
-            core::Logger::error("Invalid mesh handle: {}", handle.id);
-            return;
-        }
-
-        const auto& mesh = m_meshes[handle.id];
-        if (!mesh.m_vertexPulling)
-        {
-            cmd->bindVertexBuffer(0, mesh.m_vertexBuffer.get(), 0);
-        }
-        cmd->bindIndexBuffer(mesh.m_indexBuffer.get(), 0, false);
-    }
-
-    void RHIRenderer::drawMesh(rhi::RHICommandBuffer* cmd, MeshHandle handle)
-    {
-        if (handle.id >= m_meshes.size())
-        {
-            core::Logger::error("Invalid mesh handle.id: {}", handle.id);
-            return;
-        }
-
-        const auto& mesh = m_meshes[handle.id];
-        cmd->drawIndexed(mesh.m_indexCount, 1, 0, 0, 0);
-    }
-
-    void RHIRenderer::drawMeshInstanced(rhi::RHICommandBuffer* cmd, MeshHandle handle, uint32_t instanceCount)
-    {
-        if (handle.id >= m_meshes.size())
-        {
-            core::Logger::error("Invalid mesh handle.id: {}", handle.id);
-            return;
-        }
-
-        const auto& mesh = m_meshes[handle.id];
-        cmd->drawIndexed(mesh.m_indexCount, instanceCount, 0, 0, 0);
-    }
-
-    void RHIRenderer::drawMeshBaseInstance(rhi::RHICommandBuffer* cmd, MeshHandle handle, uint32_t firstInstance)
-    {
-        if (handle.id >= m_meshes.size())
-        {
-            core::Logger::error("Invalid mesh handle.id: {}", handle.id);
-            return;
-        }
-
-        const auto& mesh = m_meshes[handle.id];
-        cmd->drawIndexed(mesh.m_indexCount, 1, 0, 0, firstInstance);
-    }
-
-    void RHIRenderer::bindDescriptorSet(rhi::RHICommandBuffer* cmd,
-                                        PipelineHandle handle,
-                                        uint32_t setIndex,
-                                        rhi::RHIDescriptorSet* descriptorSet)
-    {
-        auto* pipeline = getPipeline(handle);
-        if (pipeline == nullptr)
-        {
-            core::Logger::error("Invalid pipeline handle: {}", handle.id);
-            return;
-        }
-
-        cmd->bindDescriptorSet(pipeline, setIndex, descriptorSet);
+        MeshView view{};
+        view.vertexBuffer = mesh->m_vertexBuffer.get();
+        view.indexBuffer = mesh->m_indexBuffer.get();
+        view.indexCount = mesh->m_indexCount;
+        view.vertexPulling = mesh->m_vertexPulling;
+        return view;
     }
 
     rhi::RHITexture* RHIRenderer::getTexture(TextureHandle handle) const
     {
-        if (handle.id >= m_textures.size())
+        return m_resourceManager->getTexture(handle);
+    }
+
+    rhi::TextureBindlessHandle RHIRenderer::getTextureBindlessIndex(TextureHandle handle) const
+    {
+        auto* tex = m_resourceManager->getTexture(handle);
+        if (tex == nullptr) {
+          return rhi::TextureBindlessHandle::Invalid;
+        }
+        rhi::TextureBindlessHandle idx = tex->getBindlessHandle();
+
+        if (!idx.isValid() && handle != m_whiteTexture)
         {
-            core::Logger::error("Invalid texture handle: {}", handle.id);
-            return nullptr;
+            static uint32_t warnCount = 0;
+            if (warnCount < 10) {
+                 core::Logger::Render.warn("getTextureBindlessIndex: Fallback to WhiteTexture for handle {} (Bindless Invalid)", (uint32_t)handle.index);
+                 warnCount++;
+            }
+            return getTextureBindlessIndex(m_whiteTexture);
         }
 
-        return m_textures[handle.id].texture.get();
+        return idx;
     }
 
-    uint32_t RHIRenderer::getTextureBindlessIndex(TextureHandle handle) const
+    void RHIRenderer::updateTextureBindlessDescriptor(TextureHandle handle)
     {
-        if (handle.id >= m_textures.size())
-        {
-            core::Logger::error("Invalid texture handle: {}", handle.id);
-            return 0xFFFFFFFFU;
+      if (!m_useBindless) {
+        return;
+      }
+        auto* tex = m_resourceManager->getTexture(handle);
+        if (tex == nullptr) {
+          return;
         }
 
-        return m_textures[handle.id].bindlessIndex;
-    }
-
-    uint32_t RHIRenderer::getBindlessSamplerIndex(rhi::SamplerAddressMode addressMode) const
-    {
-        return getBindlessSamplerIndex(rhi::Filter::Linear, addressMode);
-    }
-
-    uint32_t RHIRenderer::getBindlessSamplerIndex(rhi::Filter filter,
-                                                  rhi::SamplerAddressMode addressMode) const
-    {
-        const bool nearest = (filter == rhi::Filter::Nearest);
-        switch (addressMode)
+        if (auto* bindless = device()->getBindlessManager())
         {
-        case rhi::SamplerAddressMode::ClampToEdge:
-        case rhi::SamplerAddressMode::ClampToBorder:
-            return nearest ? m_clampSamplerNearestIndex : m_clampSamplerIndex;
-        case rhi::SamplerAddressMode::MirroredRepeat:
-            return nearest ? m_mirrorSamplerNearestIndex : m_mirrorSamplerIndex;
-        case rhi::SamplerAddressMode::Repeat:
-        default:
-            return nearest ? m_repeatSamplerNearestIndex : m_repeatSamplerIndex;
+            bindless->updateTexture(tex->getBindlessHandle(), tex);
         }
     }
+
+    rhi::TextureBindlessHandle RHIRenderer::getStorageImageBindlessIndex(TextureHandle handle)
+    {
+        auto* tex = m_resourceManager->getTexture(handle);
+        if (tex == nullptr) {
+          return rhi::TextureBindlessHandle::Invalid;
+        }
+        return getStorageImageBindlessIndex(tex);
+    }
+
+    rhi::TextureBindlessHandle
+    RHIRenderer::getStorageImageBindlessIndex(rhi::RHITexture *texture) const {
+      if (texture == nullptr) {
+        return rhi::TextureBindlessHandle::Invalid;
+      }
+      rhi::TextureBindlessHandle storageHandle =
+          texture->getStorageImageHandle();
+      if (!storageHandle.isValid()) {
+        if (auto *bindless = device()->getBindlessManager()) {
+          storageHandle = bindless->registerStorageImage(texture);
+          texture->setStorageImageHandle(storageHandle);
+        }
+      }
+      return storageHandle;
+    }
+
+rhi::SamplerBindlessHandle RHIRenderer::getBindlessSamplerIndex(rhi::SamplerAddressMode addressMode) const
+{
+    return getBindlessSamplerIndex(rhi::Filter::Linear, addressMode);
+}
+
+rhi::SamplerBindlessHandle RHIRenderer::getBindlessSamplerIndex(rhi::Filter filter,
+                                                               rhi::SamplerAddressMode addressMode) const
+{
+    const bool nearest = (filter == rhi::Filter::Nearest);
+    switch (addressMode)
+    {
+    case rhi::SamplerAddressMode::ClampToEdge:
+    case rhi::SamplerAddressMode::ClampToBorder:
+        return nearest ? m_clampSamplerNearestIndex : m_clampSamplerIndex;
+    case rhi::SamplerAddressMode::MirroredRepeat:
+        return nearest ? m_mirrorSamplerNearestIndex : m_mirrorSamplerIndex;
+    case rhi::SamplerAddressMode::Repeat:
+    default:
+        return nearest ? m_repeatSamplerNearestIndex : m_repeatSamplerIndex;
+    }
+}
 
     rhi::RHIBuffer* RHIRenderer::getBuffer(BufferHandle handle) const
     {
-        if (handle.id >= m_buffers.size())
-        {
-            core::Logger::error("Invalid buffer handle: {}", handle.id);
-            return nullptr;
+        return m_resourceManager->getBuffer(handle);
+    }
+    rhi::BufferBindlessHandle RHIRenderer::getBufferBindlessIndex(BufferHandle handle) const
+    {
+        auto* buf = m_resourceManager->getBuffer(handle);
+        if (buf == nullptr) {
+          return rhi::BufferBindlessHandle::Invalid;
         }
-
-        return m_buffers[handle.id].buffer.get();
+        return buf->getBindlessHandle();
     }
 
-    uint32_t RHIRenderer::getBufferBindlessIndex(BufferHandle handle) const
+    uint64_t RHIRenderer::getBufferDeviceAddress(BufferHandle handle) const
     {
-        if (handle.id >= m_buffers.size())
-        {
-            core::Logger::error("Invalid buffer handle: {}", handle.id);
-            return 0xFFFFFFFFU;
+      if (handle == INVALID_BUFFER_HANDLE) {
+        return 0;
+      }
+        auto* b = getBuffer(handle);
+        if (b == nullptr) {
+          return 0;
         }
-
-        return m_buffers[handle.id].bindlessIndex;
+        return b->getDeviceAddress();
     }
 
     uint32_t RHIRenderer::getMeshIndexCount(MeshHandle handle) const
     {
-        if (handle.id >= m_meshes.size())
-        {
-            core::Logger::error("Invalid mesh handle: {}", handle.id);
-            return 0;
-        }
-        return m_meshes[handle.id].m_indexCount;
+        const auto* mesh = m_resourceManager->getMesh(handle);
+        return (mesh != nullptr) ? mesh->m_indexCount : 0;
     }
 
     uint64_t RHIRenderer::getMeshVertexBufferAddress(MeshHandle handle) const
     {
-        return m_meshes[handle.id].m_vertexBuffer->getDeviceAddress();
+        const auto* mesh = m_resourceManager->getMesh(handle);
+        return (mesh != nullptr) ? mesh->m_vertexBuffer->getDeviceAddress() : 0;
     }
 
     rhi::Format RHIRenderer::getDrawColorFormat() const
     {
-        return m_swapchain ? m_swapchain->colorFormat() : rhi::Format::Undefined;
+        auto* sc = getSwapchain();
+        return (sc != nullptr) ? sc->colorFormat() : rhi::Format::Undefined;
     }
 
     rhi::Format RHIRenderer::getDrawDepthFormat() const
@@ -1199,37 +740,36 @@ namespace pnkr::renderer
 
     rhi::Format RHIRenderer::getSwapchainColorFormat() const
     {
-        return m_swapchain ? m_swapchain->colorFormat() : rhi::Format::Undefined;
+        auto* sc = getSwapchain();
+        return (sc != nullptr) ? sc->colorFormat() : rhi::Format::Undefined;
     }
 
-    void RHIRenderer::setBindlessEnabled(bool enabled)
+void RHIRenderer::setBindlessEnabled(bool enabled)
+{
+    if (enabled && !m_bindlessSupported)
     {
-        if (enabled && !m_bindlessSupported)
-        {
-            core::Logger::warn("Cannot enable bindless: not supported");
-            return;
-        }
-
-        m_useBindless = enabled;
-        core::Logger::info("Bindless rendering: {}", enabled ? "ENABLED" : "DISABLED");
+        core::Logger::Render.warn("Cannot enable bindless: not supported");
+        return;
     }
 
-    rhi::RHIPipeline* RHIRenderer::pipeline(PipelineHandle handle)
-    {
-        return getPipeline(handle);
-    }
+    m_useBindless = enabled;
+    core::Logger::Render.info("Bindless rendering: {}", enabled ? "ENABLED" : "DISABLED");
+}
+
+rhi::RHIPipeline* RHIRenderer::pipeline(PipelineHandle handle)
+{
+    return getPipeline(handle);
+}
 
     void RHIRenderer::createRenderTargets()
     {
-        if (!m_swapchain)
-        {
-            throw cpptrace::runtime_error("createRenderTargets: swapchain is null");
-        }
+        auto* sc = getSwapchain();
+        PNKR_ASSERT(sc != nullptr,
+                    "createRenderTargets: swapchain is null. Ensure RHISwapchainManager is initialized before creating render targets.");
 
-        const auto scExtent = m_swapchain->extent();
+        const auto scExtent = sc->extent();
 
-        // Depth target (device-owned; backbuffer comes from the swapchain).
-        m_depthTarget = m_device->createTexture(
+        m_depthTarget = device()->createTexture(
             rhi::Extent3D{.width = scExtent.width, .height = scExtent.height, .depth = 1},
             rhi::Format::D32_SFLOAT,
             rhi::TextureUsage::DepthStencilAttachment,
@@ -1237,98 +777,134 @@ namespace pnkr::renderer
         );
         m_depthLayout = rhi::ResourceLayout::Undefined;
 
-        core::Logger::info("Created swapchain/depth targets: {}x{}", scExtent.width, scExtent.height);
+        core::Logger::Render.info("Created swapchain/depth targets: {}x{}", scExtent.width, scExtent.height);
     }
 
-    void RHIRenderer::createDefaultResources()
-    {
-        // Create white texture (1x1 white pixel)
-        m_whiteTexture = createWhiteTexture();
-        m_blackTexture = createBlackTexture();
-        m_flatNormalTexture = createFlatNormalTexture();
-    }
+void RHIRenderer::createDefaultResources()
+{
+    m_whiteTexture = m_resourceManager->createWhiteTexture();
+    m_blackTexture = m_resourceManager->createBlackTexture();
+    m_flatNormalTexture = m_resourceManager->createFlatNormalTexture();
+}
 
     bool RHIRenderer::checkDrawIndirectCountSupport() const
     {
-        return m_device->physicalDevice().capabilities().drawIndirectCount;
+        return device()->physicalDevice().capabilities().drawIndirectCount;
     }
 
     rhi::RHIPipeline* RHIRenderer::getPipeline(PipelineHandle handle)
     {
-        if (handle.id >= m_pipelines.size())
+        return m_resourceManager->getPipeline(handle);
+    }
+
+void RHIRenderer::createPersistentStagingBuffer(uint64_t size)
+{
+    rhi::BufferDescriptor desc{};
+    desc.size = size;
+    desc.usage = rhi::BufferUsage::TransferSrc;
+    desc.memoryUsage = rhi::MemoryUsage::CPUToGPU;
+    desc.debugName = "Persistent_Staging_Scratch";
+
+    m_persistentStagingBuffer = m_resourceManager->createBuffer("PersistentStaging", desc);
+    m_persistentStagingCapacity = size;
+
+    if (auto* buf = getBuffer(m_persistentStagingBuffer.handle()))
+    {
+        m_persistentStagingMapped = static_cast<uint8_t*>(static_cast<void*>(buf->map()));
+        core::Logger::Render.info(
+            "RHI: Allocated persistent staging buffer ({} MB)",
+            size / (static_cast<uint64_t>(1024 * 1024)));
+    }
+}
+
+void RHIRenderer::destroyPersistentStagingBuffer()
+{
+    if (m_persistentStagingBuffer.isValid())
+    {
+        if (auto* buf = getBuffer(m_persistentStagingBuffer.handle()))
         {
-            return nullptr;
+            buf->unmap();
         }
-        return m_pipelines[handle.id].get();
+        destroyBuffer(m_persistentStagingBuffer.handle());
+        m_persistentStagingBuffer.reset();
+        m_persistentStagingMapped = nullptr;
     }
-
-    TextureHandle RHIRenderer::createWhiteTexture()
-    {
-        unsigned char white[4] = {255, 255, 255, 255};
-        return createTexture(white, 1, 1, 4, false);
-    }
-
-    TextureHandle RHIRenderer::createBlackTexture()
-    {
-        unsigned char black[4] = {0, 0, 0, 255};
-        return createTexture(black, 1, 1, 4, false);
-    }
-
-    TextureHandle RHIRenderer::createFlatNormalTexture()
-    {
-        unsigned char flatNormal[4] = {128, 128, 255, 255};
-        return createTexture(flatNormal, 1, 1, 4, false);
-    }
+}
 
     void RHIRenderer::setVsync(bool enabled)
     {
-        if (m_swapchain)
-        {
-            m_device->waitIdle();
-            m_swapchain->setVsync(enabled);
-            // Force recreate
-            m_swapchain->recreate(m_window.width(), m_window.height());
+        m_vsync = enabled;
+        auto* sc = getSwapchain();
+        if (sc != nullptr) {
+          device()->waitIdle();
+          sc->setVsync(enabled);
+          m_swapchainManager->recreate(m_window.width(), m_window.height());
+          if (m_renderContext) {
+            m_renderContext->setSwapchain(m_swapchainManager->swapchain());
+          }
         }
     }
 
-    void RHIRenderer::uploadToBuffer(rhi::RHIBuffer* target, const void* data, uint64_t size)
+void RHIRenderer::uploadToBuffer(rhi::RHIBuffer* target, std::span<const std::byte> data, uint64_t offset)
+{
+    if ((target == nullptr) || data.empty())
     {
-        if ((target == nullptr) || (data == nullptr) || size == 0)
-        {
-            core::Logger::error("uploadToBuffer: invalid target/data/size");
-            return;
-        }
+        core::Logger::Render.error("uploadToBuffer: invalid target/data");
+        return;
+    }
 
-        auto staging = m_device->createBuffer({
+    uint64_t size = data.size_bytes();
+
+    if (m_persistentStagingBuffer.isValid() && size <= m_persistentStagingCapacity)
+    {
+        std::memcpy(m_persistentStagingMapped, data.data(), size);
+
+        auto cmd = device()->createCommandList();
+        cmd->begin();
+        cmd->copyBuffer(getBuffer(m_persistentStagingBuffer.handle()), target, 0, offset, size);
+        cmd->end();
+
+        device()->submitCommands(cmd.get());
+        device()->waitIdle();
+    }
+    else
+    {
+        core::Logger::Render.warn("uploadToBuffer: Transfer size ({} MB) exceeds scratch capacity ({} MB). allocating temporary buffer.",
+                           size / 1024.0 / 1024.0, m_persistentStagingCapacity / 1024.0 / 1024.0);
+
+        auto staging = device()->createBuffer({
             .size = size,
             .usage = rhi::BufferUsage::TransferSrc,
             .memoryUsage = rhi::MemoryUsage::CPUToGPU,
-            .data = data,
-            .debugName = "UploadToBufferStaging"
+            .data = data.data(),
+            .debugName = "UploadToBufferStaging_Huge"
         });
 
-        auto cmd = m_device->createCommandBuffer();
+        auto cmd = device()->createCommandList();
         cmd->begin();
-        cmd->copyBuffer(staging.get(), target, 0, 0, size);
+        cmd->copyBuffer(staging.get(), target, 0, offset, size);
         cmd->end();
-        m_device->submitCommands(cmd.get());
-        m_device->waitIdle();
+        device()->submitCommands(cmd.get());
+        device()->waitIdle();
+    }
+}
+
+void RHIRenderer::setGlobalIBL(TextureHandle irradiance, TextureHandle prefilter, TextureHandle brdfLut)
+{
+    auto* irrTex = getTexture(irradiance);
+    auto* prefTex = getTexture(prefilter);
+    auto* brdfTex = getTexture(brdfLut);
+
+    if ((irrTex == nullptr) || (prefTex == nullptr) || (brdfTex == nullptr)) {
+      core::Logger::Render.error(
+          "setGlobalIBL: One or more textures are invalid");
+      return;
     }
 
-    void RHIRenderer::setGlobalIBL(TextureHandle irradiance, TextureHandle prefilter, TextureHandle brdfLut)
-    {
-        auto* irrTex = getTexture(irradiance);
-        auto* prefTex = getTexture(prefilter);
-        auto* brdfTex = getTexture(brdfLut);
+    m_globalLightingSet->updateTexture(0, irrTex, m_defaultSampler.get());
+    m_globalLightingSet->updateTexture(1, prefTex, m_defaultSampler.get());
+    m_globalLightingSet->updateTexture(2, brdfTex, m_defaultSampler.get());
+}
 
-        if (!irrTex || !prefTex || !brdfTex)
-        {
-            core::Logger::error("setGlobalIBL: One or more textures are invalid");
-            return;
-        }
+}
 
-        m_globalLightingSet->updateTexture(0, irrTex, m_defaultSampler.get());
-        m_globalLightingSet->updateTexture(1, prefTex, m_defaultSampler.get());
-        m_globalLightingSet->updateTexture(2, brdfTex, m_defaultSampler.get());
-    }
-} // namespace pnkr::renderer
