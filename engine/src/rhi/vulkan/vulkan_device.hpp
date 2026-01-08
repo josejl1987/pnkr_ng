@@ -12,6 +12,7 @@
 #include <functional>
 #include <string_view>
 #include <unordered_map>
+#include "rhi/vulkan/VulkanDeletionQueue.hpp"
 
 namespace pnkr::platform { class Window; }
 
@@ -35,6 +36,7 @@ namespace pnkr::renderer::rhi::vulkan
     class VulkanGPUTimeQueriesManager;
     class BDARegistry;
     class VulkanRHIPhysicalDevice;
+    class VulkanSyncManager;
 
     struct VulkanQueues
     {
@@ -65,11 +67,6 @@ namespace pnkr::renderer::rhi::vulkan
         std::unique_ptr<VulkanGPUTimeQueriesManager> gpuProfiler;
     };
 
-    struct DeferredDeletion
-    {
-        uint64_t frameIndex;
-        std::function<void()> deleteFn;
-    };
 
     class VulkanRHIPhysicalDevice : public RHIPhysicalDevice
     {
@@ -97,6 +94,7 @@ namespace pnkr::renderer::rhi::vulkan
     };
 
     class VulkanRHIDevice;
+    class VulkanResourceFactory;
 
     class VulkanRHICommandPool : public RHICommandPool
     {
@@ -118,12 +116,7 @@ namespace pnkr::renderer::rhi::vulkan
     class VulkanRHIDevice : public RHIDevice
     {
     public:
-        struct TrackedVulkanObject
-        {
-            vk::ObjectType type = vk::ObjectType::eUnknown;
-            std::string name;
-            std::string trace;
-        };
+        using TrackedVulkanObject = VulkanDeletionQueue::TrackedVulkanObject;
 
         static std::unique_ptr<VulkanRHIDevice> create(std::unique_ptr<VulkanRHIPhysicalDevice> physicalDevice,
                                                        const DeviceDescriptor& desc);
@@ -159,7 +152,7 @@ namespace pnkr::renderer::rhi::vulkan
         void waitForFrame(uint64_t frameIndex) override;
         uint64_t incrementFrame() override;
         uint64_t getCompletedFrame() const override;
-        uint64_t getCurrentFrame() const { return m_frameCounter; }
+        uint64_t getCurrentFrame() const;
 
         void submitCommands(
             RHICommandList* commandBuffer,
@@ -173,7 +166,7 @@ namespace pnkr::renderer::rhi::vulkan
             bool waitForPreviousCompute = true,
             bool signalGraphicsQueue = true) override;
 
-        uint64_t getLastComputeSemaphoreValue() const override { return m_computeSemaphoreValue.load(); }
+        uint64_t getLastComputeSemaphoreValue() const override;
 
         void immediateSubmit(std::function<void(RHICommandList*)>&& func) override;
 
@@ -198,19 +191,20 @@ namespace pnkr::renderer::rhi::vulkan
 
         void* getNativeInstance() const override { return (void*)(VkInstance)instance(); }
 
-        vk::Semaphore getTimelineSemaphore() const { return m_frameTimelineSemaphore; }
-        vk::Semaphore getComputeTimelineSemaphore() const { return m_computeTimelineSemaphore; }
+        vk::Semaphore getTimelineSemaphore() const;
+        vk::Semaphore getComputeTimelineSemaphore() const;
 
         vk::PipelineCache getPipelineCache() const { return m_pipelineCache; }
 
         vk::Device device() const { return m_device; }
         vk::Instance instance() const { return m_physicalDevice->instance(); }
         vk::PhysicalDevice vkPhysicalDevice() const { return m_physicalDevice->physicalDevice(); }
-        vk::Queue graphicsQueue() const { return m_graphicsQueue; }
-        vk::Queue computeQueue() const { return m_computeQueue; }
-        vk::Queue transferQueue() const { return m_transferQueue; }
+        vk::Queue graphicsQueue() const;
+        vk::Queue computeQueue() const;
+        vk::Queue transferQueue() const;
         VmaAllocator allocator() const { return m_allocator.get(); }
         vk::CommandPool commandPool() const { return m_commandPool; }
+        vk::DescriptorPool descriptorPool() const { return m_descriptorPool; }
         const vk::PhysicalDeviceFeatures& enabledFeatures() const { return m_enabledFeatures; }
         bool isMinLodExtensionEnabled() const { return m_minLodExtensionEnabled; }
 
@@ -240,11 +234,8 @@ namespace pnkr::renderer::rhi::vulkan
         UniqueVmaAllocator m_allocator;
         std::unique_ptr<BDARegistry> m_bdaRegistry;
 
-        std::mutex m_deletionMutex;
-        std::mutex m_queueMutex;
-        std::deque<DeferredDeletion> m_deletionQueue;
-        mutable std::mutex m_objectTraceMutex;
-        std::unordered_map<uint64_t, TrackedVulkanObject> m_objectTraces;
+        
+        std::unique_ptr<VulkanDeletionQueue> m_deletionQueueMgr;
 
         vk::DebugUtilsMessengerEXT m_debugMessenger;
 
@@ -254,21 +245,16 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t m_graphicsQueueFamily = VK_QUEUE_FAMILY_IGNORED;
         uint32_t m_computeQueueFamily = VK_QUEUE_FAMILY_IGNORED;
         uint32_t m_transferQueueFamily = VK_QUEUE_FAMILY_IGNORED;
-        vk::Queue m_graphicsQueue;
-        vk::Queue m_computeQueue;
-        vk::Queue m_transferQueue;
 
         vk::CommandPool m_commandPool;
 
         bool m_minLodExtensionEnabled = false;
         vk::PhysicalDeviceFeatures m_enabledFeatures;
-        vk::Semaphore m_frameTimelineSemaphore;
-        vk::Semaphore m_computeTimelineSemaphore;
-        std::atomic<uint64_t> m_computeSemaphoreValue{0};
-        uint64_t m_frameCounter = 0;
         vk::DescriptorPool m_descriptorPool{};
         vk::PipelineCache m_pipelineCache{};
         std::unique_ptr<RHIUploadContext> m_uploadContext;
+        std::unique_ptr<VulkanResourceFactory> m_resourceFactory;
+        std::unique_ptr<VulkanSyncManager> m_syncManager;
 
         void savePipelineCache();
     };

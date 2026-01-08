@@ -4,6 +4,8 @@
 #include "rhi/vulkan/BDARegistry.hpp"
 #include "rhi/vulkan/vulkan_gpu_profiler.hpp"
 #include "rhi/vulkan/vulkan_buffer.hpp"
+#include "rhi/vulkan/VulkanResourceFactory.hpp"
+#include "rhi/vulkan/VulkanSyncManager.hpp"
 
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/profiler.hpp"
@@ -603,20 +605,18 @@ namespace pnkr::renderer::rhi::vulkan
         , m_bdaRegistry(std::move(ctx.bdaRegistry))
         , m_bindlessManager(std::move(ctx.bindlessManager))
         , m_gpuProfiler(std::move(ctx.gpuProfiler))
-        , m_graphicsQueueFamily(ctx.queues.graphicsFamily)
-        , m_computeQueueFamily(ctx.queues.computeFamily)
-        , m_transferQueueFamily(ctx.queues.transferFamily)
-        , m_graphicsQueue(ctx.queues.graphics)
-        , m_computeQueue(ctx.queues.compute)
-        , m_transferQueue(ctx.queues.transfer)
-        , m_commandPool(ctx.commandPool)
-        , m_minLodExtensionEnabled(ctx.minLodExtensionEnabled)
-        , m_enabledFeatures(ctx.enabledFeatures)
-        , m_frameTimelineSemaphore(ctx.frameTimelineSemaphore)
-        , m_computeTimelineSemaphore(ctx.computeTimelineSemaphore)
         , m_descriptorPool(ctx.descriptorPool)
         , m_pipelineCache(ctx.pipelineCache)
     {
+        m_resourceFactory = std::make_unique<VulkanResourceFactory>(*this);
+        m_deletionQueueMgr = std::make_unique<VulkanDeletionQueue>();
+        m_syncManager = std::make_unique<VulkanSyncManager>(*this, 
+            ctx.queues.graphics, 
+            ctx.queues.compute, 
+            ctx.queues.transfer,
+            ctx.frameTimelineSemaphore,
+            ctx.computeTimelineSemaphore);
+
         RHIFactory::registerDebugDevice(this);
 
         if (m_bindlessManager)
@@ -628,10 +628,10 @@ namespace pnkr::renderer::rhi::vulkan
                     pnkr::util::u64(static_cast<VkCommandPool>(m_commandPool)),
                     "DeviceCommandPool");
         trackObject(vk::ObjectType::eSemaphore,
-                    pnkr::util::u64(static_cast<VkSemaphore>(m_frameTimelineSemaphore)),
+                    pnkr::util::u64(static_cast<VkSemaphore>(m_syncManager->frameTimelineSemaphore())),
                     "FrameTimelineSemaphore");
         trackObject(vk::ObjectType::eSemaphore,
-                    pnkr::util::u64(static_cast<VkSemaphore>(m_computeTimelineSemaphore)),
+                    pnkr::util::u64(static_cast<VkSemaphore>(m_syncManager->computeTimelineSemaphore())),
                     "ComputeTimelineSemaphore");
         trackObject(vk::ObjectType::eDescriptorPool,
                     pnkr::util::u64(static_cast<VkDescriptorPool>(m_descriptorPool)),
@@ -665,18 +665,7 @@ namespace pnkr::renderer::rhi::vulkan
                 m_gpuProfiler = nullptr;
             }
 
-            if (m_frameTimelineSemaphore)
-            {
-                untrackObject(pnkr::util::u64(
-                    static_cast<VkSemaphore>(m_frameTimelineSemaphore)));
-                m_device.destroySemaphore(m_frameTimelineSemaphore);
-            }
-            if (m_computeTimelineSemaphore)
-            {
-                untrackObject(pnkr::util::u64(
-                    static_cast<VkSemaphore>(m_computeTimelineSemaphore)));
-                m_device.destroySemaphore(m_computeTimelineSemaphore);
-            }
+            m_syncManager.reset();
 
             if (m_commandPool)
             {
@@ -700,21 +689,7 @@ namespace pnkr::renderer::rhi::vulkan
                 m_device.destroyPipelineCache(m_pipelineCache);
             }
 
-            while (true)
-            {
-                std::function<void()> fn;
-                {
-                  std::scoped_lock lock(m_deletionMutex);
-                  if (m_deletionQueue.empty()) {
-                    break;
-                  }
-                    fn = std::move(m_deletionQueue.front().deleteFn);
-                    m_deletionQueue.pop_front();
-                }
-                if (fn) {
-                  fn();
-                }
-            }
+            m_deletionQueueMgr->flush();
 
             m_allocator.reset();
             m_device.destroy();
@@ -751,72 +726,12 @@ namespace pnkr::renderer::rhi::vulkan
 
     std::unique_ptr<RHIBuffer> VulkanRHIDevice::createBuffer(const char* name, const BufferDescriptor& desc)
     {
-        PNKR_LOG_SCOPE(std::format("RHI::CreateBuffer[{}]", name ? name : "Unnamed"));
-        PNKR_PROFILE_FUNCTION();
-
-        if ((name == nullptr) || name[0] == '\0') {
-          core::Logger::RHI.error(
-              "createBuffer: name is required for all buffers");
-          name = "UnnamedBuffer";
-        }
-
-        BufferDescriptor finalDesc = desc;
-        finalDesc.debugName = name;
-
-        if (finalDesc.data != nullptr && finalDesc.memoryUsage == MemoryUsage::GPUOnly)
-        {
-            finalDesc.usage |= BufferUsage::TransferDst;
-        }
-
-        auto buf = std::make_unique<VulkanRHIBuffer>(this, finalDesc);
-        core::Logger::RHI.info("Created buffer: {} ({} bytes)", name, finalDesc.size);
-
-        if (finalDesc.data != nullptr)
-        {
-            if (finalDesc.memoryUsage == MemoryUsage::CPUToGPU || finalDesc.memoryUsage == MemoryUsage::CPUOnly)
-            {
-                buf->uploadData(std::span<const std::byte>(reinterpret_cast<const std::byte*>(finalDesc.data), finalDesc.size));
-            }
-            else
-            {
-
-                auto staging = createBuffer("StagingBuffer", {
-                    .size = finalDesc.size,
-                    .usage = BufferUsage::TransferSrc,
-                    .memoryUsage = MemoryUsage::CPUToGPU,
-                    .debugName = "StagingBuffer"
-                });
-                staging->uploadData(std::span<const std::byte>(reinterpret_cast<const std::byte*>(finalDesc.data), finalDesc.size));
-
-                immediateSubmit([&](RHICommandList* cmd) {
-                    cmd->copyBuffer(staging.get(), buf.get(), 0, 0, finalDesc.size);
-                });
-            }
-        }
-
-#ifdef TRACY_ENABLE
-        TracyAllocN(buf->nativeHandle(), desc.size, name);
-#endif
-
-        return buf;
+        return m_resourceFactory->createBuffer(name, desc);
     }
 
     std::unique_ptr<RHITexture> VulkanRHIDevice::createTexture(const char* name, const TextureDescriptor& desc)
     {
-        PNKR_LOG_SCOPE(std::format("RHI::CreateTexture[{}]", name ? name : "Unnamed"));
-
-        if ((name == nullptr) || name[0] == '\0') {
-          core::Logger::RHI.error(
-              "createTexture: name is required for all textures");
-          name = "UnnamedTexture";
-        }
-
-        TextureDescriptor finalDesc = desc;
-        finalDesc.debugName = name;
-
-        auto tex = std::make_unique<VulkanRHITexture>(this, finalDesc);
-        core::Logger::RHI.info("Created texture: {} ({}x{} {})", name, desc.extent.width, desc.extent.height, static_cast<uint32_t>(desc.format));
-        return tex;
+        return m_resourceFactory->createTexture(name, desc);
     }
 
     std::unique_ptr<RHITexture> VulkanRHIDevice::createTextureView(
@@ -824,21 +739,7 @@ namespace pnkr::renderer::rhi::vulkan
         RHITexture* parent,
         const TextureViewDescriptor& desc)
     {
-
-      if ((name == nullptr) || name[0] == '\0') {
-        core::Logger::RHI.error(
-            "createTextureView: name is required for all texture views");
-        name = "UnnamedTextureView";
-      }
-
-        PNKR_LOG_SCOPE(std::format("RHI::CreateTextureView[{}]", name ? name : "Unnamed"));
-        auto* vkParent = rhi_cast<VulkanRHITexture>(parent);
-        if (vkParent == nullptr) {
-          return nullptr;
-        }
-
-        core::Logger::RHI.info("Created texture view: {} from parent", name);
-        return std::make_unique<VulkanRHITexture>(this, vkParent, desc);
+        return m_resourceFactory->createTextureView(name, parent, desc);
     }
 
     std::unique_ptr<RHITexture> VulkanRHIDevice::createTexture(
@@ -864,7 +765,6 @@ namespace pnkr::renderer::rhi::vulkan
         TextureUsageFlags usage,
         uint32_t mipLevels)
     {
-        PNKR_LOG_SCOPE("RHI::CreateCubemap");
         TextureDescriptor desc{};
         desc.extent = extent;
         desc.format = format;
@@ -873,8 +773,7 @@ namespace pnkr::renderer::rhi::vulkan
         desc.arrayLayers = 6;
         desc.type = TextureType::TextureCube;
 
-        core::Logger::RHI.info("Created cubemap: {}x{}", extent.width, extent.height);
-        return std::make_unique<VulkanRHITexture>(this, desc);
+        return createTexture("UnnamedCubemap", desc);
     }
 
     std::unique_ptr<RHISampler> VulkanRHIDevice::createSampler(
@@ -883,18 +782,17 @@ namespace pnkr::renderer::rhi::vulkan
         SamplerAddressMode addressMode,
         CompareOp compareOp)
     {
-        return std::make_unique<VulkanRHISampler>(this, minFilter, magFilter, addressMode, compareOp);
+        return m_resourceFactory->createSampler(minFilter, magFilter, addressMode, compareOp);
     }
 
     std::unique_ptr<RHICommandBuffer> VulkanRHIDevice::createCommandBuffer(RHICommandPool* pool)
     {
-      return std::make_unique<VulkanRHICommandBuffer>(
-this, rhi_cast<VulkanRHICommandPool>(pool));
+        return m_resourceFactory->createCommandBuffer(pool);
     }
 
     std::unique_ptr<RHICommandPool> VulkanRHIDevice::createCommandPool(const CommandPoolDescriptor& desc)
     {
-        return std::make_unique<VulkanRHICommandPool>(this, desc);
+        return m_resourceFactory->createCommandPool(desc);
     }
 
     VulkanRHICommandPool::VulkanRHICommandPool(VulkanRHIDevice* device, const CommandPoolDescriptor& desc)
@@ -937,112 +835,40 @@ this, rhi_cast<VulkanRHICommandPool>(pool));
     std::unique_ptr<RHIPipeline> VulkanRHIDevice::createGraphicsPipeline(
         const GraphicsPipelineDescriptor& desc)
     {
-        return std::make_unique<VulkanRHIPipeline>(this, desc);
+        return m_resourceFactory->createGraphicsPipeline(desc);
     }
 
     std::unique_ptr<RHIPipeline> VulkanRHIDevice::createComputePipeline(
         const ComputePipelineDescriptor& desc)
     {
-        return std::make_unique<VulkanRHIPipeline>(this, desc);
+        return m_resourceFactory->createComputePipeline(desc);
     }
 
     std::unique_ptr<RHIDescriptorSetLayout> VulkanRHIDevice::createDescriptorSetLayout(
         const DescriptorSetLayout& desc)
     {
-        std::vector<vk::DescriptorSetLayoutBinding> bindings;
-        std::vector<vk::DescriptorBindingFlags> bindingFlags;
-        bindings.reserve(desc.bindings.size());
-        bindingFlags.reserve(desc.bindings.size());
-
-        bool hasUpdateAfterBind = false;
-
-        for (const auto& binding : desc.bindings)
-        {
-            vk::DescriptorSetLayoutBinding vkBinding{};
-            vkBinding.binding = binding.binding;
-            vkBinding.descriptorType = VulkanUtils::toVkDescriptorType(binding.type);
-            vkBinding.descriptorCount = binding.count;
-            vkBinding.stageFlags = VulkanUtils::toVkShaderStage(binding.stages);
-            bindings.push_back(vkBinding);
-
-            vk::DescriptorBindingFlags flags = {};
-            if (binding.flags.has(DescriptorBindingFlags::UpdateAfterBind)) {
-                flags |= vk::DescriptorBindingFlagBits::eUpdateAfterBind;
-                hasUpdateAfterBind = true;
-            }
-            if (binding.flags.has(DescriptorBindingFlags::PartiallyBound)) {
-                flags |= vk::DescriptorBindingFlagBits::ePartiallyBound;
-            }
-            if (binding.flags.has(DescriptorBindingFlags::VariableDescriptorCount)) {
-                flags |= vk::DescriptorBindingFlagBits::eVariableDescriptorCount;
-            }
-            bindingFlags.push_back(flags);
-        }
-
-        vk::DescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{};
-        flagsInfo.bindingCount = static_cast<uint32_t>(bindingFlags.size());
-        flagsInfo.pBindingFlags = bindingFlags.data();
-
-        vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.pNext = &flagsInfo;
-        layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-        layoutInfo.pBindings = bindings.data();
-
-        if (hasUpdateAfterBind) {
-            layoutInfo.flags |= vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool;
-        }
-
-        vk::DescriptorSetLayout layout = m_device.createDescriptorSetLayout(layoutInfo);
-        return std::make_unique<VulkanRHIDescriptorSetLayout>(this, layout, desc);
+        return m_resourceFactory->createDescriptorSetLayout(desc);
     }
 
     std::unique_ptr<RHIDescriptorSet> VulkanRHIDevice::allocateDescriptorSet(
         RHIDescriptorSetLayout* layout)
     {
-        auto* vkLayout = rhi_cast<VulkanRHIDescriptorSetLayout>(layout);
-
-        vk::DescriptorSetAllocateInfo allocInfo{};
-        allocInfo.descriptorPool = m_descriptorPool;
-        vk::DescriptorSetLayout layoutHandle = vkLayout->layout();
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &layoutHandle;
-
-        auto sets = m_device.allocateDescriptorSets(allocInfo);
-        return std::make_unique<VulkanRHIDescriptorSet>(this, vkLayout, sets[0]);
+        return m_resourceFactory->allocateDescriptorSet(layout);
     }
 
     std::unique_ptr<RHIFence> VulkanRHIDevice::createFence(bool signaled)
     {
-        return std::make_unique<VulkanRHIFence>(this, signaled);
+        return m_resourceFactory->createFence(signaled);
     }
 
     void VulkanRHIDevice::waitIdle()
     {
-        std::scoped_lock lock(m_queueMutex);
-        m_device.waitIdle();
-        processDeletionQueue();
+        m_syncManager->waitIdle();
     }
 
     void VulkanRHIDevice::waitForFences(const std::vector<uint64_t>& fenceValues)
     {
-        if (fenceValues.empty())
-        {
-            return;
-        }
-
-        std::vector semaphores(fenceValues.size(), m_frameTimelineSemaphore);
-
-        vk::SemaphoreWaitInfo waitInfo{};
-        waitInfo.sType = vk::StructureType::eSemaphoreWaitInfo;
-        waitInfo.semaphoreCount = static_cast<uint32_t>(fenceValues.size());
-        waitInfo.pSemaphores = semaphores.data();
-        waitInfo.pValues = fenceValues.data();
-
-        auto result = m_device.waitSemaphores(waitInfo, UINT64_MAX);
-        if (result != vk::Result::eSuccess)
-        {
-            core::Logger::RHI.error("Failed to wait for fences: {}", vk::to_string(result));
-        }
+        m_syncManager->waitForFences(fenceValues);
     }
 
     void VulkanRHIDevice::submitCommands(
@@ -1052,177 +878,77 @@ this, rhi_cast<VulkanRHICommandPool>(pool));
         const std::vector<uint64_t>& signalSemaphores,
         RHISwapchain* swapchain)
     {
-        auto* vkCmdBuffer = rhi_cast<VulkanRHICommandBuffer>(commandBuffer);
+        m_syncManager->submitCommands(commandBuffer, signalFence, waitSemaphores, signalSemaphores, swapchain);
+    }
 
-        vk::SubmitInfo submitInfo{};
-        submitInfo.commandBufferCount = 1;
-        auto cmdBuf = vkCmdBuffer->commandBuffer();
-        submitInfo.pCommandBuffers = &cmdBuf;
+    uint64_t VulkanRHIDevice::getCurrentFrame() const
+    {
+        return m_syncManager->getCurrentFrame();
+    }
 
-        vk::TimelineSemaphoreSubmitInfo timelineInfo{};
-
-        std::vector<vk::Semaphore> waitSems;
-        std::vector<vk::PipelineStageFlags> waitStages;
-        std::vector<uint64_t> waitValues;
-
-        for (auto val : waitSemaphores)
-        {
-            waitSems.push_back(m_frameTimelineSemaphore);
-            waitStages.emplace_back(vk::PipelineStageFlagBits::eAllCommands);
-            waitValues.push_back(val);
-        }
-
-        std::vector<vk::Semaphore> signalSems;
-        std::vector<uint64_t> signalValues;
-
-        for (auto val : signalSemaphores)
-        {
-            signalSems.push_back(m_frameTimelineSemaphore);
-            signalValues.push_back(val);
-        }
-
-        if (swapchain != nullptr) {
-          auto *vkSwapchain = rhi_cast<VulkanRHISwapchain>(swapchain);
-          if (vkSwapchain != nullptr) {
-
-            waitSems.push_back(vkSwapchain->getCurrentAcquireSemaphore());
-            waitStages.emplace_back(
-                vk::PipelineStageFlagBits::eColorAttachmentOutput);
-            waitValues.push_back(0);
-
-            signalSems.push_back(
-                vkSwapchain->getCurrentRenderFinishedSemaphore());
-            signalValues.push_back(0);
-          }
-        }
-
-        if (!waitSems.empty())
-        {
-            submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSems.size());
-            submitInfo.pWaitSemaphores = waitSems.data();
-            submitInfo.pWaitDstStageMask = waitStages.data();
-        }
-
-        if (!signalSems.empty())
-        {
-            submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
-            submitInfo.pSignalSemaphores = signalSems.data();
-        }
-
-        timelineInfo.waitSemaphoreValueCount = static_cast<uint32_t>(waitValues.size());
-        timelineInfo.pWaitSemaphoreValues = waitValues.data();
-        timelineInfo.signalSemaphoreValueCount = static_cast<uint32_t>(signalValues.size());
-        timelineInfo.pSignalSemaphoreValues = signalValues.data();
-
-        for (size_t i = 0; i < signalSems.size(); ++i) {
-            if (signalSems[i] == m_frameTimelineSemaphore) {
-                uint64_t current = 0;
-                if (m_device.getSemaphoreCounterValue(m_frameTimelineSemaphore, &current) == vk::Result::eSuccess) {
-                    if (current == UINT64_MAX) {
-                        core::Logger::RHI.error("Timeline semaphore has reached UINT64_MAX! Likely device loss.");
-                    } else if (signalValues[i] <= current) {
-                        core::Logger::RHI.error("Timeline semaphore signal value {} is not greater than current value {}!", signalValues[i], current);
-                    }
-                }
-            }
-        }
-
-        submitInfo.pNext = &timelineInfo;
-
-        vk::Fence fenceHandle{};
-        if (signalFence != nullptr)
-        {
-            auto* vkFence = rhi_cast<VulkanRHIFence>(signalFence);
-            fenceHandle = vk::Fence(static_cast<VkFence>(vkFence->nativeHandle()));
-        }
-
-        vk::Queue queue = m_graphicsQueue;
-        const uint32_t family = vkCmdBuffer->getQueueFamilyIndex();
-
-        if (family == m_computeQueueFamily)
-        {
-            queue = m_computeQueue;
-        }
-        else if (family == m_transferQueueFamily)
-        {
-            queue = m_transferQueue;
-        }
-
-        queueSubmit(queue, submitInfo, fenceHandle);
+    uint64_t VulkanRHIDevice::getLastComputeSemaphoreValue() const
+    {
+        return m_syncManager->getLastComputeSemaphoreValue();
     }
 
     void VulkanRHIDevice::queueSubmit(vk::Queue queue, const vk::SubmitInfo& submitInfo, vk::Fence fence)
     {
-      std::scoped_lock lock(m_queueMutex);
-      queue.submit(submitInfo, fence);
+        m_syncManager->queueSubmit(queue, submitInfo, fence);
+    }
+
+    vk::Semaphore VulkanRHIDevice::getTimelineSemaphore() const
+    {
+        return m_syncManager->frameTimelineSemaphore();
+    }
+
+    vk::Semaphore VulkanRHIDevice::getComputeTimelineSemaphore() const
+    {
+        return m_syncManager->computeTimelineSemaphore();
+    }
+
+    vk::Queue VulkanRHIDevice::graphicsQueue() const
+    {
+        return m_syncManager->graphicsQueue();
+    }
+
+    vk::Queue VulkanRHIDevice::computeQueue() const
+    {
+        return m_syncManager->computeQueue();
+    }
+
+    vk::Queue VulkanRHIDevice::transferQueue() const
+    {
+        return m_syncManager->transferQueue();
     }
 
     std::unique_lock<std::mutex> VulkanRHIDevice::acquireQueueLock()
     {
-        return std::unique_lock<std::mutex>(m_queueMutex);
+        return m_syncManager->acquireQueueLock();
     }
 
     uint64_t VulkanRHIDevice::getCompletedFrame() const
     {
-        uint64_t completed = 0;
-        const auto res = m_device.getSemaphoreCounterValue(m_frameTimelineSemaphore, &completed);
-        if (res != vk::Result::eSuccess)
-        {
-            core::Logger::RHI.critical("getSemaphoreCounterValue failed: {}", vk::to_string(res));
-            throw std::runtime_error("VulkanRHIDevice::getCompletedFrame failed");
-        }
-
-        if (completed == UINT64_MAX) {
-            core::Logger::RHI.warn("getCompletedFrame returned UINT64_MAX. Semantic value for 'Device Lost'.");
-        }
-
-        return completed;
+        return m_syncManager->getCompletedFrame();
     }
 
     void VulkanRHIDevice::waitForFrame(uint64_t frameIndex)
     {
-        if (frameIndex == 0)
-        {
-            return;
-        }
-
-        const uint64_t completed = getCompletedFrame();
-        if (completed >= frameIndex)
-        {
-            return;
-        }
-        vk::SemaphoreWaitInfo waitInfo{};
-        waitInfo.sType = vk::StructureType::eSemaphoreWaitInfo;
-        waitInfo.semaphoreCount = 1;
-        waitInfo.pSemaphores = &m_frameTimelineSemaphore;
-        waitInfo.pValues = &frameIndex;
-
-        const auto result = m_device.waitSemaphores(waitInfo, UINT64_MAX);
-        if (result != vk::Result::eSuccess)
-        {
-            core::Logger::RHI.critical("Failed to wait for frame value {}: {}", frameIndex, vk::to_string(result));
-            throw std::runtime_error("VulkanRHIDevice::waitForFrame failed");
-        }
+        m_syncManager->waitForFrame(frameIndex);
     }
 
     uint64_t VulkanRHIDevice::incrementFrame()
     {
-        processDeletionQueue();
+        uint64_t frame = m_syncManager->incrementFrame();
         if (m_bindlessManager)
         {
             m_bindlessManager->update(getCompletedFrame());
         }
-        return ++m_frameCounter;
+        return frame;
     }
 
     void VulkanRHIDevice::immediateSubmit(std::function<void(RHICommandList*)>&& func)
     {
-        auto cmd = createCommandList();
-        cmd->begin();
-        func(cmd.get());
-        cmd->end();
-        submitCommands(cmd.get());
-        waitIdle();
+        m_syncManager->immediateSubmit(std::move(func));
     }
 
     void VulkanRHIDevice::downloadTexture(
@@ -1289,21 +1015,12 @@ this, rhi_cast<VulkanRHICommandPool>(pool));
 
     vk::ShaderModule VulkanRHIDevice::createShaderModule(const std::vector<uint32_t>& spirvCode)
     {
-        vk::ShaderModuleCreateInfo createInfo{};
-        createInfo.codeSize = spirvCode.size() * sizeof(uint32_t);
-        createInfo.pCode = spirvCode.data();
-
-        auto module = m_device.createShaderModule(createInfo);
-        trackObject(vk::ObjectType::eShaderModule,
-                    pnkr::util::u64(static_cast<VkShaderModule>(module)),
-                    "ShaderModule");
-        return module;
+        return m_resourceFactory->createShaderModule(spirvCode);
     }
 
     void VulkanRHIDevice::destroyShaderModule(vk::ShaderModule module)
     {
-        untrackObject(pnkr::util::u64(static_cast<VkShaderModule>(module)));
-        m_device.destroyShaderModule(module);
+        m_resourceFactory->destroyShaderModule(module);
     }
 
     std::unique_ptr<RHIImGui> VulkanRHIDevice::createImGuiRenderer()
@@ -1542,76 +1259,29 @@ this, rhi_cast<VulkanRHICommandPool>(pool));
 
     void VulkanRHIDevice::enqueueDeletion(std::function<void()>&& deleteFn)
     {
-      std::scoped_lock lock(m_deletionMutex);
-      m_deletionQueue.push_back(
-          {.frameIndex = m_frameCounter, .deleteFn = std::move(deleteFn)});
+        m_deletionQueueMgr->enqueue(m_syncManager->getCurrentFrame(), std::move(deleteFn));
     }
 
     void VulkanRHIDevice::processDeletionQueue()
     {
-        uint64_t completedFrame = getCompletedFrame();
-
-        while (true)
-        {
-            std::function<void()> fn;
-            {
-              std::scoped_lock lock(m_deletionMutex);
-              if (m_deletionQueue.empty() ||
-                  m_deletionQueue.front().frameIndex > completedFrame) {
-                break;
-              }
-                fn = std::move(m_deletionQueue.front().deleteFn);
-                m_deletionQueue.pop_front();
-            }
-            if (fn) {
-              fn();
-            }
-        }
+        m_deletionQueueMgr->process(getCompletedFrame());
     }
 
     void VulkanRHIDevice::trackObject(vk::ObjectType type, uint64_t handle, std::string_view name)
     {
-        if (handle == 0) {
-            return;
-        }
-
-        TrackedVulkanObject tracked{};
-        tracked.type = type;
-        tracked.name = std::string(name);
-        tracked.trace = cpptrace::generate_trace(2).to_string();
-
-        core::Logger::RHI.trace("Tracking Object: Handle={:#x}, Type={}, Name='{}'", handle, vk::to_string(type), name);
-
-        std::scoped_lock lock(m_objectTraceMutex);
-        m_objectTraces[handle] = std::move(tracked);
+        m_deletionQueueMgr->trackObject(type, handle, name);
     }
 
     void VulkanRHIDevice::untrackObject(uint64_t handle)
     {
-        if (handle == 0) {
-            return;
-        }
-
-        core::Logger::RHI.trace("Untracking Object: Handle={:#x}", handle);
-
-        std::scoped_lock lock(m_objectTraceMutex);
-        m_objectTraces.erase(handle);
+        m_deletionQueueMgr->untrackObject(handle);
     }
 
     bool VulkanRHIDevice::tryGetObjectTrace(uint64_t handle, TrackedVulkanObject& out) const
     {
-        if (handle == 0) {
-            return false;
-        }
-
-        std::scoped_lock lock(m_objectTraceMutex);
-        auto it = m_objectTraces.find(handle);
-        if (it == m_objectTraces.end()) {
-            return false;
-        }
-        out = it->second;
-        return true;
+        return m_deletionQueueMgr->tryGetObjectTrace(handle, out);
     }
+
 
     void VulkanRHIDevice::setCheckpoint(vk::CommandBuffer cmd, const char* name)
     {
@@ -1649,58 +1319,7 @@ this, rhi_cast<VulkanRHICommandPool>(pool));
         bool waitForPreviousCompute,
         bool signalGraphicsQueue)
     {
-        auto* vkCmdBuffer = rhi_cast<VulkanRHICommandBuffer>(commandBuffer);
-
-        vk::SubmitInfo submitInfo{};
-        submitInfo.commandBufferCount = 1;
-        auto cmdBuf = vkCmdBuffer->commandBuffer();
-        submitInfo.pCommandBuffers = &cmdBuf;
-
-        vk::TimelineSemaphoreSubmitInfo timelineInfo{};
-
-        std::vector<vk::Semaphore> waitSems;
-        std::vector<vk::PipelineStageFlags> waitStages;
-        std::vector<uint64_t> waitValues;
-
-        std::vector<vk::Semaphore> signalSems;
-        std::vector<uint64_t> signalValues;
-
-        if (waitForPreviousCompute)
-        {
-            uint64_t lastValue = m_computeSemaphoreValue.load();
-            if (lastValue > 0)
-            {
-                waitSems.push_back(m_computeTimelineSemaphore);
-                waitStages.emplace_back(
-                    vk::PipelineStageFlagBits::eComputeShader);
-                waitValues.push_back(lastValue);
-            }
-        }
-
-        submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSems.size());
-        submitInfo.pWaitSemaphores = waitSems.data();
-        submitInfo.pWaitDstStageMask = waitStages.data();
-        timelineInfo.waitSemaphoreValueCount = static_cast<uint32_t>(waitValues.size());
-        timelineInfo.pWaitSemaphoreValues = waitValues.data();
-
-        uint64_t nextValue = m_computeSemaphoreValue.fetch_add(1) + 1;
-        signalSems.push_back(m_computeTimelineSemaphore);
-        signalValues.push_back(nextValue);
-
-        if (signalGraphicsQueue)
-        {
-        }
-
-        submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSems.size());
-        submitInfo.pSignalSemaphores = signalSems.data();
-        timelineInfo.signalSemaphoreValueCount = static_cast<uint32_t>(signalValues.size());
-        timelineInfo.pSignalSemaphoreValues = signalValues.data();
-
-        submitInfo.pNext = &timelineInfo;
-
-        {
-             queueSubmit(m_computeQueue, submitInfo, nullptr);
-        }
+        m_syncManager->submitComputeCommands(commandBuffer, waitForPreviousCompute, signalGraphicsQueue);
     }
 
     void VulkanRHIDevice::reportGpuFault()

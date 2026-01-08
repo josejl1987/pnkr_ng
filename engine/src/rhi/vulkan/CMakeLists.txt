@@ -23,6 +23,9 @@ target_sources(pnkr_engine
     vulkan_sync.cpp
     vulkan_texture.cpp
     vulkan_utils.cpp
+    VulkanResourceFactory.cpp
+    VulkanDeletionQueue.cpp
+    VulkanSyncManager.cpp
     AftermathIntegration.cpp
 )
 
