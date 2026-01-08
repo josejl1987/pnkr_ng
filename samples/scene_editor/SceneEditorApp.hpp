@@ -30,11 +30,12 @@ private:
     std::unique_ptr<pnkr::renderer::debug::DebugLayer> m_debugLines;
 
     pnkr::renderer::scene::Camera m_camera;
-    pnkr::renderer::scene::CameraController m_cameraController{{0.0f, 1.0f, 5.0f}};
+    pnkr::renderer::scene::CameraController m_cameraController{{-19.261f, 8.465f, -7.317f}};
 
     int32_t m_selectedNode = -1;
     bool m_sceneDirty = false;
     bool m_drawWireframe = false;
+    bool m_drawShadowFrustum = true;
 
     void tryPick();
 };

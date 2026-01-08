@@ -139,7 +139,7 @@ void SceneEditorApp::onInit()
     m_debugLines = std::make_unique<renderer::debug::DebugLayer>();
     m_debugLines->initialize(m_renderer.get());
 
-    m_camera.setPerspective(glm::radians(45.0f), (float)m_config.width / (float)m_config.height, 0.1f, 1000.0f);
+    m_camera.setPerspective(glm::radians(45.0f), (float)m_config.width / (float)m_config.height, 0.1f, 200.0f);
     m_cameraController.applyToCamera(m_camera);
 }
 
@@ -148,7 +148,7 @@ void SceneEditorApp::onUpdate(float dt)
     m_cameraController.update(m_input, dt);
     m_cameraController.applyToCamera(m_camera);
     float aspect = (float)m_window.width() / (float)m_window.height();
-    m_camera.setPerspective(glm::radians(45.0f), aspect, 0.1f, 1000.0f);
+    m_camera.setPerspective(glm::radians(45.0f), aspect, 0.1f, 200.0f);
 
     if (!m_model)
     {
@@ -201,6 +201,17 @@ void SceneEditorApp::onUpdate(float dt)
                 }
             }
         }
+
+        // Draw shadow frustum in yellow (like the cookbook)
+        if (m_drawShadowFrustum && m_indirectRenderer)
+        {
+            const glm::vec3 shadowFrustumColor(1.0f, 1.0f, 0.0f); // Yellow
+            m_debugLines->frustum(
+                m_indirectRenderer->getShadowView(),
+                m_indirectRenderer->getShadowProj(),
+                shadowFrustumColor
+            );
+        }
     }
 }
 
@@ -228,6 +239,7 @@ void SceneEditorApp::onImGui()
             {
                 m_indirectRenderer->setWireframe(m_drawWireframe);
             }
+            ImGui::MenuItem("Shadow Frustum", nullptr, &m_drawShadowFrustum);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
@@ -345,8 +357,9 @@ void SceneEditorApp::onImGui()
             }
         }
         if (ImGui::Button("Reset Free Camera")) {
-            m_cameraController = renderer::scene::CameraController{{0.0f, 1.0f, 5.0f}};
+            m_cameraController = renderer::scene::CameraController{{-19.261f, 8.465f, -7.317f}};
         }
+        ImGui::SliderFloat("Camera Speed", &m_cameraController.moveSpeed(), 0.5f, 20.0f);
     } else {
         ImGui::Text("No scene cameras found.");
     }
