@@ -16,9 +16,7 @@
 
 namespace pnkr::renderer::scene
 {
-    // Forward declarations of helper functions used to exist here, now in SceneBufferPacker.
-    // The previous API had free functions in the namespace: uploadMaterials, etc.
-    // We will not implement them here anymore as they are removed from header.
+
 
     void GLTFUnifiedDOD::buildDrawLists(GLTFUnifiedDODContext& ctx,
                                         const glm::vec3& cameraPos,
