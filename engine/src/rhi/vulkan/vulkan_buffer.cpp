@@ -1,8 +1,11 @@
-#include "pnkr/rhi/vulkan/vulkan_buffer.hpp"
+#include "rhi/vulkan/vulkan_buffer.hpp"
 
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
-#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
+#include "rhi/vulkan/vulkan_utils.hpp"
+#include "pnkr/rhi/BindlessManager.hpp"
+#include "rhi/vulkan/vulkan_device.hpp"
+#include "rhi/vulkan/BDARegistry.hpp"
 #include <cpptrace/cpptrace.hpp>
 
 using namespace pnkr::util;
@@ -11,15 +14,17 @@ namespace pnkr::renderer::rhi::vulkan
 {
     VulkanRHIBuffer::VulkanRHIBuffer(VulkanRHIDevice* device,
                                      const BufferDescriptor& desc)
-        : m_device(device)
+        : VulkanRHIResourceBase(device)
         , m_size(desc.size)
         , m_usage(desc.usage)
         , m_memoryUsage(desc.memoryUsage)
     {
-        vk::BufferCreateInfo bufferInfo{};
-        bufferInfo.size = desc.size;
-        bufferInfo.usage = VulkanUtils::toVkBufferUsage(desc.usage);
-        bufferInfo.sharingMode = vk::SharingMode::eExclusive;
+        m_debugName = desc.debugName;
+        auto bufferInfo = VkBuilder<vk::BufferCreateInfo>{}
+            .set(&vk::BufferCreateInfo::size, desc.size)
+            .set(&vk::BufferCreateInfo::usage, VulkanUtils::toVkBufferUsage(desc.usage))
+            .set(&vk::BufferCreateInfo::sharingMode, vk::SharingMode::eExclusive)
+            .build();
 
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VulkanUtils::toVmaMemoryUsage(desc.memoryUsage);
@@ -30,55 +35,78 @@ namespace pnkr::renderer::rhi::vulkan
                 VMA_ALLOCATION_CREATE_MAPPED_BIT;
         }
 
-        // VMA still uses C types, need to convert
         auto cBufferInfo = static_cast<VkBufferCreateInfo>(bufferInfo);
         VkBuffer cBuffer = nullptr;
 
-        auto result = static_cast<vk::Result>(
+        (void)VulkanUtils::checkVkResult(static_cast<vk::Result>(
             vmaCreateBuffer(m_device->allocator(), &cBufferInfo, &allocInfo,
-                          &cBuffer, &m_allocation, nullptr));
+                          &cBuffer, &m_allocation, nullptr)), "create buffer");
 
-        if (result != vk::Result::eSuccess) {
-            core::Logger::error("Failed to create buffer: {}", vk::to_string(result));
-            throw cpptrace::runtime_error("Buffer creation failed");
-        }
-
-        m_buffer = cBuffer;
+        m_handle = cBuffer;
+        m_device->trackObject(vk::ObjectType::eBuffer,
+                              u64(static_cast<VkBuffer>(m_handle)),
+                              desc.debugName);
 
         if (desc.memoryUsage == MemoryUsage::CPUToGPU)
         {
             VmaAllocationInfo ainfo{};
             vmaGetAllocationInfo(m_device->allocator(), m_allocation, &ainfo);
-            m_mappedData = ainfo.pMappedData;
+            m_mappedData = static_cast<std::byte*>(ainfo.pMappedData);
             m_isPersistentlyMapped = (m_mappedData != nullptr);
         }
 
-        // Debug naming with vulkan-hpp
-        if (desc.debugName != nullptr &&
-            VULKAN_HPP_DEFAULT_DISPATCHER.vkSetDebugUtilsObjectNameEXT != nullptr) {
-            vk::DebugUtilsObjectNameInfoEXT nameInfo{};
-            nameInfo.objectType = vk::ObjectType::eBuffer;
-            nameInfo.objectHandle = u64((VkBuffer)m_buffer);
-            nameInfo.pObjectName = desc.debugName;
+        if (!desc.debugName.empty()) {
+            VulkanUtils::setDebugName(m_device->device(), vk::ObjectType::eBuffer, u64((VkBuffer)m_handle), desc.debugName);
+        }
 
-            m_device->device().setDebugUtilsObjectNameEXT(nameInfo);
-
+        if (bufferInfo.usage & vk::BufferUsageFlagBits::eShaderDeviceAddress)
+        {
+            uint64_t addr = getDeviceAddress();
+            if (addr != 0)
+            {
+                m_device->getBDARegistry()->registerBuffer(
+                    addr,
+                    desc.size,
+                    desc.debugName,
+                    m_device->getCompletedFrame()
+                );
+                core::Logger::RHI.trace("BDA Registered: {:#x} ({})", addr, desc.debugName);
+            }
         }
     }
 
     VulkanRHIBuffer::~VulkanRHIBuffer()
     {
-        if (m_bindlessHandle.isValid()) {
-            m_device->releaseBindlessBuffer(m_bindlessHandle);
-        }
-
         if (m_mappedData != nullptr) {
             unmap();
         }
-        vmaDestroyBuffer(m_device->allocator(), m_buffer, m_allocation);
+
+        auto *device = m_device;
+        auto bindlessHandle = m_bindlessHandle;
+        auto buffer = m_handle;
+        auto *allocation = m_allocation;
+        const bool needsBdaUnregister = (VulkanUtils::toVkBufferUsage(m_usage) & vk::BufferUsageFlagBits::eShaderDeviceAddress) != vk::BufferUsageFlags{};
+        const uint64_t bdaAddr = needsBdaUnregister ? getDeviceAddress() : 0;
+
+        device->enqueueDeletion([=]() {
+            device->untrackObject(u64(static_cast<VkBuffer>(buffer)));
+            if (needsBdaUnregister && bdaAddr != 0)
+            {
+                device->getBDARegistry()->unregisterBuffer(bdaAddr, device->getCompletedFrame());
+                core::Logger::RHI.trace("BDA Unregistered: {:#x}", bdaAddr);
+            }
+            if (bindlessHandle.isValid()) {
+                if (auto* bindless = device->getBindlessManager())
+                {
+                    bindless->releaseBuffer(bindlessHandle);
+                }
+            }
+
+            vmaDestroyBuffer(device->allocator(), buffer, allocation);
+        });
     }
 
-    void* VulkanRHIBuffer::map()
+    std::byte* VulkanRHIBuffer::map()
     {
         if (m_isPersistentlyMapped && m_mappedData != nullptr) {
             return m_mappedData;
@@ -87,13 +115,8 @@ namespace pnkr::renderer::rhi::vulkan
             return m_mappedData;
         }
 
-        auto result = static_cast<vk::Result>(
-            vmaMapMemory(m_device->allocator(), m_allocation, &m_mappedData));
-
-        if (result != vk::Result::eSuccess) {
-            core::Logger::error("Failed to map buffer memory: {}", vk::to_string(result));
-            return nullptr;
-        }
+        (void)VulkanUtils::checkVkResult(static_cast<vk::Result>(
+            vmaMapMemory(m_device->allocator(), m_allocation, reinterpret_cast<void**>(&m_mappedData))), "map buffer memory");
 
         return m_mappedData;
     }
@@ -109,20 +132,31 @@ namespace pnkr::renderer::rhi::vulkan
         }
     }
 
-    void VulkanRHIBuffer::uploadData(const void* data, uint64_t size, uint64_t offset)
+    void VulkanRHIBuffer::flush(uint64_t offset, uint64_t size)
     {
+        vmaFlushAllocation(m_device->allocator(), m_allocation, offset, size);
+    }
+
+    void VulkanRHIBuffer::invalidate(uint64_t offset, uint64_t size)
+    {
+        vmaInvalidateAllocation(m_device->allocator(), m_allocation, offset, size);
+    }
+
+    void VulkanRHIBuffer::uploadData(std::span<const std::byte> data, uint64_t offset)
+    {
+        uint64_t size = data.size_bytes();
         if (offset + size > m_size) {
-            core::Logger::error("uploadData out of bounds: offset={} size={} bufSize={}", offset, size, m_size);
+            core::Logger::RHI.error("uploadData out of bounds: offset={} size={} bufSize={}", offset, size, m_size);
             return;
         }
 
-        void* mapped = map();
+        std::byte* mapped = map();
         if (mapped == nullptr) {
-            core::Logger::error("Failed to map buffer for upload");
+            core::Logger::RHI.error("Failed to map buffer for upload");
             return;
         }
 
-        std::memcpy(static_cast<char*>(mapped) + offset, data, size);
+        std::copy_n(data.data(), size, mapped + offset);
         vmaFlushAllocation(m_device->allocator(), m_allocation, offset, size);
         unmap();
     }
@@ -130,7 +164,8 @@ namespace pnkr::renderer::rhi::vulkan
     uint64_t VulkanRHIBuffer::getDeviceAddress() const
     {
         vk::BufferDeviceAddressInfo addressInfo{};
-        addressInfo.buffer = m_buffer;
+        addressInfo.buffer = m_handle;
         return m_device->device().getBufferAddress(addressInfo);
     }
-} // namespace pnkr::renderer::rhi::vulkan
+}
+

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "pnkr/rhi/rhi_types.hpp"
-#include "pnkr/rhi/rhi_pipeline.hpp" // For DescriptorSetLayout definitions
+#include "pnkr/rhi/rhi_pipeline.hpp"
 #include <vector>
 #include <string>
 #include <filesystem>
@@ -19,13 +19,13 @@ namespace pnkr::renderer::rhi
     {
         std::vector<DescriptorSetLayout> descriptorSets;
         std::vector<PushConstantRange> pushConstants;
-        std::vector<ReflectedInput> inputAttributes; // Only for Vertex Stage
+        std::vector<ReflectedInput> inputAttributes;
         std::string entryPoint = "main";
     };
 
     struct ReflectionConfig
     {
-        // Map specific resource names to their descriptor counts
+
         std::unordered_map<std::string, uint32_t> bindlessOverrides = {
             {"bindlessTextures", 100000},
             {"bindlessSamplers", 100000},
@@ -33,16 +33,15 @@ namespace pnkr::renderer::rhi
             {"bindlessStorageBuffers", 100000},
             {"BindlessStorageBuffer", 100000},
             {"bindlessStorageImages", 100000},
+            {"bindlessStorageImagesUInt", 100000},
             {"bindlessTextures3D", 100000},
             {"bindlessSamplersShadow", 100000},
             {"bindlessTexturesShadow", 100000},
 
         };
 
-        // Default size for runtime arrays not explicitly configured
         uint32_t defaultBindlessSize = 1000;
 
-        // Enable/disable runtime array detection
         bool enableRuntimeArrayDetection = true;
     };
 

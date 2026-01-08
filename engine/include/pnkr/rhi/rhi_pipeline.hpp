@@ -5,21 +5,17 @@
 #include <vector>
 #include <string>
 
-
-
 namespace pnkr::renderer::rhi
 {
     class RHIDescriptorSetLayout;
-    // Shader module
 
     struct ShaderModuleDescriptor
     {
         ShaderStage stage;
-        std::vector<uint32_t> spirvCode;  // SPIR-V bytecode
+        std::vector<uint32_t> spirvCode;
         std::string entryPoint = "main";
     };
 
-    // Rasterization state
     struct RasterizationState
     {
         PolygonMode polygonMode = PolygonMode::Fill;
@@ -29,7 +25,6 @@ namespace pnkr::renderer::rhi
         bool depthBiasEnable = false;
     };
 
-    // Depth/stencil state
     struct DepthStencilState
     {
         bool depthTestEnable = true;
@@ -38,7 +33,6 @@ namespace pnkr::renderer::rhi
         bool stencilTestEnable = false;
     };
 
-    // Blend state
     struct BlendAttachment
     {
         bool blendEnable = false;
@@ -62,61 +56,49 @@ namespace pnkr::renderer::rhi
         float minSampleShading = 0.0f;
     };
 
-    // Push constant range
     struct PushConstantRange
     {
-        ShaderStage stages;
+        ShaderStageFlags stages;
         uint32_t offset;
         uint32_t size;
     };
 
-
-    // Graphics pipeline descriptor
     struct GraphicsPipelineDescriptor
     {
-        // Shaders
+
         std::vector<ShaderModuleDescriptor> shaders;
 
-        // Vertex input
         std::vector<VertexInputBinding> vertexBindings;
         std::vector<VertexInputAttribute> vertexAttributes;
 
-        // Input assembly
         PrimitiveTopology topology = PrimitiveTopology::TriangleList;
         uint32_t patchControlPoints = 3;
 
-        // Rasterization
         RasterizationState rasterization;
 
-        // Depth/stencil
         DepthStencilState depthStencil;
 
-        // Blending
         BlendState blend;
 
-        // Multisampling
         MultisampleState multisample;
 
-        // Render target formats
         std::vector<Format> colorFormats;
         Format depthFormat = Format::Undefined;
 
-        // Resource layouts
         std::vector<DescriptorSetLayout> descriptorSets;
         std::vector<PushConstantRange> pushConstants;
 
         std::vector<DynamicState> dynamicStates;
 
-        const char* debugName = nullptr;
+        std::string debugName;
     };
 
-    // Compute pipeline descriptor
     struct ComputePipelineDescriptor
     {
         ShaderModuleDescriptor shader;
         std::vector<DescriptorSetLayout> descriptorSets;
         std::vector<PushConstantRange> pushConstants;
-        const char* debugName = nullptr;
+        std::string debugName;
     };
 
     class RHIPipeline
@@ -130,4 +112,4 @@ namespace pnkr::renderer::rhi
         virtual uint32_t descriptorSetLayoutCount() const = 0;
     };
 
-} // namespace pnkr::renderer::rhi
+}

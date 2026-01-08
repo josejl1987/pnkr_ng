@@ -1,16 +1,23 @@
-﻿#include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
+#include "rhi/vulkan/vulkan_command_buffer.hpp"
 
 #include "pnkr/core/logger.hpp"
-#include "pnkr/rhi/vulkan/vulkan_device.hpp"
-#include "pnkr/rhi/vulkan/vulkan_buffer.hpp"
-#include "pnkr/rhi/vulkan/vulkan_texture.hpp"
-#include "pnkr/rhi/vulkan/vulkan_pipeline.hpp"
-#include "pnkr/rhi/vulkan/vulkan_descriptor.hpp"
-#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
-#include "pnkr/core/common.hpp"
+#include "rhi/vulkan/vulkan_device.hpp"
+#include "rhi/vulkan/vulkan_gpu_profiler.hpp"
+#include "rhi/vulkan/vulkan_buffer.hpp"
+#include "rhi/vulkan/vulkan_texture.hpp"
+#include "rhi/vulkan/vulkan_pipeline.hpp"
+#include "rhi/vulkan/vulkan_descriptor.hpp"
+#include "rhi/vulkan/vulkan_utils.hpp"
+#include "vulkan_cast.hpp"
+#include "rhi/vulkan/vulkan_tracy.hpp"
 #include "pnkr/core/profiler.hpp"
+#include "pnkr/core/common.hpp"
 #include <cstring>
+#include <algorithm>
+#include <optional>
 #include <cpptrace/cpptrace.hpp>
+
+#include "pnkr/renderer/gpu_shared/SlangCppBridge.h"
 
 using namespace pnkr::util;
 
@@ -18,53 +25,318 @@ namespace pnkr::renderer::rhi::vulkan
 {
     namespace
     {
-        template <typename To, typename From>
-        To* castOrAssert(From* ptr, const char* message)
+        inline vk::Buffer unwrap(RHIBuffer* buf)
         {
-#ifdef DEBUG
-            auto* out = dynamic_cast<To*>(ptr);
-            PNKR_ASSERT(out != nullptr, message);
-            return out;
-#else
-            (void)message;
-            return static_cast<To*>(ptr);
-#endif
+            return rhi_cast<VulkanRHIBuffer>(buf)->buffer();
+        }
+
+        inline vk::Image unwrap(RHITexture* tex)
+        {
+          return {static_cast<VkImage>(tex->nativeHandle())};
+        }
+
+        inline vk::PipelineLayout unwrapLayout(RHIPipeline* pipe)
+        {
+            return rhi_cast<VulkanRHIPipeline>(pipe)->pipelineLayout();
+        }
+
+        vk::DescriptorSet unwrap(RHIDescriptorSet* set)
+        {
+          return {static_cast<VkDescriptorSet>(set->nativeHandle())};
+        }
+
+        uint32_t clampSubresourceCount(uint32_t base, uint32_t count, uint32_t total)
+        {
+          if (base >= total) {
+            return 0U;
+          }
+          if (count == BINDLESS_INVALID_ID) {
+            return total - base;
+          }
+            return std::min(count, total - base);
+        }
+
+        vk::AccessFlags2 accessForStageSrc(vk::PipelineStageFlags2 stage)
+        {
+            vk::AccessFlags2 access{};
+
+            if (stage & vk::PipelineStageFlagBits2::eHost) {
+              access |= vk::AccessFlagBits2::eHostWrite;
+            }
+            if (stage & vk::PipelineStageFlagBits2::eDrawIndirect) {
+              access |= vk::AccessFlagBits2::eIndirectCommandRead;
+            }
+
+            if (stage & vk::PipelineStageFlagBits2::eTransfer) {
+              access |= vk::AccessFlagBits2::eTransferWrite |
+                        vk::AccessFlagBits2::eTransferRead;
+            }
+            if (stage & vk::PipelineStageFlagBits2::eColorAttachmentOutput) {
+              access |= vk::AccessFlagBits2::eColorAttachmentWrite;
+            }
+            if (stage & (vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                         vk::PipelineStageFlagBits2::eLateFragmentTests)) {
+              access |= vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+            }
+
+            const vk::PipelineStageFlags2 shaderStages =
+                vk::PipelineStageFlagBits2::eVertexShader |
+                vk::PipelineStageFlagBits2::eFragmentShader |
+                vk::PipelineStageFlagBits2::eComputeShader |
+                vk::PipelineStageFlagBits2::eTaskShaderEXT |
+                vk::PipelineStageFlagBits2::eMeshShaderEXT |
+                vk::PipelineStageFlagBits2::eGeometryShader |
+                vk::PipelineStageFlagBits2::eTessellationControlShader |
+                vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
+
+            if (stage & shaderStages) {
+              access |= vk::AccessFlagBits2::eShaderWrite;
+            }
+
+            if (access == vk::AccessFlags2{}) {
+              access = vk::AccessFlagBits2::eMemoryWrite;
+            }
+
+            return access;
+        }
+
+        vk::AccessFlags2 accessForStageDst(vk::PipelineStageFlags2 stage)
+        {
+            vk::AccessFlags2 access{};
+
+            if (stage & vk::PipelineStageFlagBits2::eHost) {
+              access |= vk::AccessFlagBits2::eHostRead |
+                        vk::AccessFlagBits2::eHostWrite;
+            }
+
+            if (stage & vk::PipelineStageFlagBits2::eTransfer) {
+              access |= vk::AccessFlagBits2::eTransferRead |
+                        vk::AccessFlagBits2::eTransferWrite;
+            }
+
+            if (stage & vk::PipelineStageFlagBits2::eDrawIndirect) {
+              access |= vk::AccessFlagBits2::eIndirectCommandRead;
+            }
+
+            const vk::PipelineStageFlags2 shaderStages =
+                vk::PipelineStageFlagBits2::eVertexShader |
+                vk::PipelineStageFlagBits2::eFragmentShader |
+                vk::PipelineStageFlagBits2::eComputeShader |
+                vk::PipelineStageFlagBits2::eTaskShaderEXT |
+                vk::PipelineStageFlagBits2::eMeshShaderEXT |
+                vk::PipelineStageFlagBits2::eGeometryShader |
+                vk::PipelineStageFlagBits2::eTessellationControlShader |
+                vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
+
+            if (stage & shaderStages) {
+              access |= vk::AccessFlagBits2::eShaderRead |
+                        vk::AccessFlagBits2::eUniformRead |
+                        vk::AccessFlagBits2::eShaderWrite;
+            }
+
+            if (stage & vk::PipelineStageFlagBits2::eColorAttachmentOutput) {
+              access |= vk::AccessFlagBits2::eColorAttachmentRead |
+                        vk::AccessFlagBits2::eColorAttachmentWrite;
+            }
+
+            if (stage & (vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                         vk::PipelineStageFlagBits2::eLateFragmentTests)) {
+              access |= vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+                        vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+            }
+
+            if (access == vk::AccessFlags2{}) {
+              access = vk::AccessFlagBits2::eMemoryRead |
+                       vk::AccessFlagBits2::eMemoryWrite;
+            }
+
+            return access;
+        }
+
+        vk::BufferMemoryBarrier2 createBufferBarrier(
+            const RHIMemoryBarrier& barrier,
+            vk::PipelineStageFlags2 globalSrcStage,
+            vk::PipelineStageFlags2 globalDstStage,
+            const auto& sanitizeStages,
+            const auto& stripHostAccessIfNoHostStage)
+        {
+            vk::BufferMemoryBarrier2 vkBarrier{};
+
+            vk::PipelineStageFlags2 explicitSrcStage = (barrier.srcAccessStage != ShaderStage::None)
+                                                           ? sanitizeStages(
+                                                               VulkanUtils::toVkPipelineStage(barrier.srcAccessStage))
+                                                           : vk::PipelineStageFlags2{};
+            vk::PipelineStageFlags2 explicitDstStage = (barrier.dstAccessStage != ShaderStage::None)
+                                                           ? sanitizeStages(
+                                                               VulkanUtils::toVkPipelineStage(barrier.dstAccessStage))
+                                                           : vk::PipelineStageFlags2{};
+
+            vkBarrier.srcStageMask = (explicitSrcStage != vk::PipelineStageFlags2{})
+                                         ? explicitSrcStage
+                                         : (globalSrcStage != vk::PipelineStageFlags2{}
+                                                ? globalSrcStage
+                                                : vk::PipelineStageFlagBits2::eAllCommands);
+            vkBarrier.dstStageMask = (explicitDstStage != vk::PipelineStageFlags2{})
+                                         ? explicitDstStage
+                                         : (globalDstStage != vk::PipelineStageFlags2{}
+                                                ? globalDstStage
+                                                : vk::PipelineStageFlagBits2::eAllCommands);
+
+            if (barrier.srcAccessStage.has(ShaderStage::Host))
+            {
+                vkBarrier.srcStageMask |= vk::PipelineStageFlagBits2::eHost;
+            }
+            if (barrier.dstAccessStage.has(ShaderStage::Host))
+            {
+                vkBarrier.dstStageMask |= vk::PipelineStageFlagBits2::eHost;
+            }
+
+            vkBarrier.srcAccessMask = accessForStageSrc(vkBarrier.srcStageMask);
+            vkBarrier.dstAccessMask = accessForStageDst(vkBarrier.dstStageMask);
+
+            stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
+            stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);
+
+            vkBarrier.buffer = unwrap(barrier.buffer);
+            vkBarrier.size = VK_WHOLE_SIZE;
+            vkBarrier.srcQueueFamilyIndex = barrier.srcQueueFamilyIndex == kQueueFamilyIgnored ? VK_QUEUE_FAMILY_IGNORED : barrier.srcQueueFamilyIndex;
+            vkBarrier.dstQueueFamilyIndex = barrier.dstQueueFamilyIndex == kQueueFamilyIgnored ? VK_QUEUE_FAMILY_IGNORED : barrier.dstQueueFamilyIndex;
+
+            return vkBarrier;
+        }
+
+        std::optional<vk::ImageMemoryBarrier2> createImageBarrier(
+            const RHIMemoryBarrier& barrier,
+            vk::PipelineStageFlags2 explicitSrcStage,
+            vk::PipelineStageFlags2 explicitDstStage,
+            const auto& sanitizeStages,
+            const auto& stripHostAccessIfNoHostStage,
+            const auto& sanitizeAccess)
+        {
+            if (barrier.texture == nullptr)
+            {
+                return std::nullopt;
+            }
+
+            vk::ImageMemoryBarrier2 vkBarrier{};
+            vkBarrier.oldLayout = VulkanUtils::toVkImageLayout(barrier.oldLayout);
+            vkBarrier.newLayout = VulkanUtils::toVkImageLayout(barrier.newLayout);
+
+            auto [oldLayoutStage, oldLayoutAccess] = VulkanUtils::getLayoutStageAccess(vkBarrier.oldLayout);
+            auto [newLayoutStage, newLayoutAccess] = VulkanUtils::getLayoutStageAccess(vkBarrier.newLayout);
+
+            vkBarrier.srcStageMask = (explicitSrcStage != vk::PipelineStageFlags2{})
+                                         ? sanitizeStages(explicitSrcStage | oldLayoutStage)
+                                         : sanitizeStages(oldLayoutStage);
+            vkBarrier.dstStageMask = (explicitDstStage != vk::PipelineStageFlags2{})
+                                         ? sanitizeStages(explicitDstStage | newLayoutStage)
+                                         : sanitizeStages(newLayoutStage);
+
+            if (barrier.srcAccessStage.has(ShaderStage::Host))
+            {
+                vkBarrier.srcStageMask |= vk::PipelineStageFlagBits2::eHost;
+            }
+            if (barrier.dstAccessStage.has(ShaderStage::Host))
+            {
+                vkBarrier.dstStageMask |= vk::PipelineStageFlagBits2::eHost;
+            }
+
+            if (vkBarrier.oldLayout == vk::ImageLayout::eUndefined)
+            {
+                vkBarrier.srcAccessMask = {};
+            }
+            else
+            {
+                vkBarrier.srcAccessMask = oldLayoutAccess | accessForStageSrc(explicitSrcStage);
+            }
+            vkBarrier.dstAccessMask = newLayoutAccess | accessForStageDst(explicitDstStage);
+
+            stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
+            stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);
+
+            vkBarrier.srcAccessMask = sanitizeAccess(vkBarrier.srcAccessMask);
+            vkBarrier.dstAccessMask = sanitizeAccess(vkBarrier.dstAccessMask);
+
+            vkBarrier.srcQueueFamilyIndex = barrier.srcQueueFamilyIndex == kQueueFamilyIgnored ? VK_QUEUE_FAMILY_IGNORED : barrier.srcQueueFamilyIndex;
+            vkBarrier.dstQueueFamilyIndex = barrier.dstQueueFamilyIndex == kQueueFamilyIgnored ? VK_QUEUE_FAMILY_IGNORED : barrier.dstQueueFamilyIndex;
+            vkBarrier.image = unwrap(barrier.texture);
+
+            const vk::Format fmt = VulkanUtils::toVkFormat(barrier.texture->format());
+            vkBarrier.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(fmt);
+
+            const uint32_t texMipLevels =
+                std::max(1U, barrier.texture->mipLevels());
+            const uint32_t texArrayLayers =
+                std::max(1U, barrier.texture->arrayLayers());
+
+            vkBarrier.subresourceRange.baseMipLevel = barrier.baseMipLevel;
+            vkBarrier.subresourceRange.levelCount = clampSubresourceCount(
+                barrier.baseMipLevel, barrier.levelCount, texMipLevels);
+            vkBarrier.subresourceRange.baseArrayLayer = barrier.baseArrayLayer;
+            vkBarrier.subresourceRange.layerCount = clampSubresourceCount(
+                barrier.baseArrayLayer, barrier.layerCount, texArrayLayers);
+
+            if (vkBarrier.subresourceRange.levelCount == 0 || vkBarrier.subresourceRange.layerCount == 0)
+            {
+                return std::nullopt;
+            }
+
+            return vkBarrier;
         }
     }
 
-    VulkanRHICommandBuffer::VulkanRHICommandBuffer(VulkanRHIDevice* device)
-        : m_device(device)
-    {
-        vk::CommandBufferAllocateInfo allocInfo{};
-        allocInfo.commandPool = device->commandPool();
-        allocInfo.level = vk::CommandBufferLevel::ePrimary;
-        allocInfo.commandBufferCount = 1;
+    VulkanRHICommandBuffer::VulkanRHICommandBuffer(VulkanRHIDevice *device,
+                                                   VulkanRHICommandPool *pool)
+        : m_device(device),
+          m_queueFamilyIndex((pool != nullptr)
+                                 ? pool->queueFamilyIndex()
+                                 : device->graphicsQueueFamily()) {
+      m_pool = (pool != nullptr) ? pool->pool() : device->commandPool();
 
-        auto result = device->device().allocateCommandBuffers(allocInfo);
-        if (result.empty())
-        {
-            throw cpptrace::runtime_error("Failed to allocate command buffer");
-        }
+      vk::CommandBufferAllocateInfo allocInfo{};
+      allocInfo.commandPool = m_pool;
+      allocInfo.level = vk::CommandBufferLevel::ePrimary;
+      allocInfo.commandBufferCount = 1;
 
-        m_commandBuffer = result[0];
+      auto result = device->device().allocateCommandBuffers(allocInfo);
+      if (result.empty()) {
+        throw cpptrace::runtime_error(
+            "Failed to allocate Vulkan command buffer.");
+      }
+
+      m_commandBuffer = result[0];
+      m_device->trackObject(vk::ObjectType::eCommandBuffer,
+                            u64(static_cast<VkCommandBuffer>(m_commandBuffer)),
+                            "CommandBuffer");
     }
 
     VulkanRHICommandBuffer::~VulkanRHICommandBuffer()
     {
         if (m_commandBuffer)
         {
-            m_device->device().freeCommandBuffers(
-                m_device->commandPool(), m_commandBuffer);
+            m_device->untrackObject(u64(static_cast<VkCommandBuffer>(m_commandBuffer)));
+            m_device->device().freeCommandBuffers(m_pool, m_commandBuffer);
         }
     }
 
     void VulkanRHICommandBuffer::begin()
     {
+        m_drawCallStats.reset();
         vk::CommandBufferBeginInfo beginInfo{};
         beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
 
         m_commandBuffer.begin(beginInfo);
         m_recording = true;
+
+        if (m_queueFamilyIndex == m_device->graphicsQueueFamily() || m_queueFamilyIndex == m_device->
+            computeQueueFamily())
+        {
+            if (auto* profiler = m_device->gpuProfiler())
+            {
+                profiler->resetQueryPool(this, m_currentFrameIndex);
+                profiler->beginPipelineStatisticsQuery(this, m_currentFrameIndex);
+            }
+        }
     }
 
     void VulkanRHICommandBuffer::end()
@@ -74,12 +346,29 @@ namespace pnkr::renderer::rhi::vulkan
         {
             m_tracyZoneStack.pop_back();
         }
-        if (m_profilingCtx)
-        {
-            auto* ctx = static_cast<TracyContext>(m_profilingCtx);
-            PNKR_PROFILE_GPU_COLLECT(ctx, static_cast<VkCommandBuffer>(m_commandBuffer));
+        if (m_profilingCtx != nullptr) {
+          auto *ctx = static_cast<TracyContext>(m_profilingCtx);
+          PNKR_PROFILE_GPU_COLLECT(
+              ctx, static_cast<VkCommandBuffer>(m_commandBuffer));
         }
 #endif
+        if (m_queueFamilyIndex == m_device->graphicsQueueFamily() || m_queueFamilyIndex == m_device->computeQueueFamily())
+        {
+            if (auto* profiler = m_device->gpuProfiler())
+            {
+                const uint16_t remaining = profiler->openDepth(m_currentFrameIndex);
+                if (remaining > 0)
+                {
+                    core::Logger::RHI.warn("GPU profiler: {} unclosed markers at command buffer end", remaining);
+                    while (profiler->openDepth(m_currentFrameIndex) > 0)
+                    {
+                        popGPUMarker();
+                    }
+                }
+                profiler->endPipelineStatisticsQuery(this, m_currentFrameIndex);
+                profiler->updateDrawCallStatistics(m_currentFrameIndex, m_drawCallStats);
+            }
+        }
         m_commandBuffer.end();
         m_recording = false;
     }
@@ -92,53 +381,40 @@ namespace pnkr::renderer::rhi::vulkan
         m_boundPipeline = nullptr;
     }
 
-    void VulkanRHICommandBuffer::beginRendering(const RenderingInfo& info)
+    namespace
     {
-        if (m_inRendering)
+        vk::RenderingAttachmentInfo createAttachmentInfo(const RenderingAttachment& attachment, vk::ImageLayout layout)
         {
-            throw cpptrace::runtime_error("beginRendering called while already in rendering state");
-        }
-
-        // Convert to Vulkan rendering info (dynamic rendering).
-        std::vector<vk::RenderingAttachmentInfo> colorAttachments;
-        colorAttachments.reserve(info.colorAttachments.size());
-
-        for (const auto& attachment : info.colorAttachments)
-        {
-            if (attachment.texture == nullptr)
-            {
-                throw cpptrace::runtime_error("beginRendering: color attachment texture is null");
-            }
+            PNKR_ASSERT(attachment.texture != nullptr,
+                        "createAttachmentInfo: attachment texture is null. All rendering attachments must have a valid texture handle.");
 
             VkImageView rawView = VK_NULL_HANDLE;
             if (attachment.mipLevel > 0 || attachment.arrayLayer > 0)
             {
-                rawView = static_cast<VkImageView>(attachment.texture->nativeView(attachment.mipLevel, attachment.arrayLayer));
+                rawView = static_cast<VkImageView>(attachment.texture->nativeView(
+                    attachment.mipLevel, attachment.arrayLayer));
             }
             else
             {
                 rawView = static_cast<VkImageView>(attachment.texture->nativeView());
             }
 
-            if (rawView == VK_NULL_HANDLE)
-            {
-                throw cpptrace::runtime_error("beginRendering: color attachment has null nativeView()");
-            }
+            PNKR_ASSERT(rawView != VK_NULL_HANDLE, "createAttachmentInfo: attachment has null nativeView()");
 
             vk::RenderingAttachmentInfo vkAttachment{};
             vkAttachment.imageView = vk::ImageView(rawView);
-            vkAttachment.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            vkAttachment.imageLayout = layout;
             vkAttachment.loadOp = VulkanUtils::toVkLoadOp(attachment.loadOp);
             vkAttachment.storeOp = VulkanUtils::toVkStoreOp(attachment.storeOp);
             vkAttachment.clearValue = VulkanUtils::toVkClearValue(attachment.clearValue);
 
-            // Resolve
             if (attachment.resolveTexture != nullptr)
             {
                 VkImageView resolveView = VK_NULL_HANDLE;
                 if (attachment.mipLevel > 0 || attachment.arrayLayer > 0)
                 {
-                    resolveView = static_cast<VkImageView>(attachment.resolveTexture->nativeView(attachment.mipLevel, attachment.arrayLayer));
+                    resolveView = static_cast<VkImageView>(attachment.resolveTexture->nativeView(
+                        attachment.mipLevel, attachment.arrayLayer));
                 }
                 else
                 {
@@ -146,11 +422,27 @@ namespace pnkr::renderer::rhi::vulkan
                 }
 
                 vkAttachment.resolveImageView = vk::ImageView(resolveView);
-                vkAttachment.resolveImageLayout = vk::ImageLayout::eColorAttachmentOptimal;
-                vkAttachment.resolveMode = vk::ResolveModeFlagBits::eAverage;
+                vkAttachment.resolveImageLayout = layout;
+                vkAttachment.resolveMode = (layout == vk::ImageLayout::eDepthStencilAttachmentOptimal)
+                                               ? vk::ResolveModeFlagBits::eSampleZero
+                                               : vk::ResolveModeFlagBits::eAverage;
             }
 
-            colorAttachments.push_back(vkAttachment);
+            return vkAttachment;
+        }
+    }
+
+    void VulkanRHICommandBuffer::beginRendering(const RenderingInfo& info)
+    {
+        PNKR_ASSERT(!m_inRendering,
+                    "VulkanRHICommandBuffer::beginRendering: called while already in a rendering state. Nested beginRendering calls are not supported.");
+
+        std::vector<vk::RenderingAttachmentInfo> colorAttachments;
+        colorAttachments.reserve(info.colorAttachments.size());
+
+        for (const auto& attachment : info.colorAttachments)
+        {
+            colorAttachments.push_back(createAttachmentInfo(attachment, vk::ImageLayout::eColorAttachmentOptimal));
         }
 
         vk::RenderingInfo renderingInfo{};
@@ -159,49 +451,11 @@ namespace pnkr::renderer::rhi::vulkan
         renderingInfo.colorAttachmentCount = static_cast<uint32_t>(colorAttachments.size());
         renderingInfo.pColorAttachments = colorAttachments.data();
 
-        // Depth attachment
         vk::RenderingAttachmentInfo depthAttachment{};
         if ((info.depthAttachment != nullptr) && (info.depthAttachment->texture != nullptr))
         {
-            VkImageView rawView = VK_NULL_HANDLE;
-            if (info.depthAttachment->mipLevel > 0 || info.depthAttachment->arrayLayer > 0)
-            {
-                rawView = static_cast<VkImageView>(info.depthAttachment->texture->nativeView(info.depthAttachment->mipLevel, info.depthAttachment->arrayLayer));
-            }
-            else
-            {
-                rawView = static_cast<VkImageView>(info.depthAttachment->texture->nativeView());
-            }
-
-            if (rawView == VK_NULL_HANDLE)
-            {
-                throw cpptrace::runtime_error("beginRendering: depth attachment has null nativeView()");
-            }
-
-            depthAttachment.imageView = vk::ImageView(rawView);
-            depthAttachment.imageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
-            depthAttachment.loadOp = VulkanUtils::toVkLoadOp(info.depthAttachment->loadOp);
-            depthAttachment.storeOp = VulkanUtils::toVkStoreOp(info.depthAttachment->storeOp);
-            depthAttachment.clearValue = VulkanUtils::toVkClearValue(info.depthAttachment->clearValue);
-
-            // Depth Resolve
-            if (info.depthAttachment->resolveTexture != nullptr)
-            {
-                VkImageView resolveView = VK_NULL_HANDLE;
-                if (info.depthAttachment->mipLevel > 0 || info.depthAttachment->arrayLayer > 0)
-                {
-                    resolveView = static_cast<VkImageView>(info.depthAttachment->resolveTexture->nativeView(info.depthAttachment->mipLevel, info.depthAttachment->arrayLayer));
-                }
-                else
-                {
-                    resolveView = static_cast<VkImageView>(info.depthAttachment->resolveTexture->nativeView());
-                }
-
-                depthAttachment.resolveImageView = vk::ImageView(resolveView);
-                depthAttachment.resolveImageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
-                depthAttachment.resolveMode = vk::ResolveModeFlagBits::eSampleZero; // Default for depth
-            }
-
+            depthAttachment = createAttachmentInfo(*info.depthAttachment,
+                                                   vk::ImageLayout::eDepthStencilAttachmentOptimal);
             renderingInfo.pDepthAttachment = &depthAttachment;
         }
 
@@ -221,8 +475,11 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHICommandBuffer::bindPipeline(RHIPipeline* pipeline)
     {
-        auto* vkPipeline = castOrAssert<VulkanRHIPipeline>(
-            pipeline, "bindPipeline: pipeline is not Vulkan");
+        auto* vkPipeline = rhi_cast<VulkanRHIPipeline>(pipeline);
+        if (m_boundPipeline != vkPipeline)
+        {
+            m_drawCallStats.pipelineswitches++;
+        }
         m_boundPipeline = vkPipeline;
 
         vk::PipelineBindPoint bindPoint =
@@ -232,29 +489,22 @@ namespace pnkr::renderer::rhi::vulkan
 
         m_commandBuffer.bindPipeline(bindPoint, vkPipeline->pipeline());
 
-        // Long-term robustness: auto-bind the global bindless descriptor set (set=1) when present.
-        // This prevents call-site omissions and keeps bindless behavior consistent.
         RHIDescriptorSet* globalBindless = m_device->getBindlessDescriptorSet();
         if (globalBindless != nullptr)
         {
-            // set 1 is the global bindless set by ABI
             bindDescriptorSet(pipeline, 1, globalBindless);
         }
     }
 
     void VulkanRHICommandBuffer::bindVertexBuffer(uint32_t binding, RHIBuffer* buffer, uint64_t offset)
     {
-        auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
-            buffer, "bindVertexBuffer: buffer is not Vulkan");
-        m_commandBuffer.bindVertexBuffers(binding, vkBuffer->buffer(), offset);
+        m_commandBuffer.bindVertexBuffers(binding, unwrap(buffer), offset);
     }
 
     void VulkanRHICommandBuffer::bindIndexBuffer(RHIBuffer* buffer, uint64_t offset, bool use16Bit)
     {
-        auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
-            buffer, "bindIndexBuffer: buffer is not Vulkan");
         m_commandBuffer.bindIndexBuffer(
-            vkBuffer->buffer(),
+            unwrap(buffer),
             offset,
             use16Bit ? vk::IndexType::eUint16 : vk::IndexType::eUint32);
     }
@@ -262,6 +512,9 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::draw(uint32_t vertexCount, uint32_t instanceCount,
                                       uint32_t firstVertex, uint32_t firstInstance)
     {
+        m_drawCallStats.drawCalls++;
+        m_drawCallStats.verticesProcessed += vertexCount * instanceCount;
+        m_drawCallStats.instancesDrawn += instanceCount;
         m_commandBuffer.draw(vertexCount, instanceCount, firstVertex, firstInstance);
     }
 
@@ -269,16 +522,20 @@ namespace pnkr::renderer::rhi::vulkan
                                              uint32_t firstIndex, int32_t vertexOffset,
                                              uint32_t firstInstance)
     {
+        m_drawCallStats.drawCalls++;
+        m_drawCallStats.trianglesDrawn += (indexCount / 3) * instanceCount;
+        m_drawCallStats.instancesDrawn += instanceCount;
         m_commandBuffer.drawIndexed(indexCount, instanceCount, firstIndex,
                                     vertexOffset, firstInstance);
     }
 
-    void VulkanRHICommandBuffer::drawIndexedIndirect(RHIBuffer* buffer, uint64_t offset, uint32_t drawCount, uint32_t stride)
+    void VulkanRHICommandBuffer::drawIndexedIndirect(RHIBuffer* buffer, uint64_t offset, uint32_t drawCount,
+                                                     uint32_t stride)
     {
         PNKR_PROFILE_FUNCTION();
-        auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
-            buffer, "drawIndexedIndirect: buffer is not Vulkan");
-        m_commandBuffer.drawIndexedIndirect(vkBuffer->buffer(), offset, drawCount, stride);
+        m_drawCallStats.drawCalls += drawCount;
+        m_drawCallStats.drawIndirectCalls += drawCount;
+        m_commandBuffer.drawIndexedIndirect(unwrap(buffer), offset, drawCount, stride);
     }
 
     void VulkanRHICommandBuffer::drawIndexedIndirectCount(RHIBuffer* buffer, uint64_t offset,
@@ -286,72 +543,70 @@ namespace pnkr::renderer::rhi::vulkan
                                                           uint32_t maxDrawCount, uint32_t stride)
     {
         PNKR_PROFILE_FUNCTION();
-        auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
-            buffer, "drawIndexedIndirectCount: buffer is not Vulkan");
-        auto* vkCountBuffer = castOrAssert<VulkanRHIBuffer>(
-            countBuffer, "drawIndexedIndirectCount: countBuffer is not Vulkan");
-
+        m_drawCallStats.drawIndirectCalls += 1;
         m_commandBuffer.drawIndexedIndirectCount(
-            vkBuffer->buffer(), offset,
-            vkCountBuffer->buffer(), countBufferOffset,
+            unwrap(buffer), offset,
+            unwrap(countBuffer), countBufferOffset,
             maxDrawCount, stride);
     }
 
     void VulkanRHICommandBuffer::dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
     {
+        m_drawCallStats.dispatchCalls++;
         m_commandBuffer.dispatch(groupCountX, groupCountY, groupCountZ);
     }
 
-    void VulkanRHICommandBuffer::pushConstants(RHIPipeline* pipeline, ShaderStage stages,
+    void VulkanRHICommandBuffer::pushConstants(RHIPipeline* pipeline, ShaderStageFlags stages,
                                                uint32_t offset, uint32_t size, const void* data)
     {
-        auto* vkPipeline = castOrAssert<VulkanRHIPipeline>(
-            pipeline, "pushConstants: pipeline is not Vulkan");
         m_commandBuffer.pushConstants(
-            vkPipeline->pipelineLayout(),
+            unwrapLayout(pipeline),
             VulkanUtils::toVkShaderStage(stages),
             offset,
             size,
             data);
     }
 
+    void VulkanRHICommandBuffer::pushConstantsInternal(ShaderStageFlags stages,
+                                                       uint32_t offset,
+                                                       uint32_t size,
+                                                       const void* data)
+    {
+        auto* pipeline = boundPipeline();
+        PNKR_ASSERT(pipeline != nullptr,
+                    "VulkanRHICommandBuffer::pushConstantsInternal: no pipeline bound");
+        pushConstants(pipeline, stages, offset, size, data);
+    }
+
     void VulkanRHICommandBuffer::bindDescriptorSet(RHIPipeline* pipeline, uint32_t setIndex,
                                                    RHIDescriptorSet* descriptorSet)
     {
         PNKR_PROFILE_FUNCTION();
-        auto* vkPipeline = castOrAssert<VulkanRHIPipeline>(
-            pipeline, "bindDescriptorSet: pipeline is not Vulkan");
-        if (vkPipeline == nullptr)
-        {
-            throw cpptrace::runtime_error("bindDescriptorSet: pipeline is null or not a VulkanRHIPipeline");
-        }
-        if (descriptorSet == nullptr)
-        {
-            throw cpptrace::runtime_error("bindDescriptorSet: descriptorSet is null");
-        }
+        m_drawCallStats.descriptorBinds++;
+        auto* vkPipeline = rhi_cast<VulkanRHIPipeline>(pipeline);
+        PNKR_ASSERT(vkPipeline != nullptr, "bindDescriptorSet: pipeline is null or not a VulkanRHIPipeline");
+        PNKR_ASSERT(descriptorSet != nullptr,
+                    "VulkanRHICommandBuffer::bindDescriptorSet: descriptorSet is null. Cannot bind a null descriptor set to a pipeline.");
 
         const uint32_t setCount = vkPipeline->descriptorSetLayoutCount();
         if (setIndex >= setCount)
         {
-            core::Logger::error(
+            core::Logger::RHI.error(
                 "bindDescriptorSet: setIndex={} is out of range for pipeline layout (setLayoutCount={}). Skipping bind.",
                 setIndex, setCount);
             return;
         }
-
-        auto* vkSet = castOrAssert<VulkanRHIDescriptorSet>(
-            descriptorSet, "bindDescriptorSet: descriptor set is not Vulkan");
-        auto vkDescSet = vk::DescriptorSet(
-            static_cast<VkDescriptorSet>(vkSet->nativeHandle()));
 
         vk::PipelineBindPoint bindPoint =
             vkPipeline->bindPoint() == PipelineBindPoint::Graphics
                 ? vk::PipelineBindPoint::eGraphics
                 : vk::PipelineBindPoint::eCompute;
 
+        vk::DescriptorSet vkDescSet = unwrap(descriptorSet);
+
         m_commandBuffer.bindDescriptorSets(
             bindPoint,
-            vkPipeline->pipelineLayout(),
+            unwrapLayout(pipeline),
             setIndex,
             1,
             &vkDescSet,
@@ -400,188 +655,113 @@ namespace pnkr::renderer::rhi::vulkan
         m_commandBuffer.setPrimitiveTopology(VulkanUtils::toVkTopology(topology));
     }
 
-    static vk::AccessFlags2 accessForStageSrc(vk::PipelineStageFlags2 stage)
-    {
-        if (stage & vk::PipelineStageFlagBits2::eHost)
-            return vk::AccessFlagBits2::eHostWrite;
-        if (stage & vk::PipelineStageFlagBits2::eDrawIndirect)
-            return vk::AccessFlagBits2::eIndirectCommandRead;
-        if (stage & vk::PipelineStageFlagBits2::eTransfer)
-            return vk::AccessFlagBits2::eTransferWrite;
-        if (stage & vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-            return vk::AccessFlagBits2::eColorAttachmentWrite;
-        if (stage & (vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests))
-            return vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-
-        // Any shader stage: assume previous writes were shader writes (storage/SSBO/UAV style)
-        const vk::PipelineStageFlags2 shaderStages =
-            vk::PipelineStageFlagBits2::eVertexShader |
-            vk::PipelineStageFlagBits2::eFragmentShader |
-            vk::PipelineStageFlagBits2::eComputeShader |
-            vk::PipelineStageFlagBits2::eTaskShaderEXT |
-            vk::PipelineStageFlagBits2::eMeshShaderEXT |
-            vk::PipelineStageFlagBits2::eGeometryShader |
-            vk::PipelineStageFlagBits2::eTessellationControlShader |
-            vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
-
-        if (stage & shaderStages)
-            return vk::AccessFlagBits2::eShaderWrite;
-
-        return vk::AccessFlagBits2::eMemoryWrite;
-    }
-
-    static vk::AccessFlags2 accessForStageDst(vk::PipelineStageFlags2 stage)
-    {
-        if (stage & vk::PipelineStageFlagBits2::eHost)
-            return vk::AccessFlagBits2::eHostRead;
-        if (stage & vk::PipelineStageFlagBits2::eTransfer)
-            return vk::AccessFlagBits2::eTransferRead;
-        if (stage & vk::PipelineStageFlagBits2::eDrawIndirect)
-            return vk::AccessFlagBits2::eIndirectCommandRead;
-
-        const vk::PipelineStageFlags2 shaderStages =
-            vk::PipelineStageFlagBits2::eVertexShader |
-            vk::PipelineStageFlagBits2::eFragmentShader |
-            vk::PipelineStageFlagBits2::eComputeShader |
-            vk::PipelineStageFlagBits2::eTaskShaderEXT |
-            vk::PipelineStageFlagBits2::eMeshShaderEXT |
-            vk::PipelineStageFlagBits2::eGeometryShader |
-            vk::PipelineStageFlagBits2::eTessellationControlShader |
-            vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
-
-        if (stage & shaderStages)
-            return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eUniformRead;
-
-        if (stage & vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-            return vk::AccessFlagBits2::eColorAttachmentRead;
-
-        if (stage & (vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests))
-            return vk::AccessFlagBits2::eDepthStencilAttachmentRead;
-
-        return vk::AccessFlagBits2::eMemoryRead;
-    }
-
     void VulkanRHICommandBuffer::pipelineBarrier(
-        ShaderStage srcStage,
-        ShaderStage dstStage,
+        ShaderStageFlags srcStage,
+        ShaderStageFlags dstStage,
         const std::vector<RHIMemoryBarrier>& barriers)
     {
         PNKR_PROFILE_FUNCTION();
-        if (m_inRendering)
+        PNKR_ASSERT(!m_inRendering,
+                    "VulkanRHICommandBuffer::pipelineBarrier: called inside a dynamic rendering instance. This is invalid in Vulkan for most barriers. Call endRendering() first.");
+
+        const auto& caps = m_device->physicalDevice().capabilities();
+        auto sanitizeStages = [&](vk::PipelineStageFlags2 stages)
         {
-            throw cpptrace::runtime_error("pipelineBarrier() called inside a dynamic rendering instance. Call endRendering() first.");
-        }
+            if (!caps.tessellationShader)
+            {
+                stages &= ~vk::PipelineStageFlagBits2::eTessellationControlShader;
+                stages &= ~vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
+            }
+            if (!caps.geometryShader)
+            {
+                stages &= ~vk::PipelineStageFlagBits2::eGeometryShader;
+            }
+
+            if (m_queueFamilyIndex != m_device->graphicsQueueFamily() &&
+                m_queueFamilyIndex != m_device->computeQueueFamily())
+            {
+                vk::PipelineStageFlags2 validTransferStages =
+                    vk::PipelineStageFlagBits2::eTransfer |
+                    vk::PipelineStageFlagBits2::eTopOfPipe |
+                    vk::PipelineStageFlagBits2::eBottomOfPipe |
+                    vk::PipelineStageFlagBits2::eHost |
+                    vk::PipelineStageFlagBits2::eAllCommands;
+
+                stages &= validTransferStages;
+            }
+
+            return stages;
+        };
 
         auto stripHostAccessIfNoHostStage =
             [](vk::PipelineStageFlags2 stages, vk::AccessFlags2& access)
         {
             const vk::AccessFlags2 hostBits =
                 vk::AccessFlagBits2::eHostRead | vk::AccessFlagBits2::eHostWrite;
-
-            // If stages does NOT contain Host, ensure access does NOT contain Host
             if (!(stages & vk::PipelineStageFlagBits2::eHost))
             {
                 access &= ~hostBits;
             }
         };
 
+        const bool isTransferOnlyQueue = (m_queueFamilyIndex != m_device->graphicsQueueFamily() &&
+                                          m_queueFamilyIndex != m_device->computeQueueFamily());
+        auto sanitizeAccess = [isTransferOnlyQueue](vk::AccessFlags2 access)
+        {
+            if (isTransferOnlyQueue)
+            {
+                vk::AccessFlags2 validTransferAccess =
+                    vk::AccessFlagBits2::eTransferRead |
+                    vk::AccessFlagBits2::eTransferWrite |
+                    vk::AccessFlagBits2::eHostRead |
+                    vk::AccessFlagBits2::eHostWrite |
+                    vk::AccessFlagBits2::eMemoryRead |
+                    vk::AccessFlagBits2::eMemoryWrite;
+                access &= validTransferAccess;
+            }
+            return access;
+        };
+
         std::vector<vk::BufferMemoryBarrier2> bufferBarriers;
         std::vector<vk::ImageMemoryBarrier2> imageBarriers;
 
-        const vk::PipelineStageFlags2 globalSrcStageMask = VulkanUtils::toVkPipelineStage(srcStage);
-        const vk::PipelineStageFlags2 globalDstStageMask = VulkanUtils::toVkPipelineStage(dstStage);
+        bufferBarriers.reserve(barriers.size());
+        imageBarriers.reserve(barriers.size());
+
+        const vk::PipelineStageFlags2 globalSrcStageMask = sanitizeStages(VulkanUtils::toVkPipelineStage(srcStage));
+        const vk::PipelineStageFlags2 globalDstStageMask = sanitizeStages(VulkanUtils::toVkPipelineStage(dstStage));
 
         for (const auto& barrier : barriers)
         {
-            vk::PipelineStageFlags2 barrierSrcStage = (barrier.srcAccessStage != ShaderStage::None) ? VulkanUtils::toVkPipelineStage(barrier.srcAccessStage) : globalSrcStageMask;
-            vk::PipelineStageFlags2 barrierDstStage = (barrier.dstAccessStage != ShaderStage::None) ? VulkanUtils::toVkPipelineStage(barrier.dstAccessStage) : globalDstStageMask;
+            vk::PipelineStageFlags2 explicitSrcStage = (barrier.srcAccessStage != ShaderStage::None)
+                                                           ? sanitizeStages(
+                                                               VulkanUtils::toVkPipelineStage(barrier.srcAccessStage))
+                                                           : vk::PipelineStageFlags2{};
+            vk::PipelineStageFlags2 explicitDstStage = (barrier.dstAccessStage != ShaderStage::None)
+                                                           ? sanitizeStages(
+                                                               VulkanUtils::toVkPipelineStage(barrier.dstAccessStage))
+                                                           : vk::PipelineStageFlags2{};
+
+            if (barrier.srcAccessStage.has(ShaderStage::Host)) {
+              explicitSrcStage |= vk::PipelineStageFlagBits2::eHost;
+            }
+            if (barrier.dstAccessStage.has(ShaderStage::Host)) {
+              explicitDstStage |= vk::PipelineStageFlagBits2::eHost;
+            }
 
             if (barrier.buffer != nullptr)
             {
-                // Buffer barrier
-                auto* vkBuffer = castOrAssert<VulkanRHIBuffer>(
-                    barrier.buffer, "pipelineBarrier: buffer is not Vulkan");
-
-                vk::BufferMemoryBarrier2 vkBarrier{};
-
-                // Fix: Map None to Top/Bottom of pipe if used explicitly as stage for buffers
-                vkBarrier.srcStageMask = (barrierSrcStage == vk::PipelineStageFlags2{}) ? vk::PipelineStageFlagBits2::eTopOfPipe : barrierSrcStage;
-                vkBarrier.dstStageMask = (barrierDstStage == vk::PipelineStageFlags2{}) ? vk::PipelineStageFlagBits2::eBottomOfPipe : barrierDstStage;
-
-                vkBarrier.srcAccessMask = accessForStageSrc(vkBarrier.srcStageMask);
-                vkBarrier.dstAccessMask = accessForStageDst(vkBarrier.dstStageMask);
-
-                stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
-                stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);
-
-                vkBarrier.buffer = vkBuffer->buffer();
-                vkBarrier.size = VK_WHOLE_SIZE;
-
-                bufferBarriers.push_back(vkBarrier);
+                bufferBarriers.push_back(createBufferBarrier(
+                    barrier, globalSrcStageMask, globalDstStageMask, sanitizeStages, stripHostAccessIfNoHostStage));
             }
             else if (barrier.texture != nullptr)
             {
-                // Image barrier (works for both device-owned textures and swapchain images).
-                const auto rawImage = getVkImageFromRHI(barrier.texture->nativeHandle());
-                if (rawImage == VK_NULL_HANDLE)
+                auto vkBarrier = createImageBarrier(
+                    barrier, explicitSrcStage, explicitDstStage, sanitizeStages, stripHostAccessIfNoHostStage, sanitizeAccess);
+                if (vkBarrier.has_value())
                 {
-                    throw cpptrace::runtime_error("pipelineBarrier: texture has null nativeHandle()");
+                    imageBarriers.push_back(*vkBarrier);
                 }
-
-                vk::ImageMemoryBarrier2 vkBarrier{};
-                vkBarrier.oldLayout = VulkanUtils::toVkImageLayout(barrier.oldLayout);
-                vkBarrier.newLayout = VulkanUtils::toVkImageLayout(barrier.newLayout);
-
-                // Use the utility to get default Access/Stage for the layouts
-                auto [oldStage, oldAccess] = VulkanUtils::getLayoutStageAccess(vkBarrier.oldLayout);
-                auto [newStage, newAccess] = VulkanUtils::getLayoutStageAccess(vkBarrier.newLayout);
-
-                // Stage can be overridden by caller, otherwise use layout-default.
-                vkBarrier.srcStageMask = (barrierSrcStage != vk::PipelineStageFlags2{}) ? barrierSrcStage : oldStage;
-                vkBarrier.dstStageMask = (barrierDstStage != vk::PipelineStageFlags2{}) ? barrierDstStage : newStage;
-
-                // Access: If user provided a specific stage, trust their intent (or derive valid access for that stage).
-                // If no stage provided (using layout default), use layout default access.
-                if (barrierSrcStage != vk::PipelineStageFlags2{}) {
-                     vkBarrier.srcAccessMask = accessForStageSrc(vkBarrier.srcStageMask);
-                } else {
-                     vkBarrier.srcAccessMask = oldAccess;
-                }
-
-                if (barrierDstStage != vk::PipelineStageFlags2{}) {
-                     vkBarrier.dstAccessMask = accessForStageDst(vkBarrier.dstStageMask);
-                } else {
-                     vkBarrier.dstAccessMask = newAccess;
-                }
-
-                stripHostAccessIfNoHostStage(vkBarrier.srcStageMask, vkBarrier.srcAccessMask);
-                stripHostAccessIfNoHostStage(vkBarrier.dstStageMask, vkBarrier.dstAccessMask);
-
-                vkBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                vkBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                vkBarrier.image = vk::Image(rawImage);
-
-                const vk::Format fmt = VulkanUtils::toVkFormat(barrier.texture->format());
-                if (fmt == vk::Format::eD16Unorm || fmt == vk::Format::eD32Sfloat ||
-                    fmt == vk::Format::eD24UnormS8Uint || fmt == vk::Format::eD32SfloatS8Uint)
-                {
-                    vkBarrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
-                    if (fmt == vk::Format::eD24UnormS8Uint || fmt == vk::Format::eD32SfloatS8Uint)
-                    {
-                        vkBarrier.subresourceRange.aspectMask |= vk::ImageAspectFlagBits::eStencil;
-                    }
-                }
-                else
-                {
-                    vkBarrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-                }
-
-                vkBarrier.subresourceRange.baseMipLevel = barrier.texture->baseMipLevel();
-                vkBarrier.subresourceRange.levelCount = std::max(1U, barrier.texture->mipLevels());
-                vkBarrier.subresourceRange.baseArrayLayer = barrier.texture->baseArrayLayer();
-                vkBarrier.subresourceRange.layerCount = std::max(1U, barrier.texture->arrayLayers());
-
-                imageBarriers.push_back(vkBarrier);
             }
         }
 
@@ -598,34 +778,23 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::copyBuffer(RHIBuffer* src, RHIBuffer* dst,
                                             uint64_t srcOffset, uint64_t dstOffset, uint64_t size)
     {
-        auto* srcBuffer = castOrAssert<VulkanRHIBuffer>(
-            src, "copyBuffer: src is not Vulkan");
-        auto* dstBuffer = castOrAssert<VulkanRHIBuffer>(
-            dst, "copyBuffer: dst is not Vulkan");
-
         vk::BufferCopy copyRegion{};
         copyRegion.srcOffset = srcOffset;
         copyRegion.dstOffset = dstOffset;
         copyRegion.size = size;
 
-        m_commandBuffer.copyBuffer(srcBuffer->buffer(), dstBuffer->buffer(), copyRegion);
+        m_commandBuffer.copyBuffer(unwrap(src), unwrap(dst), copyRegion);
+    }
+
+    void VulkanRHICommandBuffer::fillBuffer(RHIBuffer* buffer, uint64_t offset, uint64_t size, uint32_t data)
+    {
+        m_commandBuffer.fillBuffer(unwrap(buffer), offset, size, data);
     }
 
     void VulkanRHICommandBuffer::copyBufferToTexture(RHIBuffer* src, RHITexture* dst,
                                                      const BufferTextureCopyRegion& region)
     {
-        auto* srcBuffer = castOrAssert<VulkanRHIBuffer>(
-            src, "copyBufferToTexture: src is not Vulkan");
-        if (dst == nullptr)
-        {
-            throw cpptrace::runtime_error("copyBufferToTexture: dst is null");
-        }
-
-        const auto rawImage = getVkImageFromRHI(dst->nativeHandle());
-        if (rawImage == VK_NULL_HANDLE)
-        {
-            throw cpptrace::runtime_error("copyBufferToTexture: dst has null nativeHandle()");
-        }
+        PNKR_ASSERT(dst != nullptr, "copyBufferToTexture: dst is null");
 
         vk::BufferImageCopy copyRegion{};
         copyRegion.bufferOffset = region.bufferOffset;
@@ -655,28 +824,65 @@ namespace pnkr::renderer::rhi::vulkan
         copyRegion.imageExtent = VulkanUtils::toVkExtent3D(region.textureExtent);
 
         m_commandBuffer.copyBufferToImage(
-            srcBuffer->buffer(),
-            vk::Image(rawImage),
+            unwrap(src),
+            unwrap(dst),
             vk::ImageLayout::eTransferDstOptimal,
             copyRegion
+        );
+    }
+
+    void VulkanRHICommandBuffer::copyBufferToTexture(RHIBuffer* src, RHITexture* dst,
+                                                     std::span<const rhi::BufferTextureCopyRegion> regions)
+    {
+        PNKR_ASSERT(dst != nullptr, "copyBufferToTexture: dst is null");
+
+        if (regions.empty())
+        {
+            return;
+        }
+
+        std::vector<vk::BufferImageCopy> vkRegions;
+        vkRegions.reserve(regions.size());
+
+        vk::Format fmt = VulkanUtils::toVkFormat(dst->format());
+        const vk::ImageAspectFlags aspectMask =
+        (fmt == vk::Format::eD16Unorm || fmt == vk::Format::eD32Sfloat ||
+            fmt == vk::Format::eD24UnormS8Uint || fmt == vk::Format::eD32SfloatS8Uint)
+            ? vk::ImageAspectFlagBits::eDepth
+            : vk::ImageAspectFlagBits::eColor;
+
+        for (const auto& region : regions)
+        {
+            vk::BufferImageCopy copyRegion{};
+            copyRegion.bufferOffset = region.bufferOffset;
+            copyRegion.bufferRowLength = region.bufferRowLength;
+            copyRegion.bufferImageHeight = region.bufferImageHeight;
+            copyRegion.imageSubresource.aspectMask = aspectMask;
+            copyRegion.imageSubresource.mipLevel = region.textureSubresource.mipLevel;
+            copyRegion.imageSubresource.baseArrayLayer = region.textureSubresource.arrayLayer;
+            copyRegion.imageSubresource.layerCount = 1;
+            copyRegion.imageOffset = vk::Offset3D{
+                region.textureOffset.x,
+                region.textureOffset.y,
+                region.textureOffset.z
+            };
+            copyRegion.imageExtent = VulkanUtils::toVkExtent3D(region.textureExtent);
+            vkRegions.push_back(copyRegion);
+        }
+
+        m_commandBuffer.copyBufferToImage(
+            unwrap(src),
+            unwrap(dst),
+            vk::ImageLayout::eTransferDstOptimal,
+            static_cast<uint32_t>(vkRegions.size()),
+            vkRegions.data()
         );
     }
 
     void VulkanRHICommandBuffer::copyTextureToBuffer(RHITexture* src, RHIBuffer* dst,
                                                      const BufferTextureCopyRegion& region)
     {
-        auto* dstBuffer = castOrAssert<VulkanRHIBuffer>(
-            dst, "copyTextureToBuffer: dst is not Vulkan");
-        if (src == nullptr)
-        {
-            throw cpptrace::runtime_error("copyTextureToBuffer: src is null");
-        }
-
-        const auto rawImage = getVkImageFromRHI(src->nativeHandle());
-        if (rawImage == VK_NULL_HANDLE)
-        {
-            throw cpptrace::runtime_error("copyTextureToBuffer: src has null nativeHandle()");
-        }
+        PNKR_ASSERT(src != nullptr, "copyTextureToBuffer: src is null");
 
         vk::BufferImageCopy copyRegion{};
         copyRegion.bufferOffset = region.bufferOffset;
@@ -706,9 +912,9 @@ namespace pnkr::renderer::rhi::vulkan
         copyRegion.imageExtent = VulkanUtils::toVkExtent3D(region.textureExtent);
 
         m_commandBuffer.copyImageToBuffer(
-            vk::Image(rawImage),
+            unwrap(src),
             vk::ImageLayout::eTransferSrcOptimal,
-            dstBuffer->buffer(),
+            unwrap(dst),
             copyRegion
         );
     }
@@ -716,66 +922,163 @@ namespace pnkr::renderer::rhi::vulkan
     void VulkanRHICommandBuffer::copyTexture(RHITexture* src, RHITexture* dst,
                                              const TextureCopyRegion& region)
     {
-        if (src == nullptr || dst == nullptr)
-        {
-            throw cpptrace::runtime_error("copyTexture: src or dst is null");
-        }
-
-        const auto rawSrc = getVkImageFromRHI(src->nativeHandle());
-        const auto rawDst = getVkImageFromRHI(dst->nativeHandle());
-        if (rawSrc == VK_NULL_HANDLE || rawDst == VK_NULL_HANDLE)
-        {
-            throw cpptrace::runtime_error("copyTexture: src or dst has null nativeHandle()");
-        }
+        PNKR_ASSERT(src != nullptr && dst != nullptr, "copyTexture: src or dst is null");
 
         vk::ImageCopy copyRegion{};
 
         vk::Format srcFmt = VulkanUtils::toVkFormat(src->format());
-        if (srcFmt == vk::Format::eD16Unorm || srcFmt == vk::Format::eD32Sfloat ||
-            srcFmt == vk::Format::eD24UnormS8Uint || srcFmt == vk::Format::eD32SfloatS8Uint)
-        {
-            copyRegion.srcSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
-        }
-        else
-        {
-            copyRegion.srcSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
-        }
+        copyRegion.srcSubresource.aspectMask = VulkanUtils::getImageAspectMask(srcFmt);
 
         copyRegion.srcSubresource.mipLevel = region.srcSubresource.mipLevel;
         copyRegion.srcSubresource.baseArrayLayer = region.srcSubresource.arrayLayer;
         copyRegion.srcSubresource.layerCount = 1;
 
         vk::Format dstFmt = VulkanUtils::toVkFormat(dst->format());
-        if (dstFmt == vk::Format::eD16Unorm || dstFmt == vk::Format::eD32Sfloat ||
-            dstFmt == vk::Format::eD24UnormS8Uint || dstFmt == vk::Format::eD32SfloatS8Uint)
-        {
-            copyRegion.dstSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
-        }
-        else
-        {
-            copyRegion.dstSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
-        }
+        copyRegion.dstSubresource.aspectMask = VulkanUtils::getImageAspectMask(dstFmt);
 
         copyRegion.dstSubresource.mipLevel = region.dstSubresource.mipLevel;
         copyRegion.dstSubresource.baseArrayLayer = region.dstSubresource.arrayLayer;
         copyRegion.dstSubresource.layerCount = 1;
 
-        copyRegion.srcOffset = vk::Offset3D{region.srcOffset.x, region.srcOffset.y, region.srcOffset.z};
-        copyRegion.dstOffset = vk::Offset3D{region.dstOffset.x, region.dstOffset.y, region.dstOffset.z};
+        copyRegion.srcOffset = vk::Offset3D{region.srcOffset().x, region.srcOffset().y, region.srcOffset().z};
+        copyRegion.dstOffset = vk::Offset3D{region.dstOffset().x, region.dstOffset().y, region.dstOffset().z};
         copyRegion.extent = VulkanUtils::toVkExtent3D(region.extent);
 
         m_commandBuffer.copyImage(
-            vk::Image(rawSrc),
+            unwrap(src),
             vk::ImageLayout::eTransferSrcOptimal,
-            vk::Image(rawDst),
+            unwrap(dst),
             vk::ImageLayout::eTransferDstOptimal,
             copyRegion
         );
     }
 
+    void VulkanRHICommandBuffer::resolveTexture(RHITexture* src, ResourceLayout srcLayout,
+                                                RHITexture* dst, ResourceLayout dstLayout,
+                                                const TextureCopyRegion& region)
+    {
+        auto* vkSrc = rhi_cast<VulkanRHITexture>(src);
+        auto* vkDst = rhi_cast<VulkanRHITexture>(dst);
+
+        vk::ImageResolve resolveRegion{};
+        resolveRegion.srcSubresource.aspectMask = VulkanUtils::rhiToVkTextureAspectFlags(vkSrc->format());
+        resolveRegion.srcSubresource.mipLevel = region.srcSubresource.mipLevel;
+        resolveRegion.srcSubresource.baseArrayLayer = region.srcSubresource.arrayLayer;
+        resolveRegion.srcSubresource.layerCount = 1;
+
+        resolveRegion.dstSubresource.aspectMask = VulkanUtils::rhiToVkTextureAspectFlags(vkDst->format());
+        resolveRegion.dstSubresource.mipLevel = region.dstSubresource.mipLevel;
+        resolveRegion.dstSubresource.baseArrayLayer = region.dstSubresource.arrayLayer;
+        resolveRegion.dstSubresource.layerCount = 1;
+
+        // For vkCmdResolveImage, srcOffset and dstOffset are typically {0,0,0} if resolving a full subresource.
+        resolveRegion.srcOffset = vk::Offset3D{0, 0, 0};
+        resolveRegion.dstOffset = vk::Offset3D{0, 0, 0};
+        resolveRegion.extent = VulkanUtils::toVkExtent3D(region.extent);
+
+        m_commandBuffer.resolveImage(
+            vkSrc->image(), VulkanUtils::toVkImageLayout(srcLayout),
+            vkDst->image(), VulkanUtils::toVkImageLayout(dstLayout),
+            1, &resolveRegion);
+    }
+
+    void VulkanRHICommandBuffer::blitTexture(RHITexture* src, RHITexture* dst,
+                                             const TextureBlitRegion& region, Filter filter)
+    {
+        PNKR_ASSERT(src != nullptr && dst != nullptr, "blitTexture: src or dst is null");
+
+        vk::ImageBlit blitRegion{};
+
+        vk::Format srcFmt = VulkanUtils::toVkFormat(src->format());
+        blitRegion.srcSubresource.aspectMask = VulkanUtils::getImageAspectMask(srcFmt);
+        blitRegion.srcSubresource.mipLevel = region.srcSubresource.mipLevel;
+        blitRegion.srcSubresource.baseArrayLayer = region.srcSubresource.arrayLayer;
+        blitRegion.srcSubresource.layerCount = 1;
+
+        blitRegion.srcOffsets[0] = vk::Offset3D{region.srcOffsets[0].x, region.srcOffsets[0].y, region.srcOffsets[0].z};
+        blitRegion.srcOffsets[1] = vk::Offset3D{region.srcOffsets[1].x, region.srcOffsets[1].y, region.srcOffsets[1].z};
+
+        vk::Format dstFmt = VulkanUtils::toVkFormat(dst->format());
+        blitRegion.dstSubresource.aspectMask = VulkanUtils::getImageAspectMask(dstFmt);
+        blitRegion.dstSubresource.mipLevel = region.dstSubresource.mipLevel;
+        blitRegion.dstSubresource.baseArrayLayer = region.dstSubresource.arrayLayer;
+        blitRegion.dstSubresource.layerCount = 1;
+
+        blitRegion.dstOffsets[0] = vk::Offset3D{region.dstOffsets[0].x, region.dstOffsets[0].y, region.dstOffsets[0].z};
+        blitRegion.dstOffsets[1] = vk::Offset3D{region.dstOffsets[1].x, region.dstOffsets[1].y, region.dstOffsets[1].z};
+
+        m_commandBuffer.blitImage(
+            unwrap(src), vk::ImageLayout::eTransferSrcOptimal,
+            unwrap(dst), vk::ImageLayout::eTransferDstOptimal,
+            {blitRegion},
+            VulkanUtils::toVkFilter(filter)
+        );
+    }
+
+    void VulkanRHICommandBuffer::clearImage(RHITexture* texture,
+                                            const ClearValue& clearValue,
+                                            ResourceLayout layout)
+    {
+        PNKR_ASSERT(texture != nullptr, "clearImage: texture is null");
+
+        const vk::Format vkFormat = VulkanUtils::toVkFormat(texture->format());
+        const vk::ImageAspectFlags aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
+
+        vk::ImageSubresourceRange range{};
+        range.aspectMask = aspectMask;
+        range.baseMipLevel = texture->baseMipLevel();
+        range.levelCount = texture->mipLevels();
+        range.baseArrayLayer = texture->baseArrayLayer();
+        range.layerCount = texture->arrayLayers();
+
+        const vk::ImageLayout vkLayout = VulkanUtils::toVkImageLayout(layout);
+        if (clearValue.isDepthStencil)
+        {
+            vk::ClearDepthStencilValue depthStencil{};
+            depthStencil.depth = clearValue.depthStencil.depth;
+            depthStencil.stencil = clearValue.depthStencil.stencil;
+            m_commandBuffer.clearDepthStencilImage(unwrap(texture), vkLayout, &depthStencil, 1, &range);
+        }
+        else
+        {
+            vk::ClearColorValue color{};
+            bool isUint = (vkFormat == vk::Format::eR32Uint || vkFormat == vk::Format::eR32G32Uint ||
+                vkFormat == vk::Format::eR32G32B32Uint || vkFormat == vk::Format::eR32G32B32A32Uint ||
+                vkFormat == vk::Format::eR8Uint || vkFormat == vk::Format::eR8G8Uint ||
+                vkFormat == vk::Format::eR8G8B8Uint || vkFormat == vk::Format::eR8G8B8A8Uint);
+
+            bool isSint = (vkFormat == vk::Format::eR32Sint || vkFormat == vk::Format::eR32G32Sint ||
+                vkFormat == vk::Format::eR32G32B32Sint || vkFormat == vk::Format::eR32G32B32A32Sint);
+
+            if (isUint)
+            {
+                color.uint32[0] = clearValue.color.uint32[0];
+                color.uint32[1] = clearValue.color.uint32[1];
+                color.uint32[2] = clearValue.color.uint32[2];
+                color.uint32[3] = clearValue.color.uint32[3];
+            }
+            else if (isSint)
+            {
+                color.int32[0] = clearValue.color.int32[0];
+                color.int32[1] = clearValue.color.int32[1];
+                color.int32[2] = clearValue.color.int32[2];
+                color.int32[3] = clearValue.color.int32[3];
+            }
+            else
+            {
+                color.float32[0] = clearValue.color.float32[0];
+                color.float32[1] = clearValue.color.float32[1];
+                color.float32[2] = clearValue.color.float32[2];
+                color.float32[3] = clearValue.color.float32[3];
+            }
+            m_commandBuffer.clearColorImage(unwrap(texture), vkLayout, &color, 1, &range);
+        }
+    }
+
     void VulkanRHICommandBuffer::beginDebugLabel(const char* name, float r, float g, float b, float a)
     {
-        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginDebugUtilsLabelEXT) {
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginDebugUtilsLabelEXT)
+        {
             vk::DebugUtilsLabelEXT labelInfo;
             labelInfo.pLabelName = name;
             labelInfo.color[0] = r;
@@ -786,29 +1089,22 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
 #ifdef TRACY_ENABLE
-        if (m_profilingCtx && name)
-        {
-            auto* ctx = static_cast<TracyContext>(m_profilingCtx);
-            const char* file = __FILE__;
-            const char* func = "RHICommandBuffer::DebugLabel";
-            m_tracyZoneStack.emplace_back(std::make_unique<tracy::VkCtxScope>(
-                ctx,
-                static_cast<uint32_t>(__LINE__),
-                file,
-                std::strlen(file),
-                func,
-                std::strlen(func),
-                name,
-                std::strlen(name),
-                static_cast<VkCommandBuffer>(m_commandBuffer),
-                true));
+        if ((m_profilingCtx != nullptr) && (name != nullptr)) {
+          auto *ctx = static_cast<TracyVkCtx>(m_profilingCtx);
+          const char *file = __FILE__;
+          const char *func = "RHICommandBuffer::DebugLabel";
+          m_tracyZoneStack.emplace_back(std::make_unique<tracy::VkCtxScope>(
+              ctx, static_cast<uint32_t>(__LINE__), file, std::strlen(file),
+              func, std::strlen(func), name, std::strlen(name),
+              static_cast<VkCommandBuffer>(m_commandBuffer), true));
         }
 #endif
     }
 
     void VulkanRHICommandBuffer::endDebugLabel()
     {
-        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdEndDebugUtilsLabelEXT) {
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdEndDebugUtilsLabelEXT)
+        {
             m_commandBuffer.endDebugUtilsLabelEXT();
         }
 
@@ -822,7 +1118,8 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHICommandBuffer::insertDebugLabel(const char* name, float r, float g, float b, float a)
     {
-        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdInsertDebugUtilsLabelEXT) {
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdInsertDebugUtilsLabelEXT)
+        {
             vk::DebugUtilsLabelEXT labelInfo;
             labelInfo.pLabelName = name;
             labelInfo.color[0] = r;
@@ -833,24 +1130,78 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
 #ifdef TRACY_ENABLE
-        if (m_profilingCtx && name)
-        {
-            auto* ctx = static_cast<TracyContext>(m_profilingCtx);
-            const char* file = __FILE__;
-            const char* func = "RHICommandBuffer::InsertDebugLabel";
-            tracy::VkCtxScope zone(
-                ctx,
-                static_cast<uint32_t>(__LINE__),
-                file,
-                std::strlen(file),
-                func,
-                std::strlen(func),
-                name,
-                std::strlen(name),
-                static_cast<VkCommandBuffer>(m_commandBuffer),
-                true);
+        if ((m_profilingCtx != nullptr) && (name != nullptr)) {
+          auto *ctx = static_cast<TracyVkCtx>(m_profilingCtx);
+          const char *file = __FILE__;
+          const char *func = "RHICommandBuffer::InsertDebugLabel";
+          tracy::VkCtxScope zone(
+              ctx, static_cast<uint32_t>(__LINE__), file, std::strlen(file),
+              func, std::strlen(func), name, std::strlen(name),
+              static_cast<VkCommandBuffer>(m_commandBuffer), true);
         }
 #endif
     }
-} // namespace pnkr::renderer::rhi::vulkan
+
+    void VulkanRHICommandBuffer::setCheckpoint(const char* name)
+    {
+        m_device->setCheckpoint(m_commandBuffer, name);
+    }
+
+    void VulkanRHICommandBuffer::pushGPUMarker(const char* name)
+    {
+        auto* profiler = m_device->gpuProfiler();
+        if (profiler == nullptr) {
+          return;
+        }
+
+        const uint16_t parentIndex = m_markerStack.empty() ? 0xFFFFU : (uint16_t)m_markerStack.back();
+        const uint16_t depth = (uint16_t)m_markerStack.size();
+
+        auto* query = profiler->pushQuery(m_currentFrameIndex, name, parentIndex, depth);
+        if (query != nullptr) {
+          uint16_t queryIndex = static_cast<uint16_t>(query->startQueryIndex / 2);
+          m_markerStack.push_back(queryIndex);
+
+          PNKR_ASSERT(query->startQueryIndex <
+                          profiler->getQueriesPerFrame() * 2,
+                      "Out of bounds GPU query index");
+          auto *queryPoolHandle =
+              profiler->getQueryPoolHandle(m_currentFrameIndex);
+          auto *vkQueryPool = static_cast<VkQueryPool>(queryPoolHandle);
+
+          m_commandBuffer.writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe,
+                                         vk::QueryPool(vkQueryPool),
+                                         query->startQueryIndex);
+        }
+    }
+
+    void VulkanRHICommandBuffer::popGPUMarker()
+    {
+        auto* profiler = m_device->gpuProfiler();
+        if (profiler == nullptr) {
+          return;
+        }
+
+        if (m_markerStack.empty()) {
+            core::Logger::RHI.warn("VulkanRHICommandBuffer::popGPUMarker: Stack is empty, unbalanced pop!");
+            return;
+        }
+
+        uint32_t queryIndex = m_markerStack.back();
+        m_markerStack.pop_back();
+
+        auto* query = profiler->getQuery(m_currentFrameIndex, (uint16_t)queryIndex);
+        if (query != nullptr) {
+          PNKR_ASSERT(query->endQueryIndex < profiler->getQueriesPerFrame() * 2,
+                      "Out of bounds GPU query index");
+          auto *queryPoolHandle =
+              profiler->getQueryPoolHandle(m_currentFrameIndex);
+          auto *vkQueryPool = static_cast<VkQueryPool>(queryPoolHandle);
+
+          m_commandBuffer.writeTimestamp(
+              vk::PipelineStageFlagBits::eBottomOfPipe,
+              vk::QueryPool(vkQueryPool), query->endQueryIndex);
+        }
+    }
+}
 

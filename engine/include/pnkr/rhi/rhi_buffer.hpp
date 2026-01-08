@@ -2,44 +2,56 @@
 
 #include "rhi_types.hpp"
 #include <cstdint>
+#include <string>
+#include <span>
+#include <cstddef>
 
 namespace pnkr::renderer::rhi
 {
     struct BufferDescriptor
     {
         uint64_t size = 0;
-        BufferUsage usage = BufferUsage::None;
+        BufferUsageFlags usage = BufferUsage::None;
         MemoryUsage memoryUsage = MemoryUsage::GPUOnly;
-        const void* data = nullptr; // Optional initial data
-        const char* debugName = nullptr;
+        const void* data = nullptr;
+        std::string debugName;
     };
 
     class RHIBuffer
     {
     public:
+        RHIBuffer() = default;
         virtual ~RHIBuffer() = default;
 
-        // Map/unmap for CPU access
-        virtual void* map() = 0;
+        RHIBuffer(const RHIBuffer&) = delete;
+        RHIBuffer& operator=(const RHIBuffer&) = delete;
+
+        RHIBuffer(RHIBuffer&&) noexcept = default;
+        RHIBuffer& operator=(RHIBuffer&&) noexcept = default;
+
+        virtual std::byte* map() = 0;
         virtual void unmap() = 0;
+        virtual void flush(uint64_t offset, uint64_t size) = 0;
+        virtual void invalidate(uint64_t offset, uint64_t size) = 0;
 
-        // Upload data (convenience for map/memcpy/unmap)
-        virtual void uploadData(const void* data, uint64_t size, uint64_t offset = 0) = 0;
+        virtual void uploadData(std::span<const std::byte> data, uint64_t offset = 0) = 0;
 
-        // Getters
         virtual uint64_t size() const = 0;
-        virtual BufferUsage usage() const = 0;
+        virtual BufferUsageFlags usage() const = 0;
         virtual MemoryUsage memoryUsage() const = 0;
 
-        // Backend-specific handle (for interop)
         virtual void* nativeHandle() const = 0;
         virtual uint64_t getDeviceAddress() const = 0;
 
-        void setBindlessHandle(BindlessHandle handle) { m_bindlessHandle = handle; }
-        BindlessHandle getBindlessHandle() const { return m_bindlessHandle; }
+        void setBindlessHandle(BufferBindlessHandle handle) { m_bindlessHandle = handle; }
+        BufferBindlessHandle getBindlessHandle() const { return m_bindlessHandle; }
+
+        void setDebugName(std::string name) { m_debugName = std::move(name); }
+        const std::string& debugName() const { return m_debugName; }
 
     protected:
-        BindlessHandle m_bindlessHandle;
+        BufferBindlessHandle m_bindlessHandle;
+        std::string m_debugName;
     };
 
-} // namespace pnkr::renderer::rhi
+}

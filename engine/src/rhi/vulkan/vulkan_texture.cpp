@@ -1,153 +1,145 @@
-#include "pnkr/rhi/vulkan/vulkan_texture.hpp"
+#include "rhi/vulkan/vulkan_texture.hpp"
 
-#include "pnkr/rhi/vulkan/vulkan_device.hpp"
-#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
+#include "rhi/vulkan/vulkan_device.hpp"
+#include "rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
 #include "pnkr/rhi/rhi_buffer.hpp"
-#include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
+#include "rhi/vulkan/vulkan_command_buffer.hpp"
+#include "vulkan_cast.hpp"
+#include "pnkr/rhi/BindlessManager.hpp"
 #include <cpptrace/cpptrace.hpp>
 
 using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
-    namespace
-    {
-        template <typename To, typename From>
-        To* castOrAssert(From* ptr, const char* message)
-        {
-#ifdef DEBUG
-            auto* out = dynamic_cast<To*>(ptr);
-            PNKR_ASSERT(out != nullptr, message);
-            return out;
-#else
-            (void)message;
-            return static_cast<To*>(ptr);
-#endif
-        }
+VulkanRHITexture::VulkanRHITexture(VulkanRHIDevice *device,
+                                   const TextureDescriptor &desc)
+    : VulkanRHIResourceBase(device), m_extent(desc.extent),
+      m_format(desc.format), m_usage(desc.usage), m_mipLevels(desc.mipLevels),
+      m_arrayLayers(desc.arrayLayers), m_sampleCount(desc.sampleCount)
+
+{
+  m_type = desc.type;
+  setDebugName(desc.debugName);
+  createImage(desc);
+  createImageView(desc);
+}
+
+VulkanRHITexture::VulkanRHITexture(VulkanRHIDevice *device,
+                                   VulkanRHITexture *parent,
+                                   const TextureViewDescriptor &desc)
+    : VulkanRHIResourceBase(device), m_usage(parent->usage()),
+      m_sampleCount(parent->sampleCount()), m_ownsImage(false),
+      m_baseMipLevel(parent->baseMipLevel() + desc.mipLevel),
+      m_baseArrayLayer(parent->baseArrayLayer() + desc.arrayLayer),
+      m_currentLayout(parent->currentLayout()) {
+  m_handle = parent->image();
+  m_type = TextureType::Texture2D;
+  if (parent != nullptr) {
+    std::string viewName = parent->debugName();
+    if (!viewName.empty()) {
+      viewName += "/view";
     }
+    setDebugName(std::move(viewName));
+  }
+  setMemorySize(0);
 
-    VulkanRHITexture::VulkanRHITexture(VulkanRHIDevice* device, const TextureDescriptor& desc)
-        : m_device(device)
-          , m_extent(desc.extent)
-          , m_format(desc.format)
-          , m_usage(desc.usage)
-          , m_type(desc.type)
-          , m_mipLevels(desc.mipLevels)
-          , m_arrayLayers(desc.arrayLayers)
-          , m_ownsImage(true)
-          , m_baseMipLevel(0)
-          , m_baseArrayLayer(0)
-    {
-        createImage(desc);
-        createImageView(desc);
-    }
+  Extent3D parentExtent = parent->extent();
 
-        VulkanRHITexture::VulkanRHITexture(VulkanRHIDevice* device, VulkanRHITexture* parent, const TextureViewDescriptor& desc)
+  m_extent.width = std::max(1U, parentExtent.width >> desc.mipLevel);
+  m_extent.height = std::max(1U, parentExtent.height >> desc.mipLevel);
+  m_extent.depth = std::max(1U, parentExtent.depth >> desc.mipLevel);
 
-            : m_device(device)
+  m_format =
+      (desc.format != Format::Undefined) ? desc.format : parent->format();
+  m_mipLevels = desc.mipCount;
+  m_arrayLayers = desc.layerCount;
 
-            , m_image(parent->image())
-
-            , m_allocation(nullptr)
-
-            , m_usage(parent->usage())
-
-            , m_type(TextureType::Texture2D)
-
-            , m_ownsImage(false)
-
-            , m_baseMipLevel(parent->baseMipLevel() + desc.mipLevel)
-
-            , m_baseArrayLayer(parent->baseArrayLayer() + desc.arrayLayer)
-
-            , m_currentLayout(parent->currentLayout())
-
-        {
-
-    
-                  Extent3D parentExtent = parent->extent();
-          
-        m_extent.width = std::max(1u, parentExtent.width >> desc.mipLevel);
-        m_extent.height = std::max(1u, parentExtent.height >> desc.mipLevel);
-        m_extent.depth = std::max(1u, parentExtent.depth >> desc.mipLevel);
-
-        m_format = (desc.format != Format::Undefined) ? desc.format : parent->format();
-        m_mipLevels = desc.mipCount;
-        m_arrayLayers = desc.layerCount;
-
-        createImageView(desc);
-    }
+  createImageView(desc);
+}
 
     VulkanRHITexture::~VulkanRHITexture()
     {
-        if (m_bindlessHandle.isValid())
-        {
-            if (static_cast<bool>(m_usage & TextureUsage::Storage))
-            {
-                m_device->releaseBindlessStorageImage(m_bindlessHandle);
+      auto *device = m_device;
+      auto bindlessHandle = m_bindlessHandle;
+      auto storageImageHandle = m_storageImageHandle;
+      auto type = m_type;
+      auto subresourceViews = std::move(m_subresourceViews);
+      auto imageView = m_imageView;
+      auto image = m_handle;
+      auto *allocation = m_allocation;
+      bool ownsImage = m_ownsImage;
+
+      device->enqueueDeletion([=,
+                               views = std::move(subresourceViews)]() mutable {
+        if (auto *bindless = device->getBindlessManager()) {
+          if (storageImageHandle.isValid()) {
+            bindless->releaseStorageImage(storageImageHandle);
+          }
+          if (bindlessHandle.isValid()) {
+            if (bindlessHandle.index() == 9) {
+              core::Logger::Render.warn("[DESTRUCTOR DEBUG] ~VulkanRHITexture "
+                                        "releasing bindless index 9!");
             }
-            else if (m_type == TextureType::TextureCube)
-            {
-                m_device->releaseBindlessCubemap(m_bindlessHandle);
+            if (type == TextureType::TextureCube) {
+              bindless->releaseCubemap(bindlessHandle);
+            } else {
+              bindless->releaseTexture(bindlessHandle);
             }
-            else
-            {
-                m_device->releaseBindlessTexture(m_bindlessHandle);
-            }
+          }
         }
 
-        for (auto& [key, view] : m_subresourceViews)
-        {
-            m_device->device().destroyImageView(view);
+        for (auto &[key, view] : views) {
+          device->untrackObject(u64(static_cast<VkImageView>(view)));
+          device->device().destroyImageView(view);
         }
-        m_subresourceViews.clear();
+        views.clear();
 
-        if (m_imageView)
-        {
-            m_device->device().destroyImageView(m_imageView);
+        if (imageView) {
+          device->untrackObject(u64(static_cast<VkImageView>(imageView)));
+          device->device().destroyImageView(imageView);
         }
 
-        if (m_ownsImage && m_image)
-        {
-            vmaDestroyImage(m_device->allocator(),
-                            m_image,
-                            m_allocation);
+        if (ownsImage && image) {
+          device->untrackObject(u64(static_cast<VkImage>(image)));
+          vmaDestroyImage(device->allocator(), image, allocation);
         }
+      });
     }
 
-    void VulkanRHITexture::createImage(const TextureDescriptor& desc)
-    {
-        vk::ImageCreateInfo imageInfo{};
+void VulkanRHITexture::createImage(const TextureDescriptor& desc)
+{
+        auto imageInfoBuilder = VkBuilder<vk::ImageCreateInfo>{}
+            .set(&vk::ImageCreateInfo::extent, VulkanUtils::toVkExtent3D(desc.extent))
+            .set(&vk::ImageCreateInfo::mipLevels, desc.mipLevels)
+            .set(&vk::ImageCreateInfo::arrayLayers, desc.arrayLayers)
+            .set(&vk::ImageCreateInfo::format, VulkanUtils::toVkFormat(desc.format))
+            .set(&vk::ImageCreateInfo::tiling, vk::ImageTiling::eOptimal)
+            .set(&vk::ImageCreateInfo::initialLayout, vk::ImageLayout::eUndefined)
+            .set(&vk::ImageCreateInfo::usage, VulkanUtils::toVkImageUsage(desc.usage))
+            .set(&vk::ImageCreateInfo::samples, VulkanUtils::toVkSampleCount(desc.sampleCount))
+            .set(&vk::ImageCreateInfo::sharingMode, vk::SharingMode::eExclusive);
 
-        // Image type
         switch (desc.type)
         {
         case TextureType::Texture1D:
-            imageInfo.imageType = vk::ImageType::e1D;
+            imageInfoBuilder.set(&vk::ImageCreateInfo::imageType, vk::ImageType::e1D);
             break;
         case TextureType::Texture2D:
-            imageInfo.imageType = vk::ImageType::e2D;
+            imageInfoBuilder.set(&vk::ImageCreateInfo::imageType, vk::ImageType::e2D);
             break;
         case TextureType::Texture3D:
-            imageInfo.imageType = vk::ImageType::e3D;
+            imageInfoBuilder.set(&vk::ImageCreateInfo::imageType, vk::ImageType::e3D);
             break;
         case TextureType::TextureCube:
-            imageInfo.imageType = vk::ImageType::e2D;
-            imageInfo.flags = vk::ImageCreateFlagBits::eCubeCompatible;
+            imageInfoBuilder.set(&vk::ImageCreateInfo::imageType, vk::ImageType::e2D);
+            imageInfoBuilder.set(&vk::ImageCreateInfo::flags, vk::ImageCreateFlagBits::eCubeCompatible);
             break;
         }
 
-        imageInfo.extent = VulkanUtils::toVkExtent3D(desc.extent);
-        imageInfo.mipLevels = desc.mipLevels;
-        imageInfo.arrayLayers = desc.arrayLayers;
-        imageInfo.format = VulkanUtils::toVkFormat(desc.format);
-        imageInfo.tiling = vk::ImageTiling::eOptimal;
-        imageInfo.initialLayout = vk::ImageLayout::eUndefined;
-        imageInfo.usage = VulkanUtils::toVkImageUsage(desc.usage);
-        imageInfo.samples = VulkanUtils::toVkSampleCount(desc.sampleCount);
-        imageInfo.sharingMode = vk::SharingMode::eExclusive;
+        const auto& imageInfo = imageInfoBuilder.build();
 
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VulkanUtils::toVmaMemoryUsage(desc.memoryUsage);
@@ -159,107 +151,88 @@ namespace pnkr::renderer::rhi::vulkan
             vmaCreateImage(m_device->allocator(), &cImageInfo, &allocInfo,
                            &cImage, &m_allocation, nullptr));
 
-        // FIX: Fallback if Lazy Allocation is not supported
         if (result == vk::Result::eErrorFeatureNotPresent && desc.memoryUsage == MemoryUsage::GPULazy)
         {
-            pnkr::core::Logger::warn("Lazy allocation not supported for texture '{}'. Falling back to GPU-only memory.", 
-                desc.debugName ? desc.debugName : "Unnamed");
+            core::Logger::RHI.warn("Lazy allocation not supported for texture '{}'. Falling back to GPU-only memory.",
+                !desc.debugName.empty() ? desc.debugName : "Unnamed");
 
-            // Fallback settings
             allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-            allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT; // Standard VRAM
+            allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-            // Retry
             result = static_cast<vk::Result>(
                 vmaCreateImage(m_device->allocator(), &cImageInfo, &allocInfo,
                                &cImage, &m_allocation, nullptr));
         }
 
-        if (result != vk::Result::eSuccess)
+        (void)VulkanUtils::checkVkResult(result, "create image");
+
+        m_handle = cImage;
+        VmaAllocationInfo allocInfo2{};
+        vmaGetAllocationInfo(m_device->allocator(), m_allocation, &allocInfo2);
+        setMemorySize(allocInfo2.size);
+
+        if (!desc.debugName.empty())
         {
-            core::Logger::error("Failed to create texture: {}", vk::to_string(result));
-            throw cpptrace::runtime_error("Texture creation failed");
+            VulkanUtils::setDebugName(m_device->device(), vk::ObjectType::eImage, u64((VkImage)m_handle), desc.debugName);
         }
-
-        m_image = cImage;
-
-        // Set debug name if provided
-        if (desc.debugName != nullptr &&
-            VULKAN_HPP_DEFAULT_DISPATCHER.vkSetDebugUtilsObjectNameEXT != nullptr)
-        {
-            vk::DebugUtilsObjectNameInfoEXT nameInfo{};
-            nameInfo.objectType = vk::ObjectType::eImage;
-            nameInfo.objectHandle = u64((VkImage)m_image);
-            nameInfo.pObjectName = desc.debugName;
-
-            m_device->device().setDebugUtilsObjectNameEXT(nameInfo);
-        }
+        m_device->trackObject(vk::ObjectType::eImage,
+                              u64(static_cast<VkImage>(m_handle)),
+                              desc.debugName);
     }
 
     void VulkanRHITexture::createImageView(const TextureDescriptor& desc)
     {
-        vk::ImageViewCreateInfo viewInfo{};
-        viewInfo.image = m_image;
+        auto viewInfoBuilder = VkBuilder<vk::ImageViewCreateInfo>{}
+            .set(&vk::ImageViewCreateInfo::image, m_handle)
+            .set(&vk::ImageViewCreateInfo::format, VulkanUtils::toVkFormat(desc.format));
 
-        // View type
         switch (desc.type)
         {
         case TextureType::Texture1D:
-            viewInfo.viewType = desc.arrayLayers > 1 ? vk::ImageViewType::e1DArray : vk::ImageViewType::e1D;
+            viewInfoBuilder.set(&vk::ImageViewCreateInfo::viewType, desc.arrayLayers > 1 ? vk::ImageViewType::e1DArray : vk::ImageViewType::e1D);
             break;
         case TextureType::Texture2D:
-            viewInfo.viewType = desc.arrayLayers > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D;
+            viewInfoBuilder.set(&vk::ImageViewCreateInfo::viewType, desc.arrayLayers > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D);
             break;
         case TextureType::Texture3D:
-            viewInfo.viewType = vk::ImageViewType::e3D;
+            viewInfoBuilder.set(&vk::ImageViewCreateInfo::viewType, vk::ImageViewType::e3D);
             break;
         case TextureType::TextureCube:
-            viewInfo.viewType = desc.arrayLayers > 6 ? vk::ImageViewType::eCubeArray : vk::ImageViewType::eCube;
+            viewInfoBuilder.set(&vk::ImageViewCreateInfo::viewType, desc.arrayLayers > 6 ? vk::ImageViewType::eCubeArray : vk::ImageViewType::eCube);
             break;
         }
 
-        viewInfo.format = VulkanUtils::toVkFormat(desc.format);
-
-        // Component mapping (identity)
+        vk::ImageViewCreateInfo viewInfo = viewInfoBuilder.build();
         viewInfo.components.r = vk::ComponentSwizzle::eIdentity;
         viewInfo.components.g = vk::ComponentSwizzle::eIdentity;
         viewInfo.components.b = vk::ComponentSwizzle::eIdentity;
         viewInfo.components.a = vk::ComponentSwizzle::eIdentity;
 
-        // Subresource range
         viewInfo.subresourceRange.baseMipLevel = 0;
         viewInfo.subresourceRange.levelCount = desc.mipLevels;
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = desc.arrayLayers;
 
-        // Aspect mask
         vk::Format vkFormat = VulkanUtils::toVkFormat(desc.format);
-        if (vkFormat == vk::Format::eD16Unorm ||
-            vkFormat == vk::Format::eD32Sfloat ||
-            vkFormat == vk::Format::eD24UnormS8Uint ||
-            vkFormat == vk::Format::eD32SfloatS8Uint)
-        {
-            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
-            if (vkFormat == vk::Format::eD24UnormS8Uint ||
-                vkFormat == vk::Format::eD32SfloatS8Uint)
-            {
-                viewInfo.subresourceRange.aspectMask |= vk::ImageAspectFlagBits::eStencil;
-            }
-        }
-        else
-        {
-            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        }
+        viewInfo.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
 
         m_imageView = m_device->device().createImageView(viewInfo);
+        std::string viewName = desc.debugName;
+        if (!viewName.empty()) {
+            viewName += "/view";
+        }
+        m_device->trackObject(vk::ObjectType::eImageView,
+                              u64(static_cast<VkImageView>(m_imageView)),
+                              viewName);
     }
 
     void VulkanRHITexture::createImageView(const TextureViewDescriptor& desc)
     {
-        vk::ImageViewCreateInfo viewInfo{};
-        viewInfo.image = m_image;
-        viewInfo.viewType = desc.layerCount > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D;
-        viewInfo.format = VulkanUtils::toVkFormat(m_format);
+        vk::ImageViewCreateInfo viewInfo = VkBuilder<vk::ImageViewCreateInfo>{}
+            .set(&vk::ImageViewCreateInfo::image, m_handle)
+            .set(&vk::ImageViewCreateInfo::viewType, desc.layerCount > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D)
+            .set(&vk::ImageViewCreateInfo::format, VulkanUtils::toVkFormat(m_format))
+            .build();
 
         viewInfo.components.r = vk::ComponentSwizzle::eIdentity;
         viewInfo.components.g = vk::ComponentSwizzle::eIdentity;
@@ -272,76 +245,50 @@ namespace pnkr::renderer::rhi::vulkan
         viewInfo.subresourceRange.layerCount = desc.layerCount;
 
         vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
-        if (vkFormat == vk::Format::eD16Unorm ||
-            vkFormat == vk::Format::eD32Sfloat ||
-            vkFormat == vk::Format::eD24UnormS8Uint ||
-            vkFormat == vk::Format::eD32SfloatS8Uint)
-        {
-            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
-            if (vkFormat == vk::Format::eD24UnormS8Uint ||
-                vkFormat == vk::Format::eD32SfloatS8Uint)
-            {
-                viewInfo.subresourceRange.aspectMask |= vk::ImageAspectFlagBits::eStencil;
-            }
-        }
-        else
-        {
-            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        }
+        viewInfo.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
 
         m_imageView = m_device->device().createImageView(viewInfo);
+        std::string viewName = debugName();
+        if (!viewName.empty()) {
+            viewName += "/view";
+        }
+        m_device->trackObject(vk::ObjectType::eImageView,
+                              u64(static_cast<VkImageView>(m_imageView)),
+                              viewName);
     }
 
     void VulkanRHITexture::uploadData(
-        const void* data,
-        uint64_t dataSize,
+        std::span<const std::byte> data,
         const TextureSubresource& subresource)
     {
-        uploadDataInternal(data, dataSize, subresource);
+        uploadDataInternal(data, subresource);
     }
 
     void VulkanRHITexture::uploadDataInternal(
-        const void* data,
-        uint64_t dataSize,
+        std::span<const std::byte> data,
         const TextureSubresource& subresource)
     {
         auto* upload = m_device->uploadContext();
-        if (!upload)
-        {
-            return;
+        if (upload == nullptr) {
+          return;
         }
 
-        upload->uploadTexture(this, data, dataSize, subresource);
+        upload->uploadTexture(this, data, subresource);
         upload->flush();
     }
 
     void VulkanRHITexture::transitionLayout(vk::ImageLayout newLayout, vk::CommandBuffer cmd)
     {
-        vk::ImageMemoryBarrier2 barrier{};
-        barrier.oldLayout = m_currentLayout;
-        barrier.newLayout = newLayout;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_image;
+        vk::ImageMemoryBarrier2 barrier = VkBuilder<vk::ImageMemoryBarrier2>{}
+            .set(&vk::ImageMemoryBarrier2::oldLayout, m_currentLayout)
+            .set(&vk::ImageMemoryBarrier2::newLayout, newLayout)
+            .set(&vk::ImageMemoryBarrier2::srcQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+            .set(&vk::ImageMemoryBarrier2::dstQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+            .set(&vk::ImageMemoryBarrier2::image, m_handle)
+            .build();
 
-        // Determine aspect mask
         vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
-        if (vkFormat == vk::Format::eD16Unorm ||
-            vkFormat == vk::Format::eD32Sfloat ||
-            vkFormat == vk::Format::eD24UnormS8Uint ||
-            vkFormat == vk::Format::eD32SfloatS8Uint)
-        {
-            barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
-            if (vkFormat == vk::Format::eD24UnormS8Uint ||
-                vkFormat == vk::Format::eD32SfloatS8Uint)
-            {
-                barrier.subresourceRange.aspectMask |= vk::ImageAspectFlagBits::eStencil;
-            }
-        }
-        else
-        {
-            barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        }
+        barrier.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
 
         barrier.subresourceRange.baseMipLevel = 0;
         barrier.subresourceRange.levelCount = m_mipLevels;
@@ -367,7 +314,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHITexture::generateMipmaps()
     {
-        auto cmdBuffer = m_device->createCommandBuffer();
+        auto cmdBuffer = m_device->createCommandList();
         cmdBuffer->begin();
         generateMipmaps(cmdBuffer.get());
         cmdBuffer->end();
@@ -375,42 +322,50 @@ namespace pnkr::renderer::rhi::vulkan
         m_device->waitIdle();
     }
 
-    void VulkanRHITexture::generateMipmaps(RHICommandBuffer* externalCmd)
+    void VulkanRHITexture::generateMipmaps(RHICommandList* externalCmd)
     {
-        auto* vkCmd = castOrAssert<VulkanRHICommandBuffer>(
-            externalCmd, "generateMipmaps: command buffer is not Vulkan");
+        auto* vkCmd = rhi_cast<VulkanRHICommandBuffer>(externalCmd);
         vk::CommandBuffer cmd = vkCmd->commandBuffer();
-
-        vk::ImageMemoryBarrier2 barrier{};
-        barrier.image = m_image;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = m_arrayLayers;
-        barrier.subresourceRange.levelCount = 1;
 
         auto mipWidth = static_cast<int32_t>(m_extent.width);
         auto mipHeight = static_cast<int32_t>(m_extent.height);
 
         for (uint32_t i = 1; i < m_mipLevels; i++)
         {
-            // Transition previous mip level to transfer src
-            barrier.subresourceRange.baseMipLevel = i - 1;
-            barrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
-            barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
-            barrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
-            barrier.dstAccessMask = vk::AccessFlagBits2::eTransferRead;
-            barrier.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
-            barrier.dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
+            std::array<vk::ImageMemoryBarrier2, 2> barriers{};
+
+            barriers[0] = VkBuilder<vk::ImageMemoryBarrier2>{}
+                .set(&vk::ImageMemoryBarrier2::image, m_handle)
+                .set(&vk::ImageMemoryBarrier2::oldLayout, vk::ImageLayout::eTransferDstOptimal)
+                .set(&vk::ImageMemoryBarrier2::newLayout, vk::ImageLayout::eTransferSrcOptimal)
+                .set(&vk::ImageMemoryBarrier2::srcAccessMask, vk::AccessFlagBits2::eTransferWrite)
+                .set(&vk::ImageMemoryBarrier2::dstAccessMask, vk::AccessFlagBits2::eTransferRead)
+                .set(&vk::ImageMemoryBarrier2::srcStageMask, vk::PipelineStageFlagBits2::eTransfer)
+                .set(&vk::ImageMemoryBarrier2::dstStageMask, vk::PipelineStageFlagBits2::eTransfer)
+                .set(&vk::ImageMemoryBarrier2::srcQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+                .set(&vk::ImageMemoryBarrier2::dstQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+                .build();
+            barriers[0].subresourceRange = { vk::ImageAspectFlagBits::eColor, i - 1, 1, 0, m_arrayLayers };
+
+            barriers[1] = VkBuilder<vk::ImageMemoryBarrier2>{}
+                .set(&vk::ImageMemoryBarrier2::image, m_handle)
+                .set(&vk::ImageMemoryBarrier2::oldLayout, (i == 1) ? vk::ImageLayout::eTransferDstOptimal : vk::ImageLayout::eUndefined)
+                .set(&vk::ImageMemoryBarrier2::newLayout, vk::ImageLayout::eTransferDstOptimal)
+                .set(&vk::ImageMemoryBarrier2::srcAccessMask, vk::AccessFlagBits2::eNone)
+                .set(&vk::ImageMemoryBarrier2::dstAccessMask, vk::AccessFlagBits2::eTransferWrite)
+                .set(&vk::ImageMemoryBarrier2::srcStageMask, vk::PipelineStageFlagBits2::eTransfer)
+                .set(&vk::ImageMemoryBarrier2::dstStageMask, vk::PipelineStageFlagBits2::eTransfer)
+                .set(&vk::ImageMemoryBarrier2::srcQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+                .set(&vk::ImageMemoryBarrier2::dstQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+                .build();
+            barriers[1].subresourceRange = { vk::ImageAspectFlagBits::eColor, i, 1, 0, m_arrayLayers };
 
             vk::DependencyInfo depInfo{};
             depInfo.dependencyFlags = vk::DependencyFlags{};
-            depInfo.imageMemoryBarrierCount = 1;
-            depInfo.pImageMemoryBarriers = &barrier;
+            depInfo.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
+            depInfo.pImageMemoryBarriers = barriers.data();
             cmd.pipelineBarrier2(depInfo);
 
-            // Blit from previous level to current level
             vk::ImageBlit blit{};
             blit.srcOffsets[0] = vk::Offset3D{0, 0, 0};
             blit.srcOffsets[1] = vk::Offset3D{mipWidth, mipHeight, 1};
@@ -430,42 +385,53 @@ namespace pnkr::renderer::rhi::vulkan
             blit.dstSubresource.layerCount = m_arrayLayers;
 
             cmd.blitImage(
-                m_image, vk::ImageLayout::eTransferSrcOptimal,
-                m_image, vk::ImageLayout::eTransferDstOptimal,
+                m_handle, vk::ImageLayout::eTransferSrcOptimal,
+                m_handle, vk::ImageLayout::eTransferDstOptimal,
                 1, &blit,
                 vk::Filter::eLinear
             );
-
-            // Transition previous mip level to shader read
-            barrier.oldLayout = vk::ImageLayout::eTransferSrcOptimal;
-            barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-            barrier.srcAccessMask = vk::AccessFlagBits2::eTransferRead;
-            barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
-            barrier.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
-            barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
-
-            depInfo.dependencyFlags = vk::DependencyFlags{};
-            depInfo.imageMemoryBarrierCount = 1;
-            depInfo.pImageMemoryBarriers = &barrier;
-            cmd.pipelineBarrier2(depInfo);
 
             mipWidth = nextMipWidth;
             mipHeight = nextMipHeight;
         }
 
-        // Transition last mip level to shader read
-        barrier.subresourceRange.baseMipLevel = m_mipLevels - 1;
-        barrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
-        barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        barrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
-        barrier.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
-        barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
+        std::vector<vk::ImageMemoryBarrier2> finalBarriers;
+
+        if (m_mipLevels > 1) {
+            vk::ImageMemoryBarrier2 bSrc = VkBuilder<vk::ImageMemoryBarrier2>{}
+                .set(&vk::ImageMemoryBarrier2::image, m_handle)
+                .set(&vk::ImageMemoryBarrier2::oldLayout, vk::ImageLayout::eTransferSrcOptimal)
+                .set(&vk::ImageMemoryBarrier2::newLayout, vk::ImageLayout::eShaderReadOnlyOptimal)
+                .set(&vk::ImageMemoryBarrier2::srcAccessMask, vk::AccessFlagBits2::eTransferRead)
+                .set(&vk::ImageMemoryBarrier2::dstAccessMask, vk::AccessFlagBits2::eShaderRead)
+                .set(&vk::ImageMemoryBarrier2::srcStageMask, vk::PipelineStageFlagBits2::eTransfer)
+                .set(&vk::ImageMemoryBarrier2::dstStageMask, vk::PipelineStageFlagBits2::eFragmentShader)
+                .set(&vk::ImageMemoryBarrier2::srcQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+                .set(&vk::ImageMemoryBarrier2::dstQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+                .build();
+            bSrc.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, m_mipLevels - 1, 0, m_arrayLayers };
+            finalBarriers.push_back(bSrc);
+        }
+
+        {
+            vk::ImageMemoryBarrier2 bLast = VkBuilder<vk::ImageMemoryBarrier2>{}
+                .set(&vk::ImageMemoryBarrier2::image, m_handle)
+                .set(&vk::ImageMemoryBarrier2::oldLayout, vk::ImageLayout::eTransferDstOptimal)
+                .set(&vk::ImageMemoryBarrier2::newLayout, vk::ImageLayout::eShaderReadOnlyOptimal)
+                .set(&vk::ImageMemoryBarrier2::srcAccessMask, vk::AccessFlagBits2::eTransferWrite)
+                .set(&vk::ImageMemoryBarrier2::dstAccessMask, vk::AccessFlagBits2::eShaderRead)
+                .set(&vk::ImageMemoryBarrier2::srcStageMask, vk::PipelineStageFlagBits2::eTransfer)
+                .set(&vk::ImageMemoryBarrier2::dstStageMask, vk::PipelineStageFlagBits2::eFragmentShader)
+                .set(&vk::ImageMemoryBarrier2::srcQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+                .set(&vk::ImageMemoryBarrier2::dstQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
+                .build();
+            bLast.subresourceRange = { vk::ImageAspectFlagBits::eColor, m_mipLevels - 1, 1, 0, m_arrayLayers };
+            finalBarriers.push_back(bLast);
+        }
 
         vk::DependencyInfo depInfo{};
-        depInfo.dependencyFlags = vk::DependencyFlags{};
-        depInfo.imageMemoryBarrierCount = 1;
-        depInfo.pImageMemoryBarriers = &barrier;
+        depInfo.imageMemoryBarrierCount = static_cast<uint32_t>(finalBarriers.size());
+        depInfo.pImageMemoryBarriers = finalBarriers.data();
         cmd.pipelineBarrier2(depInfo);
 
         m_currentLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
@@ -480,10 +446,11 @@ namespace pnkr::renderer::rhi::vulkan
             return static_cast<VkImageView>(it->second);
         }
 
-        vk::ImageViewCreateInfo viewInfo{};
-        viewInfo.image = m_image;
-        viewInfo.viewType = vk::ImageViewType::e2D; // Subresource view is usually 2D
-        viewInfo.format = VulkanUtils::toVkFormat(m_format);
+        vk::ImageViewCreateInfo viewInfo = VkBuilder<vk::ImageViewCreateInfo>{}
+            .set(&vk::ImageViewCreateInfo::image, m_handle)
+            .set(&vk::ImageViewCreateInfo::viewType, vk::ImageViewType::e2D)
+            .set(&vk::ImageViewCreateInfo::format, VulkanUtils::toVkFormat(m_format))
+            .build();
 
         viewInfo.components.r = vk::ComponentSwizzle::eIdentity;
         viewInfo.components.g = vk::ComponentSwizzle::eIdentity;
@@ -496,26 +463,78 @@ namespace pnkr::renderer::rhi::vulkan
         viewInfo.subresourceRange.layerCount = 1;
 
         vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
-        if (vkFormat == vk::Format::eD16Unorm ||
-            vkFormat == vk::Format::eD32Sfloat ||
-            vkFormat == vk::Format::eD24UnormS8Uint ||
-            vkFormat == vk::Format::eD32SfloatS8Uint)
-        {
-            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
-            if (vkFormat == vk::Format::eD24UnormS8Uint ||
-                vkFormat == vk::Format::eD32SfloatS8Uint)
-            {
-                viewInfo.subresourceRange.aspectMask |= vk::ImageAspectFlagBits::eStencil;
-            }
-        }
-        else
-        {
-            viewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        }
+        viewInfo.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
 
         vk::ImageView view = m_device->device().createImageView(viewInfo);
         m_subresourceViews[key] = view;
+        m_device->trackObject(vk::ObjectType::eImageView,
+                              u64(static_cast<VkImageView>(view)),
+                              debugName());
 
         return static_cast<VkImageView>(view);
     }
-} // namespace pnkr::renderer::rhi::vulkan
+
+    void VulkanRHITexture::updateAccessibleMipRange(uint32_t baseMip, uint32_t mipCount)
+    {
+        if (m_imageView)
+        {
+          auto *device = m_device;
+          auto oldView = m_imageView;
+          device->enqueueDeletion([device, oldView]() {
+            device->untrackObject(u64(static_cast<VkImageView>(oldView)));
+            device->device().destroyImageView(oldView);
+          });
+        }
+
+        auto viewInfoBuilder = VkBuilder<vk::ImageViewCreateInfo>{}
+            .set(&vk::ImageViewCreateInfo::image, m_handle)
+            .set(&vk::ImageViewCreateInfo::format, VulkanUtils::toVkFormat(m_format));
+
+        switch (m_type)
+        {
+        case TextureType::Texture1D:
+            viewInfoBuilder.set(&vk::ImageViewCreateInfo::viewType, m_arrayLayers > 1 ? vk::ImageViewType::e1DArray : vk::ImageViewType::e1D);
+            break;
+        case TextureType::Texture2D:
+            viewInfoBuilder.set(&vk::ImageViewCreateInfo::viewType, m_arrayLayers > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D);
+            break;
+        case TextureType::Texture3D:
+            viewInfoBuilder.set(&vk::ImageViewCreateInfo::viewType, vk::ImageViewType::e3D);
+            break;
+        case TextureType::TextureCube:
+            viewInfoBuilder.set(&vk::ImageViewCreateInfo::viewType, m_arrayLayers > 6 ? vk::ImageViewType::eCubeArray : vk::ImageViewType::eCube);
+            break;
+        }
+
+        vk::ImageViewCreateInfo viewInfo = viewInfoBuilder.build();
+        viewInfo.components = { vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity };
+
+        vk::ImageViewMinLodCreateInfoEXT minLodInfo{};
+
+        if (m_device->isMinLodExtensionEnabled()) {
+            viewInfo.subresourceRange.baseMipLevel = 0;
+            viewInfo.subresourceRange.levelCount = m_mipLevels;
+            minLodInfo.sType = vk::StructureType::eImageViewMinLodCreateInfoEXT;
+            minLodInfo.minLod = static_cast<float>(baseMip);
+            viewInfo.pNext = &minLodInfo;
+        } else {
+            viewInfo.subresourceRange.baseMipLevel = baseMip;
+            viewInfo.subresourceRange.levelCount = mipCount;
+        }
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = m_arrayLayers;
+
+        vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
+        viewInfo.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
+
+        m_imageView = m_device->device().createImageView(viewInfo);
+        std::string viewName = debugName();
+        if (!viewName.empty()) {
+            viewName += "/view";
+        }
+        m_device->trackObject(vk::ObjectType::eImageView,
+                              u64(static_cast<VkImageView>(m_imageView)),
+                              viewName);
+    }
+}
+

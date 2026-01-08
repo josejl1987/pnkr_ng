@@ -1,9 +1,10 @@
-#include "pnkr/rhi/vulkan/vulkan_swapchain.hpp"
+#include "rhi/vulkan/vulkan_swapchain.hpp"
 
-#include "pnkr/rhi/vulkan/vulkan_device.hpp"
-#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
+#include "rhi/vulkan/vulkan_device.hpp"
+#include "rhi/vulkan/vulkan_utils.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
+#include "rhi/vulkan/vulkan_tracy.hpp"
 #include "pnkr/platform/window.hpp"
 
 #include <SDL3/SDL_vulkan.h>
@@ -12,7 +13,8 @@
 #include <cpptrace/cpptrace.hpp>
 
 #include "pnkr/rhi/rhi_command_buffer.hpp"
-#include "pnkr/rhi/vulkan/vulkan_command_buffer.hpp"
+#include "rhi/vulkan/vulkan_command_buffer.hpp"
+#include "vulkan_cast.hpp"
 
 using namespace pnkr::util;
 
@@ -37,7 +39,7 @@ namespace pnkr::renderer::rhi::vulkan
         }
     }
 
-    void VulkanRHISwapchainImage::generateMipmaps(RHICommandBuffer* cmd)
+    void VulkanRHISwapchainImage::generateMipmaps(RHICommandList* cmd)
     {
         (void)cmd;
     }
@@ -45,9 +47,7 @@ namespace pnkr::renderer::rhi::vulkan
     VulkanRHISwapchain::VulkanRHISwapchain(VulkanRHIDevice* device, platform::Window& window, Format preferredFormat)
         : m_device(device), m_window(&window)
     {
-        if (m_device == nullptr) {
-            throw cpptrace::runtime_error("[VulkanRHISwapchain] device is null");
-}
+        PNKR_ASSERT(m_device != nullptr, "[VulkanRHISwapchain] device is null");
 
         createSurface();
 
@@ -57,7 +57,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         createSyncObjects();
 
-        core::Logger::info("[VulkanRHISwapchain] Created ({} images, {}x{}, format={})",
+        core::Logger::RHI.info("[VulkanRHISwapchain] Created ({} images, {}x{}, format={})",
                            static_cast<uint32_t>(m_images.size()),
                            m_extent.width, m_extent.height,
                            vk::to_string(m_vkFormat));
@@ -69,10 +69,14 @@ namespace pnkr::renderer::rhi::vulkan
             return;
 }
 
-        // Ensure GPU is idle before tearing down WSI objects.
         try { m_device->device().waitIdle(); }
+        catch (const std::exception& e)
+        {
+            core::Logger::RHI.warn("[VulkanRHISwapchain] Device idle wait failed during destruction: {}", e.what());
+        }
         catch (...)
         {
+            core::Logger::RHI.warn("[VulkanRHISwapchain] Unknown exception during device idle wait in destructor");
         }
 
         destroySwapchain();
@@ -104,11 +108,10 @@ namespace pnkr::renderer::rhi::vulkan
 
     vk::SurfaceFormatKHR VulkanRHISwapchain::chooseSurfaceFormat(
         const std::vector<vk::SurfaceFormatKHR>& formats,
-        Format preferred) 
+        Format preferred)
     {
         const vk::Format preferredVk = VulkanUtils::toVkFormat(preferred);
 
-        // Prefer exact match (format + srgb nonlinear).
         for (const auto& f : formats)
         {
             if (f.format == preferredVk && f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
@@ -116,7 +119,6 @@ namespace pnkr::renderer::rhi::vulkan
 }
         }
 
-        // Otherwise, prefer an sRGB colorspace with a common 8-bit format.
         for (const auto& f : formats)
         {
             if (f.colorSpace != vk::ColorSpaceKHR::eSrgbNonlinear) {
@@ -132,30 +134,32 @@ namespace pnkr::renderer::rhi::vulkan
             }
         }
 
-        // Fallback: first supported.
         return formats.empty() ? vk::SurfaceFormatKHR{} : formats[0];
     }
 
-    vk::PresentModeKHR VulkanRHISwapchain::choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) 
-    {
-        // Force immediate/mailbox for profiling/smoothness testing if VSync is disabled
-        if (!m_vsync) {
-            for (auto mode : modes) {
-                if (mode == vk::PresentModeKHR::eMailbox) return mode; // Smooth, no tearing
-            }
-            for (auto mode : modes) {
-                if (mode == vk::PresentModeKHR::eImmediate) return mode; // Fastest, tearing
-            }
+    vk::PresentModeKHR VulkanRHISwapchain::choosePresentMode(
+        const std::vector<vk::PresentModeKHR> &modes) const {
+
+      if (!m_vsync) {
+        for (auto mode : modes) {
+          if (mode == vk::PresentModeKHR::eMailbox) {
+            return mode;
+          }
         }
-        
-        // Fallback or explicit VSync
-        return vk::PresentModeKHR::eFifo;
+        for (auto mode : modes) {
+          if (mode == vk::PresentModeKHR::eImmediate) {
+            return mode;
+          }
+        }
+      }
+
+      return vk::PresentModeKHR::eFifo;
     }
 
     vk::Extent2D VulkanRHISwapchain::chooseExtent(
         const vk::SurfaceCapabilitiesKHR& caps,
         uint32_t width,
-        uint32_t height) 
+        uint32_t height)
     {
         if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
             return caps.currentExtent;
@@ -169,9 +173,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHISwapchain::createSwapchain(Format preferredFormat, uint32_t width, uint32_t height)
     {
-        if (!m_surface) {
-            throw cpptrace::runtime_error("[VulkanRHISwapchain] createSwapchain: surface not initialized");
-}
+        PNKR_ASSERT(m_surface, "[VulkanRHISwapchain] createSwapchain: surface not initialized");
 
         auto pd = m_device->vkPhysicalDevice();
         auto dev = m_device->device();
@@ -188,7 +190,6 @@ namespace pnkr::renderer::rhi::vulkan
         const vk::PresentModeKHR presentMode = choosePresentMode(support.m_presentModes);
         const vk::Extent2D extent = chooseExtent(support.m_caps, width, height);
 
-        // Image count: prefer min+1, clamp to max.
         uint32_t imageCount = support.m_caps.minImageCount + 1;
         if (support.m_caps.maxImageCount > 0 && imageCount > support.m_caps.maxImageCount) {
             imageCount = support.m_caps.maxImageCount;
@@ -206,7 +207,6 @@ namespace pnkr::renderer::rhi::vulkan
             vk::ImageUsageFlagBits::eTransferSrc |
             vk::ImageUsageFlagBits::eSampled;
 
-        // Current RHI device does not expose a dedicated present queue; assume graphics queue presents.
         sci.imageSharingMode = vk::SharingMode::eExclusive;
 
         sci.preTransform = support.m_caps.currentTransform;
@@ -233,12 +233,14 @@ namespace pnkr::renderer::rhi::vulkan
 
         m_swapchain = dev.createSwapchainKHR(sci);
         m_images = dev.getSwapchainImagesKHR(m_swapchain);
+        m_device->trackObject(vk::ObjectType::eSwapchainKHR,
+                              u64(static_cast<VkSwapchainKHR>(m_swapchain)),
+                              "Swapchain");
 
         m_vkFormat = surfaceFormat.format;
         m_rhiFormat = VulkanUtils::fromVkFormat(m_vkFormat);
         m_extent = extent;
 
-        // Views
         m_views.resize(m_images.size());
         for (size_t i = 0; i < m_images.size(); ++i)
         {
@@ -253,9 +255,14 @@ namespace pnkr::renderer::rhi::vulkan
             ivci.subresourceRange.layerCount = 1;
 
             m_views[i] = dev.createImageView(ivci);
+            m_device->trackObject(vk::ObjectType::eImage,
+                                  u64(static_cast<VkImage>(m_images[i])),
+                                  "SwapchainImage");
+            m_device->trackObject(vk::ObjectType::eImageView,
+                                  u64(static_cast<VkImageView>(m_views[i])),
+                                  "SwapchainImageView");
         }
 
-        // Wrap into non-owning RHI textures.
         m_wrapped.clear();
         m_wrapped.reserve(m_images.size());
         const Extent3D ext3{.width=m_extent.width, .height=m_extent.height, .depth=1};
@@ -276,10 +283,10 @@ namespace pnkr::renderer::rhi::vulkan
 
         auto dev = m_device->device();
 
-        // Per-swapchain-image semaphores must be destroyed alongside the swapchain.
         for (auto s : m_renderFinished)
         {
             if (s) {
+                m_device->untrackObject(u64(static_cast<VkSemaphore>(s)));
                 dev.destroySemaphore(s);
 }
         }
@@ -288,10 +295,17 @@ namespace pnkr::renderer::rhi::vulkan
         for (auto& view : m_views)
         {
             if (view) {
+                m_device->untrackObject(u64(static_cast<VkImageView>(view)));
                 dev.destroyImageView(view);
 }
         }
         m_views.clear();
+
+        for (auto img : m_images) {
+            if (img) {
+                m_device->untrackObject(u64(static_cast<VkImage>(img)));
+            }
+        }
 
         m_wrapped.clear();
         m_images.clear();
@@ -299,6 +313,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         if (m_swapchain)
         {
+            m_device->untrackObject(u64(static_cast<VkSwapchainKHR>(m_swapchain)));
             dev.destroySwapchainKHR(m_swapchain);
             m_swapchain = nullptr;
         }
@@ -313,7 +328,7 @@ namespace pnkr::renderer::rhi::vulkan
         auto dev = m_device->device();
 
         vk::SemaphoreCreateInfo semInfo{};
-        // Per-frame objects are created once and reused across swapchain recreations.
+
         if (m_imageAvailable.empty())
         {
             m_imageAvailable.resize(m_framesInFlight);
@@ -321,29 +336,28 @@ namespace pnkr::renderer::rhi::vulkan
             for (uint32_t i = 0; i < m_framesInFlight; ++i)
             {
                 m_imageAvailable[i] = dev.createSemaphore(semInfo);
+                m_device->trackObject(vk::ObjectType::eSemaphore,
+                                      u64(static_cast<VkSemaphore>(m_imageAvailable[i])),
+                                      "SwapchainImageAvailable");
             }
         }
 
-        // Per-image render-finished semaphores (created after swapchain images exist).
-        // This avoids Vulkan validation errors related to swapchain semaphore reuse.
         m_renderFinished.resize(m_images.size());
         for (size_t i = 0; i < m_images.size(); ++i)
         {
             m_renderFinished[i] = dev.createSemaphore(semInfo);
+            m_device->trackObject(vk::ObjectType::eSemaphore,
+                                  u64(static_cast<VkSemaphore>(m_renderFinished[i])),
+                                  "SwapchainRenderFinished");
         }
 
-        if (!m_tracyContext)
-        {
-            auto  cmd = m_device->createCommandBuffer();
+        if (m_tracyContext == nullptr) {
+          auto cmd = m_device->createCommandList();
 
-                auto* vkCmd = dynamic_cast<VulkanRHICommandBuffer*>(cmd.get());
-                m_tracyContext = PNKR_PROFILE_GPU_CONTEXT(
-                    m_device->vkPhysicalDevice(),
-                    m_device->device(),
-                    m_device->graphicsQueue(),
-                    vkCmd->commandBuffer()
-                );
-
+          auto *vkCmd = dynamic_cast<VulkanRHICommandBuffer *>(cmd.get());
+          m_tracyContext = PNKR_PROFILE_GPU_CONTEXT(
+              m_device->vkPhysicalDevice(), m_device->device(),
+              m_device->graphicsQueue(), vkCmd->commandBuffer());
         }
     }
 
@@ -355,14 +369,14 @@ namespace pnkr::renderer::rhi::vulkan
 
         auto dev = m_device->device();
 
-        if (m_tracyContext)
-        {
-            PNKR_PROFILE_GPU_DESTROY(m_tracyContext);
-            m_tracyContext = nullptr;
+        if (m_tracyContext != nullptr) {
+          PNKR_PROFILE_GPU_DESTROY(m_tracyContext);
+          m_tracyContext = nullptr;
         }
 
-        // NOTE: m_renderFinished is per swapchain image and is destroyed in destroySwapchain().
-        for (auto& s : m_imageAvailable) { if (s) { dev.destroySemaphore(s);
+        for (auto& s : m_imageAvailable) { if (s) {
+            m_device->untrackObject(u64(static_cast<VkSemaphore>(s)));
+            dev.destroySemaphore(s);
 }
 }
         m_imageAvailable.clear();
@@ -385,27 +399,24 @@ namespace pnkr::renderer::rhi::vulkan
         createSwapchain(m_rhiFormat != Format::Undefined ? m_rhiFormat : Format::B8G8R8A8_UNORM, width, height);
         createSyncObjects();
 
-        core::Logger::info("[VulkanRHISwapchain] Recreated ({} images, {}x{}, format={})",
+        core::Logger::RHI.info("[VulkanRHISwapchain] Recreated ({} images, {}x{}, format={})",
                            static_cast<uint32_t>(m_images.size()),
                            m_extent.width, m_extent.height,
                            vk::to_string(m_vkFormat));
     }
 
-    bool VulkanRHISwapchain::beginFrame(uint32_t frameIndex, RHICommandBuffer* cmd, SwapchainFrame& out)
+    bool VulkanRHISwapchain::beginFrame(uint32_t frameIndex, RHICommandList* cmd, SwapchainFrame& out)
     {
         PNKR_PROFILE_FUNCTION();
-        PNKR_PROFILE_FRAME_MARK();
 
-        if (!m_swapchain || !m_surface || !cmd) {
-            return false;
+        if (!m_swapchain || !m_surface || (cmd == nullptr)) {
+          return false;
         }
 
         const uint32_t frame = frameIndex % m_framesInFlight;
         m_currentFrameIndex = frame;
         auto dev = m_device->device();
 
-        // 1. ACQUIRE: Ask the swapchain for the next available image.
-        // This might block if V-Sync is on and no images are free (FIFO).
         uint32_t imageIndex = 0;
         vk::Result acquireResult{};
         try
@@ -418,7 +429,7 @@ namespace pnkr::renderer::rhi::vulkan
         catch (const vk::OutOfDateKHRError&)
         {
             recreate(static_cast<uint32_t>(m_window->width()), static_cast<uint32_t>(m_window->height()));
-            return false; 
+            return false;
         }
 
         if (acquireResult == vk::Result::eErrorOutOfDateKHR)
@@ -429,42 +440,24 @@ namespace pnkr::renderer::rhi::vulkan
 
         if (acquireResult != vk::Result::eSuccess && acquireResult != vk::Result::eSuboptimalKHR)
         {
-            core::Logger::error("[VulkanRHISwapchain] acquireNextImageKHR failed: {}", vk::to_string(acquireResult));
+            core::Logger::RHI.error("[VulkanRHISwapchain] acquireNextImageKHR failed: {}", vk::to_string(acquireResult));
             return false;
         }
 
         m_currentImage = imageIndex;
 
-        // Start recording
         cmd->reset();
         cmd->begin();
 
         out.imageIndex = imageIndex;
         out.color = m_wrapped[imageIndex].get();
 
-        // Transition acquired image to ColorAttachment
-        {
-            auto vkCmd = vk::CommandBuffer(getVkCommandBuffer(cmd->nativeHandle()));
-            PNKR_PROFILE_GPU_ZONE(m_tracyContext, vkCmd, "SwapchainTransitionIn");
-
-            RHIMemoryBarrier b{};
-            b.texture = out.color;
-            // Align with RHIRenderer optimized wait stage (ColorAttachmentOutput)
-            b.srcAccessStage = ShaderStage::RenderTarget;
-            b.dstAccessStage = ShaderStage::RenderTarget;
-            b.oldLayout = m_layouts[imageIndex];
-            b.newLayout = ResourceLayout::ColorAttachment;
-
-            cmd->pipelineBarrier(ShaderStage::RenderTarget, ShaderStage::RenderTarget, {b});
-            m_layouts[imageIndex] = ResourceLayout::ColorAttachment;
-
-            PNKR_PROFILE_GPU_COLLECT(m_tracyContext, vkCmd);
-        }
+        m_layouts[imageIndex] = ResourceLayout::Undefined;
 
         return true;
     }
 
-    bool VulkanRHISwapchain::endFrame(uint32_t frameIndex, RHICommandBuffer* cmd)
+    bool VulkanRHISwapchain::endFrame(uint32_t frameIndex, RHICommandList* cmd)
     {
         PNKR_PROFILE_FUNCTION();
         if (!m_swapchain || (cmd == nullptr)) {
@@ -472,25 +465,32 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         (void)frameIndex;
-        auto vkCmd = vk::CommandBuffer(getVkCommandBuffer(cmd->nativeHandle()));
 
-        // Transition to Present
+        if (m_layouts[m_currentImage] != ResourceLayout::Present)
         {
-            PNKR_PROFILE_GPU_ZONE(m_tracyContext, vkCmd, "SwapchainTransitionOut");
-            RHIMemoryBarrier b{};
-            b.texture = m_wrapped[m_currentImage].get();
-            b.srcAccessStage = ShaderStage::RenderTarget;
-            b.dstAccessStage = ShaderStage::None; // Bottom of pipe
-            b.oldLayout = m_layouts[m_currentImage];
-            b.newLayout = ResourceLayout::Present;
+            vk::ImageMemoryBarrier barrier{};
+            barrier.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            barrier.dstAccessMask = vk::AccessFlagBits::eNoneKHR;
+            barrier.oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            barrier.newLayout = vk::ImageLayout::ePresentSrcKHR;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = m_images[m_currentImage];
+            barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 
-            cmd->pipelineBarrier(ShaderStage::RenderTarget, ShaderStage::None, {b});
-            m_layouts[m_currentImage] = ResourceLayout::Present;
+            rhi_cast<VulkanRHICommandBuffer>(cmd)->commandBuffer().pipelineBarrier(
+                vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                vk::PipelineStageFlagBits::eBottomOfPipe,
+                vk::DependencyFlags{},
+                0, nullptr,
+                0, nullptr,
+                1, &barrier
+            );
         }
 
-        cmd->end();
+        m_layouts[m_currentImage] = ResourceLayout::Present;
 
-        PNKR_PROFILE_GPU_COLLECT(m_tracyContext, vkCmd);
+        cmd->end();
 
         return true;
     }
@@ -505,7 +505,6 @@ namespace pnkr::renderer::rhi::vulkan
         (void)frameIndex;
         const vk::Semaphore renderFinished = m_renderFinished[m_currentImage];
 
-        // Present (assume graphics queue supports present).
         vk::PresentInfoKHR present{};
         present.waitSemaphoreCount = 1;
         present.pWaitSemaphores = &renderFinished;
@@ -514,14 +513,24 @@ namespace pnkr::renderer::rhi::vulkan
         present.pImageIndices = &m_currentImage;
 
         vk::Result presentResult{};
-        try
         {
-            PNKR_PROFILE_SCOPE("QueuePresent");
-            presentResult = m_device->graphicsQueue().presentKHR(present);
+            auto lock = m_device->acquireQueueLock();
+            try
+            {
+                PNKR_PROFILE_SCOPE("QueuePresent");
+                presentResult = m_device->graphicsQueue().presentKHR(present);
+            }
+            catch (const vk::OutOfDateKHRError&)
+            {
+                presentResult = vk::Result::eErrorOutOfDateKHR;
+            }
         }
-        catch (const vk::OutOfDateKHRError&)
+
+        if (presentResult == vk::Result::eErrorDeviceLost)
         {
-            presentResult = vk::Result::eErrorOutOfDateKHR;
+            m_device->reportGpuFault();
+            core::Logger::RHI.critical("GPU CRASH DETECTED (TDR) - Check fault report above for details");
+            throw std::runtime_error("GPU CRASH DETECTED (TDR)");
         }
 
         if (presentResult == vk::Result::eErrorOutOfDateKHR)
@@ -530,7 +539,7 @@ namespace pnkr::renderer::rhi::vulkan
             return false;
         }
 
-        PNKR_PROFILE_FRAME_MARK();
         return presentResult == vk::Result::eSuccess;
     }
-} // namespace pnkr::renderer::rhi::vulkan
+}
+

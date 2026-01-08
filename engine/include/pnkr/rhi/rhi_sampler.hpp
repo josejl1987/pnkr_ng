@@ -9,14 +9,17 @@ namespace pnkr::renderer::rhi
     public:
         virtual ~RHISampler() = default;
 
-        // Backend-specific handle
         virtual void* nativeHandle() const = 0;
 
-        void setBindlessHandle(BindlessHandle handle) { m_bindlessHandle = handle; }
-        BindlessHandle getBindlessHandle() const { return m_bindlessHandle; }
+        void setBindlessHandle(SamplerBindlessHandle handle) { m_bindlessHandle = handle; }
+        SamplerBindlessHandle getBindlessHandle() const { return m_bindlessHandle; }
+
+        void setDebugName(std::string name) { m_debugName = std::move(name); }
+        const std::string& debugName() const { return m_debugName; }
 
     protected:
-        BindlessHandle m_bindlessHandle;
+        SamplerBindlessHandle m_bindlessHandle;
+        std::string m_debugName;
     };
 
-} // namespace pnkr::renderer::rhi
+}

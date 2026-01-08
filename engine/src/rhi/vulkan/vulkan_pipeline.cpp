@@ -1,19 +1,19 @@
-#include "pnkr/rhi/vulkan/vulkan_pipeline.hpp"
+#include "rhi/vulkan/vulkan_pipeline.hpp"
 
-#include <unordered_map>
-#include "pnkr/core/logger.hpp"
-#include "pnkr/rhi/vulkan/vulkan_device.hpp"
-#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
-#include "pnkr/rhi/vulkan/vulkan_descriptor.hpp"
-#include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
+#include "pnkr/core/logger.hpp"
+#include "rhi/vulkan/vulkan_descriptor.hpp"
+#include "rhi/vulkan/vulkan_device.hpp"
+#include "rhi/vulkan/vulkan_utils.hpp"
+#include <algorithm>
 #include <cpptrace/cpptrace.hpp>
+#include <unordered_map>
 
 using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
-    // Graphics pipeline constructor
+
     VulkanRHIPipeline::VulkanRHIPipeline(VulkanRHIDevice* device,
                                          const GraphicsPipelineDescriptor& desc)
         : m_device(device)
@@ -22,7 +22,6 @@ namespace pnkr::renderer::rhi::vulkan
         createGraphicsPipeline(desc);
     }
 
-    // Compute pipeline constructor
     VulkanRHIPipeline::VulkanRHIPipeline(VulkanRHIDevice* device,
                                          const ComputePipelineDescriptor& desc)
         : m_device(device)
@@ -35,11 +34,13 @@ namespace pnkr::renderer::rhi::vulkan
     {
         if (m_pipeline)
         {
+            m_device->untrackObject(u64(static_cast<VkPipeline>(m_pipeline)));
             m_device->device().destroyPipeline(m_pipeline);
         }
 
         if (m_pipelineLayout)
         {
+            m_device->untrackObject(u64(static_cast<VkPipelineLayout>(m_pipelineLayout)));
             m_device->device().destroyPipelineLayout(m_pipelineLayout);
         }
 
@@ -48,7 +49,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHIPipeline::createGraphicsPipeline(const GraphicsPipelineDescriptor& desc)
     {
-        // Create shader modules
+
         std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
 
         for (const auto& shaderDesc : desc.shaders)
@@ -57,7 +58,7 @@ namespace pnkr::renderer::rhi::vulkan
 
             vk::PipelineShaderStageCreateInfo stageInfo{};
             vk::ShaderStageFlags flags = VulkanUtils::toVkShaderStage(shaderDesc.stage);
-            // Get the first bit set
+
             if (flags & vk::ShaderStageFlagBits::eVertex) {
                 stageInfo.stage = vk::ShaderStageFlagBits::eVertex;
             } else if (flags & vk::ShaderStageFlagBits::eFragment) {
@@ -77,7 +78,6 @@ namespace pnkr::renderer::rhi::vulkan
             shaderStages.push_back(stageInfo);
         }
 
-        // Vertex input state
         std::vector<vk::VertexInputBindingDescription> bindingDescs;
         for (const auto& binding : desc.vertexBindings)
         {
@@ -107,7 +107,6 @@ namespace pnkr::renderer::rhi::vulkan
         vertexInputInfo.vertexAttributeDescriptionCount = u32(attributeDescs.size());
         vertexInputInfo.pVertexAttributeDescriptions = attributeDescs.data();
 
-        // Input assembly state
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.topology = VulkanUtils::toVkTopology(desc.topology);
         inputAssembly.primitiveRestartEnable = VK_FALSE;
@@ -117,12 +116,10 @@ namespace pnkr::renderer::rhi::vulkan
             tessellationInfo.patchControlPoints = desc.patchControlPoints;
         }
 
-        // Viewport state (dynamic)
         vk::PipelineViewportStateCreateInfo viewportState{};
         viewportState.viewportCount = 1;
         viewportState.scissorCount = 1;
 
-        // Rasterization state
         vk::PipelineRasterizationStateCreateInfo rasterizer{};
         rasterizer.depthClampEnable = VK_FALSE;
         rasterizer.rasterizerDiscardEnable = VK_FALSE;
@@ -134,7 +131,6 @@ namespace pnkr::renderer::rhi::vulkan
         rasterizer.depthBiasEnable = desc.rasterization.depthBiasEnable ? VK_TRUE : VK_FALSE;
         rasterizer.lineWidth = desc.rasterization.lineWidth;
 
-        // Multisample state
         vk::PipelineMultisampleStateCreateInfo multisampling{};
         multisampling.rasterizationSamples = VulkanUtils::toVkSampleCount(desc.multisample.rasterizationSamples);
         multisampling.sampleShadingEnable = desc.multisample.sampleShadingEnable ? VK_TRUE : VK_FALSE;
@@ -143,20 +139,22 @@ namespace pnkr::renderer::rhi::vulkan
         multisampling.alphaToCoverageEnable = VK_FALSE;
         multisampling.alphaToOneEnable = VK_FALSE;
 
-        // Depth/stencil state
         vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-        depthStencil.depthTestEnable = desc.depthStencil.depthTestEnable;
-        depthStencil.depthWriteEnable = desc.depthStencil.depthWriteEnable;
+        depthStencil.depthTestEnable =
+            static_cast<vk::Bool32>(desc.depthStencil.depthTestEnable);
+        depthStencil.depthWriteEnable =
+            static_cast<vk::Bool32>(desc.depthStencil.depthWriteEnable);
         depthStencil.depthCompareOp = VulkanUtils::toVkCompareOp(desc.depthStencil.depthCompareOp);
         depthStencil.depthBoundsTestEnable = VK_FALSE;
-        depthStencil.stencilTestEnable = desc.depthStencil.stencilTestEnable;
+        depthStencil.stencilTestEnable =
+            static_cast<vk::Bool32>(desc.depthStencil.stencilTestEnable);
 
-        // Color blend state
         std::vector<vk::PipelineColorBlendAttachmentState> colorBlendAttachments;
         for (const auto& attachment : desc.blend.attachments)
         {
             vk::PipelineColorBlendAttachmentState blendAttachment{};
-            blendAttachment.blendEnable = attachment.blendEnable;
+            blendAttachment.blendEnable =
+                static_cast<vk::Bool32>(attachment.blendEnable);
             blendAttachment.srcColorBlendFactor = VulkanUtils::toVkBlendFactor(attachment.srcColorBlendFactor);
             blendAttachment.dstColorBlendFactor = VulkanUtils::toVkBlendFactor(attachment.dstColorBlendFactor);
             blendAttachment.colorBlendOp = VulkanUtils::toVkBlendOp(attachment.colorBlendOp);
@@ -175,32 +173,28 @@ namespace pnkr::renderer::rhi::vulkan
         colorBlending.attachmentCount = u32(colorBlendAttachments.size());
         colorBlending.pAttachments = colorBlendAttachments.data();
 
-        // Dynamic state
         std::vector<vk::DynamicState> dynamicStates;
-        for (auto state : desc.dynamicStates)
-        {
-            dynamicStates.push_back(VulkanUtils::toVkDynamicState(state));
+        dynamicStates.reserve(desc.dynamicStates.size());
+        for (auto state : desc.dynamicStates) {
+          dynamicStates.push_back(VulkanUtils::toVkDynamicState(state));
         }
 
-        // Ensure uniqueness
-        std::sort(dynamicStates.begin(), dynamicStates.end());
-        dynamicStates.erase(std::unique(dynamicStates.begin(), dynamicStates.end()), dynamicStates.end());
+        std::ranges::sort(dynamicStates);
+        auto uniqueRange = std::ranges::unique(dynamicStates);
+        dynamicStates.erase(uniqueRange.begin(), uniqueRange.end());
 
         vk::PipelineDynamicStateCreateInfo dynamicState{};
         dynamicState.dynamicStateCount = u32(dynamicStates.size());
         dynamicState.pDynamicStates = dynamicStates.data();
 
-        // Create descriptor set layouts
         createDescriptorSetLayouts(desc.descriptorSets);
 
-        // Create pipeline layout
         createPipelineLayout(desc.pushConstants);
 
-        // Dynamic rendering (Vulkan 1.3)
         std::vector<vk::Format> colorFormats;
-        for (auto format : desc.colorFormats)
-        {
-            colorFormats.push_back(VulkanUtils::toVkFormat(format));
+        colorFormats.reserve(desc.colorFormats.size());
+        for (auto format : desc.colorFormats) {
+          colorFormats.push_back(VulkanUtils::toVkFormat(format));
         }
 
         vk::PipelineRenderingCreateInfo renderingInfo{};
@@ -208,7 +202,6 @@ namespace pnkr::renderer::rhi::vulkan
         renderingInfo.pColorAttachmentFormats = colorFormats.data();
         renderingInfo.depthAttachmentFormat = VulkanUtils::toVkFormat(desc.depthFormat);
 
-        // Create graphics pipeline
         vk::GraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.stageCount = u32(shaderStages.size());
         pipelineInfo.pStages = shaderStages.data();
@@ -224,36 +217,28 @@ namespace pnkr::renderer::rhi::vulkan
             pipelineInfo.pTessellationState = &tessellationInfo;
         }
         pipelineInfo.layout = m_pipelineLayout;
-        pipelineInfo.renderPass = nullptr; // Using dynamic rendering
+        pipelineInfo.renderPass = nullptr;
         pipelineInfo.subpass = 0;
         pipelineInfo.pNext = &renderingInfo;
 
-        auto result = m_device->device().createGraphicsPipeline(nullptr, pipelineInfo);
+        auto result = m_device->device().createGraphicsPipeline(m_device->getPipelineCache(), pipelineInfo);
         if (result.result != vk::Result::eSuccess)
         {
-            core::Logger::error("Failed to create graphics pipeline: {}", vk::to_string(result.result));
+            core::Logger::RHI.error("Failed to create graphics pipeline: {}", vk::to_string(result.result));
             throw cpptrace::runtime_error("Graphics pipeline creation failed");
         }
 
         m_pipeline = result.value;
 
-        // Set debug name
-        if (desc.debugName != nullptr &&
-            VULKAN_HPP_DEFAULT_DISPATCHER.vkSetDebugUtilsObjectNameEXT != nullptr)
-        {
-            vk::DebugUtilsObjectNameInfoEXT nameInfo{};
-            nameInfo.objectType = vk::ObjectType::ePipeline;
-            nameInfo.objectHandle = reinterpret_cast<uint64_t>(static_cast<VkPipeline>(m_pipeline));
-            nameInfo.pObjectName = desc.debugName;
-
-
-            m_device->device(). setDebugUtilsObjectNameEXT(nameInfo);
-        }
+        VulkanUtils::setDebugName(m_device->device(), vk::ObjectType::ePipeline, reinterpret_cast<uint64_t>(static_cast<VkPipeline>(m_pipeline)), desc.debugName);
+        m_device->trackObject(vk::ObjectType::ePipeline,
+                              u64(static_cast<VkPipeline>(m_pipeline)),
+                              desc.debugName);
     }
 
     void VulkanRHIPipeline::createComputePipeline(const ComputePipelineDescriptor& desc)
     {
-        // Create shader module
+
         vk::ShaderModule module = createShaderModule(desc.shader);
 
         vk::PipelineShaderStageCreateInfo shaderStage{};
@@ -261,47 +246,35 @@ namespace pnkr::renderer::rhi::vulkan
         shaderStage.module = module;
         shaderStage.pName = desc.shader.entryPoint.c_str();
 
-        // Create descriptor set layouts
         createDescriptorSetLayouts(desc.descriptorSets);
 
-        // Create pipeline layout
         createPipelineLayout(desc.pushConstants);
 
-        // Create compute pipeline
         vk::ComputePipelineCreateInfo pipelineInfo{};
         pipelineInfo.stage = shaderStage;
         pipelineInfo.layout = m_pipelineLayout;
 
-        auto result = m_device->device().createComputePipeline(nullptr, pipelineInfo);
+        auto result = m_device->device().createComputePipeline(m_device->getPipelineCache(), pipelineInfo);
         if (result.result != vk::Result::eSuccess)
         {
-            core::Logger::error("Failed to create compute pipeline: {}", vk::to_string(result.result));
+            core::Logger::RHI.error("Failed to create compute pipeline: {}", vk::to_string(result.result));
             throw cpptrace::runtime_error("Compute pipeline creation failed");
         }
 
         m_pipeline = result.value;
 
-        // Set debug name
-        if (desc.debugName != nullptr &&
-            VULKAN_HPP_DEFAULT_DISPATCHER.vkSetDebugUtilsObjectNameEXT != nullptr)
-        {
-            vk::DebugUtilsObjectNameInfoEXT nameInfo{};
-            nameInfo.objectType = vk::ObjectType::ePipeline;
-            nameInfo.objectHandle = reinterpret_cast<uint64_t>(static_cast<VkPipeline>(m_pipeline));
-            nameInfo.pObjectName = desc.debugName;
-
-
-            m_device->device().setDebugUtilsObjectNameEXT(nameInfo);
-        }
+        VulkanUtils::setDebugName(m_device->device(), vk::ObjectType::ePipeline, reinterpret_cast<uint64_t>(static_cast<VkPipeline>(m_pipeline)), desc.debugName);
+        m_device->trackObject(vk::ObjectType::ePipeline,
+                              u64(static_cast<VkPipeline>(m_pipeline)),
+                              desc.debugName);
     }
 
     void VulkanRHIPipeline::createDescriptorSetLayouts(const std::vector<DescriptorSetLayout>& layouts)
     {
         const bool hasBindless = (m_device->getBindlessDescriptorSetLayout() != nullptr);
-        const size_t requiredSetCount = hasBindless ? std::max<size_t>(layouts.size(), 2u) : layouts.size();
+        const size_t requiredSetCount =
+            hasBindless ? std::max<size_t>(layouts.size(), 2U) : layouts.size();
 
-        // Helper: create an empty placeholder set layout (0 bindings). This is critical to keep
-        // VkPipelineLayoutCreateInfo::pSetLayouts dense by set index.
         auto createEmptySetLayout = [&]() -> vk::DescriptorSetLayout {
             vk::DescriptorSetLayoutCreateInfo info{};
             info.bindingCount = 0;
@@ -309,7 +282,6 @@ namespace pnkr::renderer::rhi::vulkan
             return m_device->device().createDescriptorSetLayout(info);
         };
 
-        // Cache device bindless description for schema validation/logging
         const VulkanRHIDescriptorSetLayout* vkBindlessLayoutObj = nullptr;
         const DescriptorSetLayout* bindlessDescPtr = nullptr;
         if (hasBindless) {
@@ -323,13 +295,9 @@ namespace pnkr::renderer::rhi::vulkan
             const DescriptorSetLayout emptyIncoming{};
             const DescriptorSetLayout& setLayout = hasIncoming ? layouts[i] : emptyIncoming;
 
-            // Set 1 is reserved for global bindless when enabled.
             if (i == 1 && hasBindless)
             {
-                core::Logger::info("Using global bindless layout for set 1");
 
-                // Optional but strongly recommended: validate the shader-reflected set 1 interface
-                // against the device bindless schema to catch combined-image-sampler declarations early.
                 if (hasIncoming && bindlessDescPtr != nullptr && !setLayout.bindings.empty())
                 {
                     std::unordered_map<uint32_t, DescriptorType> expected;
@@ -343,14 +311,14 @@ namespace pnkr::renderer::rhi::vulkan
                         auto it = expected.find(b.binding);
                         if (it == expected.end())
                         {
-                            core::Logger::error(
+                            core::Logger::RHI.error(
                                 "[Bindless ABI] Shader declared set=1 binding={} (type={}) but device bindless schema has no such binding.",
                                 b.binding, (int)b.type);
                             continue;
                         }
                         if (it->second != b.type)
                         {
-                            core::Logger::error(
+                            core::Logger::RHI.error(
                                 "[Bindless ABI] Shader declared set=1 binding={} type={} but device expects type={}. "
                                 "This often indicates combined image samplers (sampler2D/samplerCube) instead of separate image+sampler per bindless.glsl.",
                                 b.binding, (int)b.type, (int)it->second);
@@ -358,19 +326,17 @@ namespace pnkr::renderer::rhi::vulkan
                     }
                 }
 
-                // Always use the device-owned bindless VkDescriptorSetLayout for set 1.
                 m_descriptorSetLayouts.push_back(
                     std::make_unique<VulkanRHIDescriptorSetLayout>(
                         m_device,
                         vkBindlessLayoutObj->layout(),
                         *bindlessDescPtr,
-                        false /* don't own */
+                        false
                     )
                 );
                 continue;
             }
 
-            // Create normal (or empty placeholder) layout for this set index.
             std::vector<vk::DescriptorSetLayoutBinding> bindings;
             bindings.reserve(setLayout.bindings.size());
 
@@ -404,7 +370,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     void VulkanRHIPipeline::createPipelineLayout(const std::vector<PushConstantRange>& pushConstants)
     {
-        // Convert push constant ranges
+
         std::vector<vk::PushConstantRange> vkPushConstants;
         for (const auto& range : pushConstants)
         {
@@ -430,6 +396,9 @@ namespace pnkr::renderer::rhi::vulkan
         layoutInfo.pPushConstantRanges = vkPushConstants.data();
 
         m_pipelineLayout = m_device->device().createPipelineLayout(layoutInfo);
+        m_device->trackObject(vk::ObjectType::ePipelineLayout,
+                              u64(static_cast<VkPipelineLayout>(m_pipelineLayout)),
+                              "PipelineLayout");
     }
 
     vk::ShaderModule VulkanRHIPipeline::createShaderModule(const ShaderModuleDescriptor& desc)
@@ -440,6 +409,9 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::ShaderModule module = m_device->device().createShaderModule(createInfo);
         m_shaderModules.push_back(module);
+        m_device->trackObject(vk::ObjectType::eShaderModule,
+                              u64(static_cast<VkShaderModule>(module)),
+                              "ShaderModule");
 
         return module;
     }
@@ -448,6 +420,7 @@ namespace pnkr::renderer::rhi::vulkan
     {
         for (auto module : m_shaderModules)
         {
+            m_device->untrackObject(u64(static_cast<VkShaderModule>(module)));
             m_device->device().destroyShaderModule(module);
         }
         m_shaderModules.clear();
@@ -466,4 +439,5 @@ namespace pnkr::renderer::rhi::vulkan
     {
         return u32(m_descriptorSetLayouts.size());
     }
-} // namespace pnkr::renderer::rhi::vulkan
+}
+

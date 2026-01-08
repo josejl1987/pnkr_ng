@@ -1,81 +1,137 @@
-// Force dynamic loader definition to ensure it's active in this translation unit
+
 #ifndef VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #endif
 
+#include <iostream>
 #include "pnkr/rhi/rhi_factory.hpp"
-#include "pnkr/rhi/vulkan/vulkan_device.hpp"
-#include "pnkr/rhi/vulkan/vulkan_swapchain.hpp"
+#include "rhi/vulkan/vulkan_device.hpp"
+#include "rhi/vulkan/vulkan_swapchain.hpp"
+#include "rhi/vulkan/BDARegistry.hpp"
 #include "pnkr/core/logger.hpp"
 #include <vector>
 #include <cstring>
 #include <vulkan/vulkan.hpp>
-#include <SDL3/SDL_vulkan.h> // Added SDL Vulkan support
+#include <SDL3/SDL_vulkan.h>
 #include <cpptrace/cpptrace.hpp>
 
 namespace pnkr::renderer::rhi
 {
 namespace
 {
-    VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-        vk::DebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        vk::DebugUtilsMessageTypeFlagsEXT messageType,
-        const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* /*pUserData*/)
-    {
-        // 1. Identify Message Type
-        std::string_view typeLabel = "General";
-        if (messageType & vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation) {
-            typeLabel = "Validation";
-        } else if (messageType & vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance) {
-            typeLabel = "Performance";
+void *gDebugDevice = nullptr;
+
+VKAPI_ATTR VkBool32 VKAPI_CALL
+debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+              vk::DebugUtilsMessageTypeFlagsEXT messageType,
+              const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData,
+              void *pUserData) {
+  void *devicePtr = (pUserData != nullptr) ? pUserData : gDebugDevice;
+
+  if (devicePtr != nullptr) {
+    const auto *next =
+        static_cast<const vk::BaseInStructure *>(pCallbackData->pNext);
+    while (next != nullptr) {
+      if (next->sType ==
+          vk::StructureType::eDeviceAddressBindingCallbackDataEXT) {
+        const auto *bindingData =
+            reinterpret_cast<const vk::DeviceAddressBindingCallbackDataEXT *>(
+                next);
+        auto *device = static_cast<vulkan::VulkanRHIDevice *>(devicePtr);
+        if (device->getBDARegistry() != nullptr) {
+          std::vector<vulkan::BDARegistry::ObjectRef> objects;
+          objects.reserve(pCallbackData->objectCount);
+          for (uint32_t i = 0; i < pCallbackData->objectCount; ++i) {
+            const auto &obj = pCallbackData->pObjects[i];
+            vulkan::BDARegistry::ObjectRef ref{};
+            ref.type = static_cast<VkObjectType>(obj.objectType);
+            ref.handle = obj.objectHandle;
+            ref.name = (obj.pObjectName != nullptr) ? obj.pObjectName : "";
+            objects.emplace_back(std::move(ref));
+          }
+
+          device->getBDARegistry()->onDeviceAddressBinding(
+              static_cast<VkDeviceAddressBindingTypeEXT>(
+                  bindingData->bindingType),
+              bindingData->baseAddress, bindingData->size,
+              static_cast<VkDeviceAddressBindingFlagsEXT>(bindingData->flags),
+              objects.empty() ? nullptr : objects.data(),
+              static_cast<uint32_t>(objects.size()));
         }
 
-        // 2. Filter & Log
-        auto isError = (messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
-        auto isWarning = (messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning);
-
-        if (isError)
-        {
-            core::Logger::error("[Vulkan][{}] {}", typeLabel, pCallbackData->pMessage);
-
-            // --- Enhanced Logging ---
-            
-            // Log Involved Objects (e.g., handles to invalid buffers/images)
-            if (pCallbackData->objectCount > 0) {
-                for (uint32_t i = 0; i < pCallbackData->objectCount; i++) {
-                    const auto& obj = pCallbackData->pObjects[i];
-                    core::Logger::error(" - Object[{}] Type: {}, Handle: {:#x}, Name: '{}'",
-                        i, 
-                        vk::to_string(obj.objectType), // vulkan.hpp to_string helper
-                        obj.objectHandle, 
-                        obj.pObjectName ? obj.pObjectName : "Unnamed");
-                }
-            }
-
-            // Log Command Buffer Labels (e.g., "Main Render Pass")
-            if (pCallbackData->cmdBufLabelCount > 0) {
-                 core::Logger::error(" - Inside Command Buffer Label: {}", 
-                     pCallbackData->pCmdBufLabels[pCallbackData->cmdBufLabelCount - 1].pLabelName);
-            }
-
-            // Print Stack Trace (skip 2 frames: this callback + trace generator)
-            cpptrace::generate_trace(2).print();
-
-
-        }
-        else if (isWarning)
-        {
-            core::Logger::warn("[Vulkan][{}] {}", typeLabel, pCallbackData->pMessage);
-        }
-        else
-        {
-            // Info/Verbose
-            core::Logger::info("[Vulkan][{}] {}", typeLabel, pCallbackData->pMessage);
-        }
-
-        return VK_FALSE;
+        next = next->pNext;
+        continue;
+      }
+      next = next->pNext;
     }
+  }
+
+  std::string_view typeLabel = "General";
+  if (messageType & vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation) {
+    typeLabel = "Validation";
+  } else if (messageType & vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance) {
+    typeLabel = "Performance";
+  }
+
+  auto isError =
+      (messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
+  auto isWarning =
+      (messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning);
+
+  const char *message =
+      (pCallbackData != nullptr && pCallbackData->pMessage != nullptr)
+          ? pCallbackData->pMessage
+          : "<nullptr>";
+
+  if (isError || isWarning) {
+    std::string stacktrace = cpptrace::generate_trace().to_string(true);
+
+    if (isError) {
+      core::Logger::RHI.error("[Vulkan Debug Callback][{}] {}\n{}", typeLabel,
+                              message, stacktrace);
+
+    } else {
+      core::Logger::RHI.warn("[Vulkan Debug Callback][{}] {}", typeLabel,
+                             message);
+    }
+
+    if (pCallbackData->objectCount > 0) {
+      for (uint32_t i = 0; i < pCallbackData->objectCount; i++) {
+        const auto &obj = pCallbackData->pObjects[i];
+        core::Logger::RHI.error(
+            " - Object[{}] Type: {}, Handle: {:#x}, Name: '{}'", i,
+            vk::to_string(obj.objectType), obj.objectHandle,
+            (obj.pObjectName != nullptr) ? obj.pObjectName : "Unnamed");
+
+        if (devicePtr != nullptr) {
+          auto *device = static_cast<vulkan::VulkanRHIDevice *>(devicePtr);
+          vulkan::VulkanRHIDevice::TrackedVulkanObject tracked{};
+          if (device->tryGetObjectTrace(
+                  static_cast<uint64_t>(obj.objectHandle), tracked)) {
+            core::Logger::RHI.error("   Created: Type={}, Name='{}'\n{}",
+                                    vk::to_string(tracked.type), tracked.name,
+                                    tracked.trace);
+          } else {
+             core::Logger::RHI.warn("   [Trace Missing] Object Handle={:#x} Type={}", obj.objectHandle, vk::to_string(obj.objectType));
+          }
+        } else {
+             core::Logger::RHI.warn("   [Device Ptr nullptr] Cannot retrieve creation trace for handle {:#x}", obj.objectHandle);
+        }
+      }
+    }
+
+    if (pCallbackData->cmdBufLabelCount > 0) {
+      core::Logger::RHI.error(
+          " - Inside Command Buffer Label: {}",
+          pCallbackData->pCmdBufLabels[pCallbackData->cmdBufLabelCount - 1]
+              .pLabelName);
+    }
+  } else {
+    core::Logger::RHI.info("[Vulkan][{}] {}", typeLabel, message);
+  }
+
+  return VK_FALSE;
+}
 
     bool hasLayer(const std::vector<vk::LayerProperties>& layers, const char* name)
     {
@@ -102,16 +158,17 @@ namespace
     }
 }
 
+void RHIFactory::registerDebugDevice(void *device) { gDebugDevice = device; }
+
 std::vector<std::unique_ptr<RHIPhysicalDevice>>
 RHIFactory::enumeratePhysicalDevices(RHIBackend backend)
 {
 std::vector<std::unique_ptr<RHIPhysicalDevice>> devices;
 
-
 switch (backend) {
         case RHIBackend::Vulkan: {
             try {
-                // Initialize the Dynamic Dispatcher
+
                 static vk::detail::DynamicLoader dl;
                 auto vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
 
@@ -121,7 +178,6 @@ switch (backend) {
 
                 VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
-                // Create Vulkan instance
                 vk::ApplicationInfo appInfo{};
                 appInfo.pApplicationName = "PNKR Engine";
                 appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -132,10 +188,8 @@ switch (backend) {
                 vk::InstanceCreateInfo createInfo{};
                 createInfo.pApplicationInfo = &appInfo;
 
-                // --- Extensions ---
                 std::vector<const char*> extensions;
 
-                // 1. Get SDL Extensions (Surface, Platform-specific)
                 uint32_t sdlExtCount = 0;
                 const char* const* sdlExts = SDL_Vulkan_GetInstanceExtensions(&sdlExtCount);
                 if (sdlExts != nullptr) {
@@ -147,19 +201,18 @@ switch (backend) {
                 const auto availableExtensions = vk::enumerateInstanceExtensionProperties();
                 const auto availableLayers = vk::enumerateInstanceLayerProperties();
 
-                // --- Layers ---
                 std::vector<const char*> layers;
 
-                // 3. Add Portability (MacOS)
                 #ifdef __APPLE__
                 extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
                 createInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
                 #endif
 
-                bool enableValidation = false;
-                #ifdef _DEBUG
-                enableValidation = true;
-                #endif
+                bool enableValidation = true;
+
+                if (enableValidation) {
+                    core::Logger::RHI.info("Attempting to enable validation layers (Forced)...");
+                }
 
                 if (enableValidation && hasLayer(availableLayers, "VK_LAYER_KHRONOS_validation"))
                 {
@@ -167,19 +220,24 @@ switch (backend) {
                 }
                 else if (enableValidation)
                 {
-                    core::Logger::warn("Validation layer VK_LAYER_KHRONOS_validation not found");
-                    enableValidation = false;
+                    core::Logger::RHI.warn("Validation layer VK_LAYER_KHRONOS_validation not found in enumeration. Proceeding with Debug Utils setup.");
                 }
 
                 bool enableDebugUtils = false;
+                bool hasBdaReportExt = false;
                 if (enableValidation && hasExtension(availableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
                 {
                     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+                    hasBdaReportExt = hasExtension(availableExtensions, VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
+                    if (hasBdaReportExt) {
+                        extensions.push_back(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
+                    }
                     enableDebugUtils = true;
                 }
                 else if (enableValidation)
                 {
-                    core::Logger::warn("VK_EXT_debug_utils not available; debug messenger disabled");
+                    core::Logger::RHI.warn("VK_EXT_debug_utils not available; debug messenger disabled");
                 }
 
                 createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
@@ -198,15 +256,17 @@ switch (backend) {
                         vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
                         vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
                         vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
+
+                    if (hasBdaReportExt) {
+                        debugCreateInfo.messageType |= vk::DebugUtilsMessageTypeFlagBitsEXT::eDeviceAddressBinding;
+                    }
                     debugCreateInfo.pfnUserCallback = debugCallback;
                     createInfo.pNext = &debugCreateInfo;
                 }
 
-                // Create Instance
                 auto instanceContext = std::make_shared<vulkan::VulkanInstanceContext>();
                 instanceContext->instance = vk::createInstance(createInfo);
 
-                // Initialize Dispatcher with Instance
                 VULKAN_HPP_DEFAULT_DISPATCHER.init(instanceContext->instance);
 
                 if (enableDebugUtils)
@@ -216,7 +276,6 @@ switch (backend) {
                     instanceContext->hasDebugMessenger = true;
                 }
 
-                // Enumerate physical devices
                 auto physicalDevices = instanceContext->instance.enumeratePhysicalDevices();
 
                 for (auto pd : physicalDevices) {
@@ -224,20 +283,20 @@ switch (backend) {
                         std::make_unique<vulkan::VulkanRHIPhysicalDevice>(pd, instanceContext));
                 }
 
-                core::Logger::info("Found {} Vulkan physical device(s)", devices.size());
+                core::Logger::RHI.info("Found {} Vulkan physical device(s)", devices.size());
             } catch (const std::exception& e) {
-                core::Logger::error("Vulkan initialization failed: {}", e.what());
+                core::Logger::RHI.error("Vulkan initialization failed: {}", e.what());
             }
             break;
         }
         case RHIBackend::DirectX12:
-            core::Logger::error("DirectX12 backend not implemented");
+            core::Logger::RHI.error("DirectX12 backend not implemented");
             break;
         case RHIBackend::Metal:
-            core::Logger::error("Metal backend not implemented");
+            core::Logger::RHI.error("Metal backend not implemented");
             break;
         default:
-            core::Logger::error("Unknown backend");
+            core::Logger::RHI.error("Unknown backend");
             break;
     }
 
@@ -246,32 +305,40 @@ switch (backend) {
 
 std::unique_ptr<RHIDevice> RHIFactory::createDevice(
     RHIBackend backend,
-    RHIPhysicalDevice* physicalDevice,
+    std::unique_ptr<RHIPhysicalDevice> physicalDevice,
     const DeviceDescriptor& desc)
 {
     switch (backend) {
         case RHIBackend::Vulkan: {
-            auto* vkPhysicalDevice = dynamic_cast<vulkan::VulkanRHIPhysicalDevice*>(physicalDevice);
+            if (!physicalDevice) {
+                core::Logger::RHI.error("createDevice: physicalDevice is null");
+                return nullptr;
+            }
 
-            // Transfer ownership
-            std::unique_ptr<vulkan::VulkanRHIPhysicalDevice> ownedPhysicalDevice(vkPhysicalDevice);
+            auto* vkPhysicalDevice = dynamic_cast<vulkan::VulkanRHIPhysicalDevice*>(physicalDevice.get());
+            if (vkPhysicalDevice == nullptr) {
+                core::Logger::RHI.error("createDevice: physicalDevice type mismatch");
+                return nullptr;
+            }
 
-            auto device = std::make_unique<vulkan::VulkanRHIDevice>(
+            std::unique_ptr<vulkan::VulkanRHIPhysicalDevice> ownedPhysicalDevice(
+                static_cast<vulkan::VulkanRHIPhysicalDevice*>(physicalDevice.release()));
+
+            auto device = vulkan::VulkanRHIDevice::create(
                 std::move(ownedPhysicalDevice), desc);
 
-            // Initialize Dispatcher with Logical Device
             VULKAN_HPP_DEFAULT_DISPATCHER.init(device->device());
 
             return device;
         }
         case RHIBackend::DirectX12:
-            core::Logger::error("DirectX12 backend not implemented");
+            core::Logger::RHI.error("DirectX12 backend not implemented");
             return nullptr;
         case RHIBackend::Metal:
-            core::Logger::error("Metal backend not implemented");
+            core::Logger::RHI.error("Metal backend not implemented");
             return nullptr;
         default:
-            core::Logger::error("Unsupported backend");
+            core::Logger::RHI.error("Unsupported backend");
             return nullptr;
     }
 }
@@ -282,32 +349,30 @@ std::unique_ptr<RHIDevice> RHIFactory::createDeviceAuto(
 {
     auto devices = enumeratePhysicalDevices(backend);
     if (devices.empty()) {
-        core::Logger::error("No physical devices found");
+        core::Logger::RHI.error("No physical devices found");
         return nullptr;
     }
 
-    // Select best device (prefer discrete GPU)
-    RHIPhysicalDevice* bestDevice = nullptr;
+    std::unique_ptr<RHIPhysicalDevice> bestDevice;
     for (auto& device : devices) {
-        if (device->capabilities().discreteGPU) {
-            bestDevice = device.release();
+        if (device && device->capabilities().discreteGPU) {
+            bestDevice = std::move(device);
             break;
         }
     }
 
-    // If no discrete GPU, use first device
-    if ((bestDevice == nullptr) && !devices.empty()) {
-        bestDevice = devices[0].release();
+    if (!bestDevice && !devices.empty()) {
+        bestDevice = std::move(devices[0]);
     }
 
-    if (bestDevice == nullptr) {
-        core::Logger::error("Failed to select physical device");
+    if (!bestDevice) {
+        core::Logger::RHI.error("Failed to select physical device");
         return nullptr;
     }
 
-    core::Logger::info("Selected device: {}", bestDevice->capabilities().deviceName);
+    core::Logger::RHI.info("Selected device: {}", bestDevice->capabilities().deviceName);
 
-    return createDevice(backend, bestDevice, desc);
+    return createDevice(backend, std::move(bestDevice), desc);
 }
 
 std::unique_ptr<RHISwapchain> RHIFactory::createSwapchain(
@@ -317,11 +382,10 @@ std::unique_ptr<RHISwapchain> RHIFactory::createSwapchain(
 {
     if (device == nullptr)
     {
-        core::Logger::error("createSwapchain: device is null");
+        core::Logger::RHI.error("createSwapchain: device is null");
         return nullptr;
     }
 
-    // Currently only Vulkan is implemented. The concrete device type determines the swapchain backend.
     if (auto* vkDevice = dynamic_cast<vulkan::VulkanRHIDevice*>(device))
     {
         try
@@ -330,17 +394,14 @@ std::unique_ptr<RHISwapchain> RHIFactory::createSwapchain(
         }
         catch (const std::exception& e)
         {
-            core::Logger::error("Failed to create Vulkan swapchain: {}", e.what());
+            core::Logger::RHI.error("Failed to create Vulkan swapchain: {}", e.what());
             return nullptr;
         }
     }
 
-    core::Logger::error("createSwapchain: unsupported device/backend");
+    core::Logger::RHI.error("createSwapchain: unsupported device/backend");
     return nullptr;
 }
 
+}
 
-
-
-
-} // namespace pnkr::renderer::rhi

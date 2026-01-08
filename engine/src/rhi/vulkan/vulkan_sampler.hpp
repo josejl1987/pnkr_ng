@@ -3,13 +3,13 @@
 #include "pnkr/rhi/rhi_sampler.hpp"
 #include <vulkan/vulkan.hpp>
 
-#include "pnkr/rhi/rhi_device.hpp"
+#include "VulkanRHIResourceBase.hpp"
 
 namespace pnkr::renderer::rhi::vulkan
 {
     class VulkanRHIDevice;
 
-    class VulkanRHISampler : public RHISampler
+    class VulkanRHISampler : public VulkanRHIResourceBase<vk::Sampler, RHISampler>
     {
     public:
         VulkanRHISampler(VulkanRHIDevice* device,
@@ -19,26 +19,15 @@ namespace pnkr::renderer::rhi::vulkan
                         CompareOp compareOp = CompareOp::None);
         ~VulkanRHISampler() override;
 
-        // Disable copy
         VulkanRHISampler(const VulkanRHISampler&) = delete;
         VulkanRHISampler& operator=(const VulkanRHISampler&) = delete;
 
-        // RHISampler interface
-        void* nativeHandle() const override {
-            return static_cast<VkSampler>(m_sampler);
-        }
+        vk::Sampler sampler() const { return m_handle; }
 
-        // Vulkan-specific
-        vk::Sampler sampler() const { return m_sampler; }
-
-        // Implicit conversion operators for cleaner Vulkan API usage
-        operator vk::Sampler() const { return m_sampler; }
-        operator VkSampler() const { return m_sampler; }
+        operator VkSampler() const { return m_handle; }
 
     private:
-        VulkanRHIDevice* m_device;
-        vk::Sampler m_sampler;
         bool m_isShadowSampler = false;
     };
 
-} // namespace pnkr::renderer::rhi::vulkan
+}

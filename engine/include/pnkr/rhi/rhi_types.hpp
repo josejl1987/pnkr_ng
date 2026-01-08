@@ -4,25 +4,18 @@
 #include <string>
 #include <vector>
 #include <type_traits>
+#include "pnkr/core/bitflags.hpp"
 
 namespace pnkr::renderer::rhi
 {
-    // Backend selection
+
     enum class RHIBackend
     {
         Vulkan,
         DirectX12,
         Metal,
-        Auto // Auto-detect best available
+        Auto
     };
-
-    // Helper for enum class flag operations
-    template<typename T>
-    requires std::is_enum_v<T>
-    constexpr bool hasFlag(T value, T flag) {
-        return (static_cast<std::underlying_type_t<T>>(value) &
-                static_cast<std::underlying_type_t<T>>(flag)) != 0;
-    }
 
     enum class ResourceLayout
     {
@@ -34,15 +27,13 @@ namespace pnkr::renderer::rhi
         ShaderReadOnly,
         TransferSrc,
         TransferDst,
-        Present
+        Present, VertexBufferRead, IndexBufferRead, IndirectBufferRead, UniformBufferRead
     };
 
-    // Resource formats (map to VkFormat, DXGI_FORMAT, MTLPixelFormat)
     enum class Format
     {
         Undefined,
 
-        // Color formats
         R8_UNORM,
         R8G8_UNORM,
         R8G8B8_UNORM,
@@ -50,33 +41,97 @@ namespace pnkr::renderer::rhi
         R8G8B8A8_SRGB,
         B8G8R8A8_UNORM,
         B8G8R8A8_SRGB,
-        B10G11R11_UFLOAT_PACK32,
+
+        R8_SNORM,
+        R8G8_SNORM,
+        R8G8B8_SNORM,
+        R8G8B8A8_SNORM,
+
+        R8_UINT,
+        R8G8_UINT,
+        R8G8B8A8_UINT,
+
+        R8_SINT,
+        R8G8_SINT,
+        R8G8B8A8_SINT,
+
+        R16_UNORM,
+        R16G16_UNORM,
+        R16G16B16A16_UNORM,
+
+        R16_SNORM,
+        R16G16_SNORM,
+        R16G16B16A16_SNORM,
 
         R16_SFLOAT,
         R16G16_SFLOAT,
+        R16G16B16_SFLOAT,
         R16G16B16A16_SFLOAT,
+
+        R16_UINT,
+        R16G16_UINT,
+        R16G16B16A16_UINT,
+
+        R16_SINT,
+        R16G16_SINT,
+        R16G16B16A16_SINT,
 
         R32_SFLOAT,
         R32G32_SFLOAT,
         R32G32B32_SFLOAT,
         R32G32B32A32_SFLOAT,
 
-        // Depth/stencil formats
+        R32_UINT,
+        R32G32_UINT,
+        R32G32B32_UINT,
+        R32G32B32A32_UINT,
+
+        R32_SINT,
+        R32G32_SINT,
+        R32G32B32_SINT,
+        R32G32B32A32_SINT,
+
+        B10G11R11_UFLOAT_PACK32,
+        A2B10G10R10_UNORM_PACK32,
+        A2R10G10B10_UNORM_PACK32,
+        E5B9G9R9_UFLOAT_PACK32,
+
         D16_UNORM,
         D32_SFLOAT,
         D24_UNORM_S8_UINT,
         D32_SFLOAT_S8_UINT,
+        S8_UINT,
 
-        // Compressed formats
         BC1_RGB_UNORM,
         BC1_RGB_SRGB,
+        BC1_RGBA_UNORM,
+        BC1_RGBA_SRGB,
+        BC2_UNORM,
+        BC2_SRGB,
         BC3_UNORM,
         BC3_SRGB,
+        BC4_UNORM,
+        BC4_SNORM,
+        BC5_UNORM,
+        BC5_SNORM,
+        BC6H_UFLOAT,
+        BC6H_SFLOAT,
         BC7_UNORM,
-        BC7_SRGB, R8_SNORM, R8G8_SNORM, R8G8B8_SNORM, R8G8B8A8_SNORM, R32G32B32A32_UINT
+        BC7_SRGB,
+
+        ASTC_4x4_UNORM,
+        ASTC_4x4_SRGB,
+        ASTC_6x6_UNORM,
+        ASTC_6x6_SRGB,
+        ASTC_8x8_UNORM,
+        ASTC_8x8_SRGB,
+
+        ETC2_R8G8B8_UNORM,
+        ETC2_R8G8B8_SRGB,
+        ETC2_R8G8B8A8_UNORM,
+        ETC2_R8G8B8A8_SRGB,
     };
 
-    // Buffer usage flags
     enum class BufferUsage : uint32_t
     {
         None = 0,
@@ -90,8 +145,9 @@ namespace pnkr::renderer::rhi
         ShaderDeviceAddress  = 1 << 7
 
     };
+    PNKR_ENABLE_BITMASK_OPERATORS(BufferUsage);
+    using BufferUsageFlags = core::Flags<BufferUsage>;
 
-    // Texture usage flags
     enum class TextureUsage : uint32_t
     {
         None = 0,
@@ -104,18 +160,96 @@ namespace pnkr::renderer::rhi
         InputAttachment = 1 << 6,
         TransientAttachment = 1 << 7
     };
+    PNKR_ENABLE_BITMASK_OPERATORS(TextureUsage);
+    using TextureUsageFlags = core::Flags<TextureUsage>;
 
-    // Memory properties
-    enum class MemoryUsage
-    {
-        GPUOnly, // Device local (VRAM)
-        CPUToGPU, // Upload heap
-        GPUToCPU, // Readback heap
-        CPUOnly, // Staging
-        GPULazy  // Lazily allocated memory
+    // Define Offset3D for consistent use
+    struct Offset3D {
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
     };
 
-    // Shader stages
+    struct TextureSubresource
+    {
+        uint32_t mipLevel = 0;
+        uint32_t arrayLayer = 0;
+    };
+
+    struct Rect2D
+    {
+        int32_t x = 0;
+        int32_t y = 0;
+        uint32_t width = 0;
+        uint32_t height = 0;
+    };
+
+    struct Extent2D
+    {
+        uint32_t width = 0;
+        uint32_t height = 0;
+    };
+
+    struct Extent3D
+    {
+        uint32_t width = 0;
+        uint32_t height = 0;
+        uint32_t depth = 1;
+    };
+    struct TextureCopyRegion
+    {
+        TextureSubresource srcSubresource;
+        TextureSubresource dstSubresource;
+
+        // For vkCmdBlitImage: These define the corners of the source and destination regions.
+        // For vkCmdCopyImage/vkCmdResolveImage: These are typically {0,0,0} for full subresource operations.
+        Offset3D srcOffsets[2];
+        Offset3D dstOffsets[2];
+
+        // Compatibility with existing code that expects srcOffset/dstOffset as single points (index 0)
+        // We can add accessors or just use srcOffsets[0] in implementation. 
+        // However, to match previous struct structure closer for code compatibility:
+        Offset3D& srcOffset() { return srcOffsets[0]; }
+        const Offset3D& srcOffset() const { return srcOffsets[0]; }
+        Offset3D& dstOffset() { return dstOffsets[0]; }
+        const Offset3D& dstOffset() const { return dstOffsets[0]; }
+
+        Extent3D extent;
+    };
+
+    struct BufferTextureCopyRegion
+    {
+        uint64_t bufferOffset = 0;
+        uint32_t bufferRowLength = 0;
+        uint32_t bufferImageHeight = 0;
+        TextureSubresource textureSubresource;
+        Offset3D textureOffset;
+        Extent3D textureExtent;
+    };
+
+    enum class TextureAspect : uint32_t
+    {
+        Color = 1 << 0,
+        Depth = 1 << 1,
+        Stencil = 1 << 2,
+        Metadata = 1 << 3,
+        Plane0 = 1 << 4,
+        Plane1 = 1 << 5,
+        Plane2 = 1 << 6,
+        All = Color | Depth | Stencil
+    };
+    PNKR_ENABLE_BITMASK_OPERATORS(TextureAspect);
+    using TextureAspectFlags = core::Flags<TextureAspect>;
+
+    enum class MemoryUsage
+    {
+        GPUOnly,
+        CPUToGPU,
+        GPUToCPU,
+        CPUOnly,
+        GPULazy
+    };
+
     enum class ShaderStage : uint32_t
     {
         None = 0,
@@ -130,11 +264,12 @@ namespace pnkr::renderer::rhi
         Transfer = 1 << 8,
         Host = 1 << 9,
         DrawIndirect = 1 << 10,
-        All = Vertex | Fragment | Geometry | Compute | TessControl | TessEval |
-            DepthStencilAttachment | RenderTarget | Transfer | DrawIndirect
+        AllGraphics = Vertex | Fragment | Geometry | TessControl | TessEval | RenderTarget | DepthStencilAttachment,
+        All = AllGraphics | Compute | Transfer | DrawIndirect
     };
+    PNKR_ENABLE_BITMASK_OPERATORS(ShaderStage);
+    using ShaderStageFlags = core::Flags<ShaderStage>;
 
-    // Matches VkDrawIndexedIndirectCommand layout.
     struct DrawIndexedIndirectCommand
     {
         uint32_t indexCount = 0;
@@ -144,7 +279,6 @@ namespace pnkr::renderer::rhi
         uint32_t firstInstance = 0;
     };
 
-    // Primitive topology
     enum class PrimitiveTopology
     {
         PointList,
@@ -156,7 +290,6 @@ namespace pnkr::renderer::rhi
         PatchList
     };
 
-    // Polygon mode
     enum class PolygonMode
     {
         Fill,
@@ -164,7 +297,6 @@ namespace pnkr::renderer::rhi
         Point
     };
 
-    // Cull mode
     enum class CullMode
     {
         None,
@@ -173,7 +305,6 @@ namespace pnkr::renderer::rhi
         FrontAndBack
     };
 
-    // Blend factors
     enum class BlendFactor
     {
         Zero,
@@ -188,7 +319,6 @@ namespace pnkr::renderer::rhi
         OneMinusDstAlpha
     };
 
-    // Blend operations
     enum class BlendOp
     {
         Add,
@@ -198,7 +328,6 @@ namespace pnkr::renderer::rhi
         Max
     };
 
-    // Compare operations
     enum class CompareOp
     {
         None,
@@ -212,14 +341,12 @@ namespace pnkr::renderer::rhi
         Always
     };
 
-    // Texture filters
     enum class Filter
     {
         Nearest,
         Linear
     };
 
-    // Sampler address modes
     enum class SamplerAddressMode
     {
         Repeat,
@@ -228,7 +355,6 @@ namespace pnkr::renderer::rhi
         ClampToBorder
     };
 
-    // Load operations
     enum class LoadOp
     {
         Load,
@@ -236,32 +362,29 @@ namespace pnkr::renderer::rhi
         DontCare
     };
 
-    // Store operations
     enum class StoreOp
     {
         Store,
         DontCare
     };
 
-    // Pipeline bind point
     enum class PipelineBindPoint
     {
         Graphics,
         Compute
     };
 
-    // Descriptor types
     enum class DescriptorType
     {
         Sampler,
-        CombinedImageSampler, // Texture + Sampler
-        SampledImage,         // Texture without sampler (Separate)
-        StorageImage,         // RWTexture / image2D
-        UniformBuffer,        // UBO / cbuffer
-        StorageBuffer,        // SSBO / StructuredBuffer
+        CombinedImageSampler,
+        SampledImage,
+        StorageImage,
+        UniformBuffer,
+        StorageBuffer,
         UniformBufferDynamic,
         StorageBufferDynamic,
-        InputAttachment       // Subpass input
+        InputAttachment
     };
 
     enum class VertexSemantic {
@@ -286,7 +409,6 @@ namespace pnkr::renderer::rhi
         VertexSemantic semantic;
     };
 
-    // Viewport and scissor
     struct Viewport
     {
         float x = 0.0f;
@@ -297,36 +419,12 @@ namespace pnkr::renderer::rhi
         float maxDepth = 1.0f;
     };
 
-    struct Rect2D
-    {
-        int32_t x = 0;
-        int32_t y = 0;
-        uint32_t width = 0;
-        uint32_t height = 0;
-    };
 
-    struct Extent2D
-    {
-        uint32_t width = 0;
-        uint32_t height = 0;
-    };
-
-    struct Extent3D
-    {
-        uint32_t width = 0;
-        uint32_t height = 0;
-        uint32_t depth = 1;
-    };
-
-    // Clear values
     struct ClearColorValue
     {
-        union
-        {
-            float float32[4];
-            int32_t int32[4];
-            uint32_t uint32[4];
-        };
+        float float32[4] = {};
+        int32_t int32[4] = {};
+        uint32_t uint32[4] = {};
     };
 
     struct ClearDepthStencilValue
@@ -339,14 +437,10 @@ namespace pnkr::renderer::rhi
     {
         bool isDepthStencil = false;
 
-        union
-        {
-            ClearColorValue color;
-            ClearDepthStencilValue depthStencil;
-        };
+        ClearColorValue color{};
+        ClearDepthStencilValue depthStencil{};
     };
 
-    // Vertex input
     enum class VertexInputRate
     {
         Vertex,
@@ -388,13 +482,23 @@ namespace pnkr::renderer::rhi
         VertexInputRate inputRate;
     };
 
-    // Descriptor set layout binding
+    enum class DescriptorBindingFlags
+    {
+        None = 0,
+        UpdateAfterBind = 1 << 0,
+        PartiallyBound = 1 << 1,
+        VariableDescriptorCount = 1 << 2
+    };
+    PNKR_ENABLE_BITMASK_OPERATORS(DescriptorBindingFlags);
+
     struct DescriptorBinding
     {
         uint32_t binding;
         DescriptorType type;
         uint32_t count = 1;
-        ShaderStage stages;
+        ShaderStageFlags stages;
+        std::string name;
+        core::Flags<DescriptorBindingFlags> flags = DescriptorBindingFlags::None;
     };
 
     struct DescriptorSetLayout
@@ -402,83 +506,64 @@ namespace pnkr::renderer::rhi
         std::vector<DescriptorBinding> bindings;
     };
 
+    constexpr uint32_t kInvalidBindlessIndex = ~0u;
+    constexpr uint32_t kQueueFamilyIgnored = 0xFFFFFFFFu;
 
-    // A simple wrapper for an index into the global bindless arrays
-    struct BindlessHandle {
-        uint32_t index = 0xFFFFFFFF;
-        bool isValid() const { return index != 0xFFFFFFFF; }
+    struct TextureTag {};
+    struct BufferTag {};
+    struct SamplerTag {};
+
+    template <typename Tag>
+    class BindlessHandle {
+    public:
+        constexpr BindlessHandle() = default;
+        constexpr explicit BindlessHandle(uint32_t index) : m_index(index) {}
+
+        [[nodiscard]] bool isValid() const { return m_index != kInvalidBindlessIndex; }
+        [[nodiscard]] uint32_t index() const { return m_index; }
+
+        static const BindlessHandle Invalid;
+
+        bool operator==(const BindlessHandle& other) const = default;
+
+        explicit operator uint32_t() const { return m_index; }
+
+    private:
+        uint32_t m_index = kInvalidBindlessIndex;
     };
 
-    // Operator overloads for flags
-    inline BufferUsage operator|(BufferUsage a, BufferUsage b)
-    {
-        return static_cast<BufferUsage>(
-            static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
-    }
+    template <typename Tag>
+    inline const BindlessHandle<Tag> BindlessHandle<Tag>::Invalid = BindlessHandle<Tag>(kInvalidBindlessIndex);
 
-    inline BufferUsage operator&(BufferUsage a, BufferUsage b)
-    {
-        return static_cast<BufferUsage>(
-            static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
-    }
+    using TextureBindlessHandle = BindlessHandle<TextureTag>;
+    using BufferBindlessHandle  = BindlessHandle<BufferTag>;
+    using SamplerBindlessHandle = BindlessHandle<SamplerTag>;
 
-    inline BufferUsage& operator|=(BufferUsage& a, BufferUsage b)
+    enum class TextureType
     {
-        a = a | b;
-        return a;
-    }
+        Texture1D,
+        Texture2D,
+        Texture3D,
+        TextureCube
+    };
 
-    inline BufferUsage& operator&=(BufferUsage& a, BufferUsage b)
-    {
-        a = a & b;
-        return a;
-    }
+    class RHICommandBuffer;
+    using RHICommandList = RHICommandBuffer;
 
-    inline TextureUsage operator|(TextureUsage a, TextureUsage b)
-    {
-        return static_cast<TextureUsage>(
-            static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
-    }
+    static_assert((uint32_t)ShaderStage::Vertex != 0);
+    static_assert((uint32_t)ShaderStage::Fragment != 0);
+    static_assert((uint32_t)ShaderStage::Compute != 0);
+    static_assert((uint32_t)ShaderStage::TessControl != 0);
+    static_assert((uint32_t)ShaderStage::TessEval != 0);
+    static_assert((uint32_t)ShaderStage::Geometry != 0);
+    static_assert((uint32_t)ShaderStage::RenderTarget != 0);
+    static_assert((uint32_t)ShaderStage::DepthStencilAttachment != 0);
+    static_assert((uint32_t)ShaderStage::Transfer != 0);
+    static_assert((uint32_t)ShaderStage::DrawIndirect != 0);
 
-    inline TextureUsage operator&(TextureUsage a, TextureUsage b)
-    {
-        return static_cast<TextureUsage>(
-            static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
-    }
-
-    inline TextureUsage& operator|=(TextureUsage& a, TextureUsage b)
-    {
-        a = a | b;
-        return a;
-    }
-
-    inline TextureUsage& operator&=(TextureUsage& a, TextureUsage b)
-    {
-        a = a & b;
-        return a;
-    }
-
-    inline ShaderStage operator|(ShaderStage a, ShaderStage b)
-    {
-        return static_cast<ShaderStage>(
-            static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
-    }
-
-    inline ShaderStage operator&(ShaderStage a, ShaderStage b)
-    {
-        return static_cast<ShaderStage>(
-            static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
-    }
-
-    inline ShaderStage& operator|=(ShaderStage& a, ShaderStage b)
-    {
-        a = a | b;
-        return a;
-    }
-
-    inline ShaderStage& operator&=(ShaderStage& a, ShaderStage b)
-    {
-        a = a & b;
-        return a;
-    }
-} // namespace pnkr::renderer::rhi
+    static_assert(((uint32_t)ShaderStage::Vertex & (uint32_t)ShaderStage::Compute) == 0);
+    static_assert(((uint32_t)ShaderStage::Fragment & (uint32_t)ShaderStage::Compute) == 0);
+    static_assert(((uint32_t)ShaderStage::Compute & (uint32_t)ShaderStage::TessControl) == 0);
+    static_assert(((uint32_t)ShaderStage::Compute & (uint32_t)ShaderStage::TessEval) == 0);
+    static_assert(((uint32_t)ShaderStage::Vertex & (uint32_t)ShaderStage::TessControl) == 0);
+}

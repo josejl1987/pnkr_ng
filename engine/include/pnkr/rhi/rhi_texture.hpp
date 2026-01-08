@@ -2,28 +2,25 @@
 
 #include "rhi_types.hpp"
 #include <memory>
+#include <string>
+#include <span>
+#include <cstddef>
 
 namespace pnkr::renderer::rhi
 {
-    enum class TextureType
-    {
-        Texture1D,
-        Texture2D,
-        Texture3D,
-        TextureCube
-    };
 
     struct TextureDescriptor
     {
         TextureType type = TextureType::Texture2D;
         Extent3D extent;
         Format format;
-        TextureUsage usage;
+        TextureUsageFlags usage;
         MemoryUsage memoryUsage = MemoryUsage::GPUOnly;
         uint32_t mipLevels = 1;
         uint32_t arrayLayers = 1;
         uint32_t sampleCount = 1;
-        const char* debugName = nullptr;
+        bool skipBindless = false;
+        std::string debugName;
     };
 
     struct TextureViewDescriptor
@@ -32,54 +29,64 @@ namespace pnkr::renderer::rhi
         uint32_t mipCount = 1;
         uint32_t arrayLayer = 0;
         uint32_t layerCount = 1;
-        Format format = Format::Undefined; // If Undefined, use parent format
+        Format format = Format::Undefined;
+        std::string debugName;
     };
 
-    struct TextureSubresource
-    {
-        uint32_t mipLevel = 0;
-        uint32_t arrayLayer = 0;
-    };
 
     class RHITexture
     {
     public:
+        RHITexture() = default;
         virtual ~RHITexture() = default;
 
-        // Upload texture data
+        RHITexture(const RHITexture&) = delete;
+        RHITexture& operator=(const RHITexture&) = delete;
+
+        RHITexture(RHITexture&&) noexcept = default;
+        RHITexture& operator=(RHITexture&&) noexcept = default;
+
         virtual void uploadData(
-            const void* data,
-            uint64_t dataSize,
+            std::span<const std::byte> data,
             const TextureSubresource& subresource = {}) = 0;
 
-        // Generate mipmaps
         virtual void generateMipmaps() = 0;
-        virtual void generateMipmaps(class RHICommandBuffer* cmd) = 0;
+        virtual void generateMipmaps(RHICommandList* cmd) = 0;
 
-        // Getters
         virtual const Extent3D& extent() const = 0;
         virtual Format format() const = 0;
         virtual uint32_t mipLevels() const = 0;
         virtual uint32_t arrayLayers() const = 0;
-        virtual TextureUsage usage() const = 0;
+        virtual uint32_t sampleCount() const = 0;
+        virtual TextureUsageFlags usage() const = 0;
 
-        // Virtual accessors for View offsets
-        // Default implementation returns 0 for standard textures/swapchain images
         virtual uint32_t baseMipLevel() const { return 0; }
         virtual uint32_t baseArrayLayer() const { return 0; }
 
-        // Backend-specific handle
         virtual void* nativeHandle() const = 0;
-        virtual void* nativeView() const = 0;  // Image view
+        virtual void* nativeView() const = 0;
         virtual void* nativeView(uint32_t mipLevel, uint32_t arrayLayer) const = 0;
+        virtual void updateAccessibleMipRange(uint32_t baseMip, uint32_t mipCount) { (void)baseMip; (void)mipCount; }
 
         virtual void setParent(std::shared_ptr<RHITexture> parent) { (void)parent; }
 
-        void setBindlessHandle(BindlessHandle handle) { m_bindlessHandle = handle; }
-        BindlessHandle getBindlessHandle() const { return m_bindlessHandle; }
+        void setBindlessHandle(TextureBindlessHandle handle) { m_bindlessHandle = handle; }
+        TextureBindlessHandle getBindlessHandle() const { return m_bindlessHandle; }
+        void setStorageImageHandle(TextureBindlessHandle handle) { m_storageImageHandle = handle; }
+        TextureBindlessHandle getStorageImageHandle() const { return m_storageImageHandle; }
+
+        void setMemorySize(uint64_t sizeBytes) { m_memorySizeBytes = sizeBytes; }
+        uint64_t memorySize() const { return m_memorySizeBytes; }
+
+        void setDebugName(std::string name) { m_debugName = std::move(name); }
+        const std::string& debugName() const { return m_debugName; }
+        TextureType type() { return m_type; }
 
     protected:
-        BindlessHandle m_bindlessHandle;
+        TextureBindlessHandle m_bindlessHandle{};
+        TextureBindlessHandle m_storageImageHandle{};
+        uint64_t m_memorySizeBytes = 0;
+        std::string m_debugName;
+        TextureType m_type;
     };
-
-} // namespace pnkr::renderer::rhi
+}

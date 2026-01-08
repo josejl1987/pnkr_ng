@@ -1,15 +1,14 @@
 #include "pnkr/rhi/rhi_shader.hpp"
 
 #include "pnkr/core/logger.hpp"
-#include <sstream>
 #include <algorithm>
+#include <cpptrace/cpptrace.hpp>
 #include <fstream>
 #include <map>
 #include <set>
 #include <spirv_cross/spirv_cross.hpp>
-#include <algorithm>
+#include <sstream>
 #include <utility>
-#include <cpptrace/cpptrace.hpp>
 
 #include "pnkr/rhi/rhi_types.hpp"
 
@@ -72,7 +71,7 @@ namespace pnkr::renderer::rhi
         std::ifstream file(path, std::ios::ate | std::ios::binary);
         if (!file.is_open())
         {
-            core::Logger::error("Failed to open shader file: {}", path.string());
+            core::Logger::RHI.error("Failed to open shader file: {}", path.string());
             throw cpptrace::runtime_error("Shader file not found");
         }
 
@@ -92,12 +91,17 @@ namespace pnkr::renderer::rhi
     void Shader::reflect()
     {
         spirv_cross::Compiler comp(m_code);
+
+        auto entryPoints = comp.get_entry_points_and_stages();
+        if (!entryPoints.empty())
+        {
+            m_reflection.entryPoint = entryPoints[0].name;
+        }
+
         spirv_cross::ShaderResources res = comp.get_shader_resources();
 
-        // Track which bindings we've already added to avoid duplicates
         std::map<uint32_t, std::set<uint32_t>> processedBindings;
 
-        // 1. Reflect Descriptors (UBOs, Textures, etc.)
         auto reflectSet = [&](const auto& list, DescriptorType type)
         {
             for (const auto& r : list)
@@ -105,28 +109,26 @@ namespace pnkr::renderer::rhi
                 uint32_t set = comp.get_decoration(r.id, spv::DecorationDescriptorSet);
                 uint32_t binding = comp.get_decoration(r.id, spv::DecorationBinding);
 
-                // Skip if this binding was already processed
                 if (processedBindings[set].contains(binding))
                 {
-                    core::Logger::debug("Skipping duplicate binding {} in set {}", binding, set);
+                    core::Logger::RHI.debug("Skipping duplicate binding {} in set {}", binding, set);
                     continue;
                 }
                 processedBindings[set].insert(binding);
 
-                // Determine Array Size
                 uint32_t count = 1;
                 const auto& spirvType = comp.get_type(r.type_id);
+
+                core::Flags<DescriptorBindingFlags> flags = DescriptorBindingFlags::None;
 
                 if (!spirvType.array.empty())
                 {
                     count = spirvType.array[0];
 
-                    // SPIR-V reports 0 for runtime arrays (e.g., textures[])
                     if (count == 0 && m_config.enableRuntimeArrayDetection)
                     {
                         std::string resourceName = comp.get_name(r.id);
 
-                        // Check if this resource has an explicit configuration
                         auto it = m_config.bindlessOverrides.find(resourceName);
                         if (it != m_config.bindlessOverrides.end())
                         {
@@ -134,12 +136,12 @@ namespace pnkr::renderer::rhi
                         }
                         else
                         {
-                            // Use default size for unconfigured runtime arrays
                             count = m_config.defaultBindlessSize;
-                            core::Logger::warn(
+                            core::Logger::RHI.warn(
                                 "Runtime array '{}' using default size {}. Consider adding to bindlessOverrides configuration.",
                                 resourceName, count);
                         }
+                        flags = DescriptorBindingFlags::PartiallyBound | DescriptorBindingFlags::UpdateAfterBind;
                     }
                 }
 
@@ -151,64 +153,69 @@ namespace pnkr::renderer::rhi
                 m_reflection.descriptorSets[set].bindings.push_back({
                     .binding = binding,
                     .type = type,
-                    .count = count, // Use calculated count, not hardcoded 1
-                    .stages = m_stage
+                    .count = count,
+                    .stages = m_stage,
+                    .name = comp.get_name(r.id),
+                    .flags = flags
                 });
             }
         };
 
-        // Reflect non-bindless resources only
         auto reflectNonBindless = [&](const auto& list, DescriptorType type)
         {
             for (const auto& r : list)
             {
                 uint32_t set = comp.get_decoration(r.id, spv::DecorationDescriptorSet);
-                
-                // NOTE: We do NOT skip set 1 anymore. The device still provides the actual layout for set 1,
-                // but reflecting it allows validation and ensures descriptorSets[] is dense by set index.
+
                 if (set == 1) {
                     std::string resourceName = comp.get_name(r.id);
-                    core::Logger::debug("Shader uses bindless resource '{}' at set=1, binding={}",
+                    core::Logger::RHI.debug("Shader uses bindless resource '{}' at set=1, binding={}",
                                         resourceName, comp.get_decoration(r.id, spv::DecorationBinding));
                 }
 
-                // Process non-bindless resources
                 uint32_t binding = comp.get_decoration(r.id, spv::DecorationBinding);
-                
+
                 if (processedBindings[set].contains(binding))
                 {
                     continue;
                 }
                 processedBindings[set].insert(binding);
-                
+
                 uint32_t count = 1;
                 const auto& spirvType = comp.get_type(r.type_id);
-                
+
+                core::Flags<DescriptorBindingFlags> flags = DescriptorBindingFlags::None;
+
                 if (!spirvType.array.empty())
                 {
                     count = spirvType.array[0];
-                    
+
                     if (count == 0 && m_config.enableRuntimeArrayDetection)
                     {
-                        std::string resourceName = comp.get_name(r.id);
-                        auto it = m_config.bindlessOverrides.find(resourceName);
-                        if (it != m_config.bindlessOverrides.end())
-                        {
-                            count = it->second;
-                        }
-                        else
-                        {
-                            count = m_config.defaultBindlessSize;
-                        }
+                      const std::string &resourceName = comp.get_name(r.id);
+                      auto it = m_config.bindlessOverrides.find(resourceName);
+                      if (it != m_config.bindlessOverrides.end()) {
+                        count = it->second;
+                      } else {
+                        count = m_config.defaultBindlessSize;
+                      }
+                        flags = DescriptorBindingFlags::PartiallyBound | DescriptorBindingFlags::UpdateAfterBind;
                     }
                 }
-                
+
                 if (set >= m_reflection.descriptorSets.size())
                 {
                     m_reflection.descriptorSets.resize(set + 1);
                 }
-                
-                m_reflection.descriptorSets[set].bindings.push_back({.binding = binding, .type = type, .count = count, .stages = m_stage});
+
+                m_reflection.descriptorSets[set].bindings.push_back({
+                    .binding = binding,
+                    .type = type,
+                    .count = count,
+                    .stages = m_stage,
+                    .name = comp.get_name(r.id),
+                    .flags = flags
+                });
             }
         };
 
@@ -219,11 +226,9 @@ namespace pnkr::renderer::rhi
         reflectNonBindless(res.storage_images, DescriptorType::StorageImage);
         reflectNonBindless(res.storage_buffers, DescriptorType::StorageBuffer);
 
-        // 2. Reflect Push Constants
         for (const auto& resource : res.push_constant_buffers)
         {
             const auto& type = comp.get_type(resource.base_type_id);
-
 
             auto size = (uint32_t)comp.get_declared_struct_size(type);
 
@@ -234,7 +239,6 @@ namespace pnkr::renderer::rhi
             });
         }
 
-        // 3. Reflect Vertex Inputs (Bridge)
         if (m_stage == ShaderStage::Vertex)
         {
             for (const auto& input : res.stage_inputs)
@@ -246,4 +250,4 @@ namespace pnkr::renderer::rhi
             }
         }
     }
-} // namespace pnkr::renderer::rhi
+}

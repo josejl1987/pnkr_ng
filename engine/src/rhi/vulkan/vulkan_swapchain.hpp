@@ -14,26 +14,26 @@ namespace pnkr::renderer::rhi::vulkan
 {
     class VulkanRHIDevice;
 
-    // Non-owning RHITexture wrapper for a swapchain image.
     class VulkanRHISwapchainImage final : public RHITexture
     {
     public:
         VulkanRHISwapchainImage(vk::Image image, vk::ImageView view, const Extent3D& extent, Format fmt)
             : m_image(image), m_view(view), m_extent(extent), m_format(fmt) {}
 
-        void uploadData(const void*, uint64_t, const TextureSubresource& = {}) override {}
+        void uploadData(std::span<const std::byte>, const TextureSubresource& = {}) override {}
         void generateMipmaps() override {}
 
         const Extent3D& extent() const override { return m_extent; }
         Format format() const override { return m_format; }
         uint32_t mipLevels() const override { return 1; }
         uint32_t arrayLayers() const override { return 1; }
-        TextureUsage usage() const override { return TextureUsage::ColorAttachment | TextureUsage::TransferDst | TextureUsage::TransferSrc; }
+        uint32_t sampleCount() const override { return 1; }
+        TextureUsageFlags usage() const override { return TextureUsage::ColorAttachment | TextureUsage::TransferDst | TextureUsage::TransferSrc; }
 
         void* nativeHandle() const override { return static_cast<VkImage>(m_image); }
         void* nativeView() const override { return static_cast<VkImageView>(m_view); }
         void* nativeView(uint32_t mipLevel, uint32_t arrayLayer) const override {
-            // Swapchain images only have 1 mip and 1 layer
+
             if (mipLevel == 0 && arrayLayer == 0) {
                 return static_cast<VkImageView>(m_view);
             }
@@ -42,7 +42,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::Image image() const { return m_image; }
         vk::ImageView imageView() const { return m_view; }
-        void generateMipmaps(RHICommandBuffer* cmd) override;
+        void generateMipmaps(RHICommandList* cmd) override;
 
     private:
         vk::Image m_image{};
@@ -62,12 +62,14 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t imageCount() const override { return static_cast<uint32_t>(m_images.size()); }
         uint32_t framesInFlight() const override { return m_framesInFlight; }
 
-        bool beginFrame(uint32_t frameIndex, RHICommandBuffer* cmd, SwapchainFrame& out) override;
-        bool endFrame(uint32_t frameIndex, RHICommandBuffer* cmd) override;
+        bool beginFrame(uint32_t frameIndex, RHICommandList* cmd, SwapchainFrame& out) override;
+        bool endFrame(uint32_t frameIndex, RHICommandList* cmd) override;
         bool present(uint32_t frameIndex) override;
 
         void recreate(uint32_t width, uint32_t height) override;
         void setVsync(bool enabled) override { m_vsync = enabled; }
+        ResourceLayout currentLayout() const override { return m_layouts[m_currentImage]; }
+        void* getProfilingContext() const override { return m_tracyContext; }
 
     private:
         bool m_vsync = true;
@@ -90,11 +92,10 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t m_currentImage = 0;
         uint32_t m_currentFrameIndex = 0;
 
-        // Sync: binary semaphores for acquire/present
         uint32_t m_framesInFlight = 3;
         std::vector<vk::Semaphore> m_imageAvailable;
-        // IMPORTANT: render-finished semaphores must be per swapchain image (not per frame), to avoid WSI semaphore reuse hazards.
-        std::vector<vk::Semaphore> m_renderFinished; // indexed by acquired imageIndex
+
+        std::vector<vk::Semaphore> m_renderFinished;
 
     public:
         vk::Semaphore getCurrentAcquireSemaphore() const {
@@ -113,9 +114,13 @@ namespace pnkr::renderer::rhi::vulkan
         void createSyncObjects();
         void destroySyncObjects();
 
-         vk::SurfaceFormatKHR chooseSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& formats, Format preferred) ;
-         vk::PresentModeKHR choosePresentMode(const std::vector<vk::PresentModeKHR>& modes) ;
-         vk::Extent2D chooseExtent(const vk::SurfaceCapabilitiesKHR& caps, uint32_t width, uint32_t height) ;
+        static vk::SurfaceFormatKHR
+        chooseSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &formats,
+                            Format preferred);
+        vk::PresentModeKHR
+        choosePresentMode(const std::vector<vk::PresentModeKHR> &modes) const;
+        static vk::Extent2D chooseExtent(const vk::SurfaceCapabilitiesKHR &caps,
+                                         uint32_t width, uint32_t height);
     };
 
-} // namespace pnkr::renderer::rhi::vulkan
+}

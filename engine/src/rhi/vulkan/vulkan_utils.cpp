@@ -1,360 +1,646 @@
-﻿#include "pnkr/rhi/vulkan/vulkan_utils.hpp"
-#include "pnkr/core/common.hpp"
+#include "rhi/vulkan/vulkan_utils.hpp"
 
-#include <stdexcept>
+#include "pnkr/core/common.hpp"
+#include "pnkr/rhi/rhi_types.hpp"
+
 #include <vk_mem_alloc.h>
+#include <vulkan/vulkan.hpp>
+
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <string>
+#include <type_traits>
+#include <utility>
 
 using namespace pnkr::util;
 
 namespace pnkr::renderer::rhi::vulkan
 {
+    namespace
+    {
+        template <typename K, typename V>
+        struct Entry
+        {
+          K k;
+          V v;
+        };
+
+        template <typename K, typename V>
+        Entry(K, V) -> Entry<K, V>;
+
+        template <typename E> struct IsFlagsEnum : std::false_type {};
+
+        template <>
+        struct IsFlagsEnum<pnkr::renderer::rhi::BufferUsage> : std::true_type
+        {
+        };
+
+        template <>
+        struct IsFlagsEnum<pnkr::renderer::rhi::TextureUsage> : std::true_type
+        {
+        };
+
+        template <>
+        struct IsFlagsEnum<pnkr::renderer::rhi::ShaderStage> : std::true_type
+        {
+        };
+
+        template <typename E>
+        inline constexpr bool IS_FLAGS_ENUM_V = IsFlagsEnum<E>::value;
+
+        template <typename E, typename V, std::size_t N>
+        struct EnumMap
+        {
+          std::array<Entry<E, V>, N> m_e{};
+
+          constexpr explicit EnumMap(std::array<Entry<E, V>, N> entries)
+              : m_e(entries) {}
+
+          [[nodiscard]] constexpr V to(E x, V def) const noexcept {
+            for (auto it : m_e) {
+              if (it.k == x) {
+                return it.v;
+              }
+            }
+            return def;
+          }
+
+          [[nodiscard]] constexpr E from(V x, E def) const noexcept {
+            for (auto it : m_e) {
+              if (it.v == x) {
+                return it.k;
+              }
+            }
+            return def;
+          }
+        };
+
+        template <typename E, typename VkBits, std::size_t N>
+        struct FlagsMap
+        {
+          static_assert(IS_FLAGS_ENUM_V<E>,
+                        "FlagsMap used with non-flags enum.");
+
+          std::array<Entry<E, VkBits>, N> m_e{};
+
+          constexpr explicit FlagsMap(std::array<Entry<E, VkBits>, N> entries)
+              : m_e(entries) {}
+
+          [[nodiscard]] constexpr vk::Flags<VkBits>
+          to(core::Flags<E> flags) const noexcept {
+            vk::Flags<VkBits> out{};
+            for (auto it : m_e) {
+              if (flags.has(it.k)) {
+                out |= it.v;
+              }
+            }
+            return out;
+          }
+
+          [[nodiscard]] constexpr core::Flags<E>
+          from(vk::Flags<VkBits> flags) const noexcept {
+            core::Flags<E> out{};
+            for (auto it : m_e) {
+              if ((flags & it.v) == it.v) {
+                out |= it.k;
+              }
+            }
+            return out;
+          }
+        };
+
+        template <typename E, typename V, std::size_t N>
+        constexpr auto makeEnumMap(const std::array<Entry<E, V>, N>& a)
+        {
+            return EnumMap<E, V, N>(a);
+        }
+
+        template <typename E, typename VkBits, std::size_t N>
+        constexpr auto makeFlagsMap(const std::array<Entry<E, VkBits>, N>& a)
+        {
+            return FlagsMap<E, VkBits, N>(a);
+        }
+
+        constexpr auto K_FORMAT_MAP = makeEnumMap<Format,
+                                                  vk::Format>(std::array{
+            Entry{.k = Format::Undefined, .v = vk::Format::eUndefined},
+
+            Entry{.k = Format::R8_UNORM, .v = vk::Format::eR8Unorm},
+            Entry{.k = Format::R8G8_UNORM, .v = vk::Format::eR8G8Unorm},
+            Entry{.k = Format::R8G8B8_UNORM, .v = vk::Format::eR8G8B8Unorm},
+            Entry{.k = Format::R8G8B8A8_UNORM, .v = vk::Format::eR8G8B8A8Unorm},
+            Entry{.k = Format::R8G8B8A8_SRGB, .v = vk::Format::eR8G8B8A8Srgb},
+            Entry{.k = Format::B8G8R8A8_UNORM, .v = vk::Format::eB8G8R8A8Unorm},
+            Entry{.k = Format::B8G8R8A8_SRGB, .v = vk::Format::eB8G8R8A8Srgb},
+
+            Entry{.k = Format::R8_SNORM, .v = vk::Format::eR8Snorm},
+            Entry{.k = Format::R8G8_SNORM, .v = vk::Format::eR8G8Snorm},
+            Entry{.k = Format::R8G8B8_SNORM, .v = vk::Format::eR8G8B8Snorm},
+            Entry{.k = Format::R8G8B8A8_SNORM, .v = vk::Format::eR8G8B8A8Snorm},
+
+            Entry{.k = Format::R8_UINT, .v = vk::Format::eR8Uint},
+            Entry{.k = Format::R8G8_UINT, .v = vk::Format::eR8G8Uint},
+            Entry{.k = Format::R8G8B8A8_UINT, .v = vk::Format::eR8G8B8A8Uint},
+
+            Entry{.k = Format::R8_SINT, .v = vk::Format::eR8Sint},
+            Entry{.k = Format::R8G8_SINT, .v = vk::Format::eR8G8Sint},
+            Entry{.k = Format::R8G8B8A8_SINT, .v = vk::Format::eR8G8B8A8Sint},
+
+            Entry{.k = Format::R16_UNORM, .v = vk::Format::eR16Unorm},
+            Entry{.k = Format::R16G16_UNORM, .v = vk::Format::eR16G16Unorm},
+            Entry{.k = Format::R16G16B16A16_UNORM,
+                  .v = vk::Format::eR16G16B16A16Unorm},
+
+            Entry{.k = Format::R16_SNORM, .v = vk::Format::eR16Snorm},
+            Entry{.k = Format::R16G16_SNORM, .v = vk::Format::eR16G16Snorm},
+            Entry{.k = Format::R16G16B16A16_SNORM,
+                  .v = vk::Format::eR16G16B16A16Snorm},
+
+            Entry{.k = Format::R16_SFLOAT, .v = vk::Format::eR16Sfloat},
+            Entry{.k = Format::R16G16_SFLOAT, .v = vk::Format::eR16G16Sfloat},
+            Entry{.k = Format::R16G16B16_SFLOAT,
+                  .v = vk::Format::eR16G16B16Sfloat},
+            Entry{.k = Format::R16G16B16A16_SFLOAT,
+                  .v = vk::Format::eR16G16B16A16Sfloat},
+
+            Entry{.k = Format::R16_UINT, .v = vk::Format::eR16Uint},
+            Entry{.k = Format::R16G16_UINT, .v = vk::Format::eR16G16Uint},
+            Entry{.k = Format::R16G16B16A16_UINT,
+                  .v = vk::Format::eR16G16B16A16Uint},
+
+            Entry{.k = Format::R16_SINT, .v = vk::Format::eR16Sint},
+            Entry{.k = Format::R16G16_SINT, .v = vk::Format::eR16G16Sint},
+            Entry{.k = Format::R16G16B16A16_SINT,
+                  .v = vk::Format::eR16G16B16A16Sint},
+
+            Entry{.k = Format::R32_SFLOAT, .v = vk::Format::eR32Sfloat},
+            Entry{.k = Format::R32G32_SFLOAT, .v = vk::Format::eR32G32Sfloat},
+            Entry{.k = Format::R32G32B32_SFLOAT,
+                  .v = vk::Format::eR32G32B32Sfloat},
+            Entry{.k = Format::R32G32B32A32_SFLOAT,
+                  .v = vk::Format::eR32G32B32A32Sfloat},
+
+            Entry{.k = Format::R32_UINT, .v = vk::Format::eR32Uint},
+            Entry{.k = Format::R32G32_UINT, .v = vk::Format::eR32G32Uint},
+            Entry{.k = Format::R32G32B32_UINT, .v = vk::Format::eR32G32B32Uint},
+            Entry{.k = Format::R32G32B32A32_UINT,
+                  .v = vk::Format::eR32G32B32A32Uint},
+
+            Entry{.k = Format::R32_SINT, .v = vk::Format::eR32Sint},
+            Entry{.k = Format::R32G32_SINT, .v = vk::Format::eR32G32Sint},
+            Entry{.k = Format::R32G32B32_SINT, .v = vk::Format::eR32G32B32Sint},
+            Entry{.k = Format::R32G32B32A32_SINT,
+                  .v = vk::Format::eR32G32B32A32Sint},
+
+            Entry{.k = Format::B10G11R11_UFLOAT_PACK32,
+                  .v = vk::Format::eB10G11R11UfloatPack32},
+            Entry{.k = Format::A2B10G10R10_UNORM_PACK32,
+                  .v = vk::Format::eA2B10G10R10UnormPack32},
+            Entry{.k = Format::A2R10G10B10_UNORM_PACK32,
+                  .v = vk::Format::eA2R10G10B10UnormPack32},
+            Entry{.k = Format::E5B9G9R9_UFLOAT_PACK32,
+                  .v = vk::Format::eE5B9G9R9UfloatPack32},
+
+            Entry{.k = Format::D16_UNORM, .v = vk::Format::eD16Unorm},
+            Entry{.k = Format::D32_SFLOAT, .v = vk::Format::eD32Sfloat},
+            Entry{.k = Format::D24_UNORM_S8_UINT,
+                  .v = vk::Format::eD24UnormS8Uint},
+            Entry{.k = Format::D32_SFLOAT_S8_UINT,
+                  .v = vk::Format::eD32SfloatS8Uint},
+            Entry{.k = Format::S8_UINT, .v = vk::Format::eS8Uint},
+
+            Entry{.k = Format::BC1_RGB_UNORM,
+                  .v = vk::Format::eBc1RgbUnormBlock},
+            Entry{.k = Format::BC1_RGB_SRGB, .v = vk::Format::eBc1RgbSrgbBlock},
+            Entry{.k = Format::BC1_RGBA_UNORM,
+                  .v = vk::Format::eBc1RgbaUnormBlock},
+            Entry{.k = Format::BC1_RGBA_SRGB,
+                  .v = vk::Format::eBc1RgbaSrgbBlock},
+            Entry{.k = Format::BC2_UNORM, .v = vk::Format::eBc2UnormBlock},
+            Entry{.k = Format::BC2_SRGB, .v = vk::Format::eBc2SrgbBlock},
+            Entry{.k = Format::BC3_UNORM, .v = vk::Format::eBc3UnormBlock},
+            Entry{.k = Format::BC3_SRGB, .v = vk::Format::eBc3SrgbBlock},
+            Entry{.k = Format::BC4_UNORM, .v = vk::Format::eBc4UnormBlock},
+            Entry{.k = Format::BC4_SNORM, .v = vk::Format::eBc4SnormBlock},
+            Entry{.k = Format::BC5_UNORM, .v = vk::Format::eBc5UnormBlock},
+            Entry{.k = Format::BC5_SNORM, .v = vk::Format::eBc5SnormBlock},
+            Entry{.k = Format::BC6H_UFLOAT, .v = vk::Format::eBc6HUfloatBlock},
+            Entry{.k = Format::BC6H_SFLOAT, .v = vk::Format::eBc6HSfloatBlock},
+            Entry{.k = Format::BC7_UNORM, .v = vk::Format::eBc7UnormBlock},
+            Entry{.k = Format::BC7_SRGB, .v = vk::Format::eBc7SrgbBlock},
+
+            Entry{.k = Format::ASTC_4x4_UNORM,
+                  .v = vk::Format::eAstc4x4UnormBlock},
+            Entry{.k = Format::ASTC_4x4_SRGB,
+                  .v = vk::Format::eAstc4x4SrgbBlock},
+            Entry{.k = Format::ASTC_6x6_UNORM,
+                  .v = vk::Format::eAstc6x6UnormBlock},
+            Entry{.k = Format::ASTC_6x6_SRGB,
+                  .v = vk::Format::eAstc6x6SrgbBlock},
+            Entry{.k = Format::ASTC_8x8_UNORM,
+                  .v = vk::Format::eAstc8x8UnormBlock},
+            Entry{.k = Format::ASTC_8x8_SRGB,
+                  .v = vk::Format::eAstc8x8SrgbBlock},
+
+            Entry{.k = Format::ETC2_R8G8B8_UNORM,
+                  .v = vk::Format::eEtc2R8G8B8UnormBlock},
+            Entry{.k = Format::ETC2_R8G8B8_SRGB,
+                  .v = vk::Format::eEtc2R8G8B8SrgbBlock},
+            Entry{.k = Format::ETC2_R8G8B8A8_UNORM,
+                  .v = vk::Format::eEtc2R8G8B8A8UnormBlock},
+            Entry{.k = Format::ETC2_R8G8B8A8_SRGB,
+                  .v = vk::Format::eEtc2R8G8B8A8SrgbBlock},
+        });
+
+        constexpr auto K_BUFFER_USAGE_MAP =
+            makeFlagsMap<BufferUsage, vk::BufferUsageFlagBits>(std::array{
+                Entry{.k = BufferUsage::TransferSrc,
+                      .v = vk::BufferUsageFlagBits::eTransferSrc},
+                Entry{.k = BufferUsage::TransferDst,
+                      .v = vk::BufferUsageFlagBits::eTransferDst},
+                Entry{.k = BufferUsage::UniformBuffer,
+                      .v = vk::BufferUsageFlagBits::eUniformBuffer},
+                Entry{.k = BufferUsage::StorageBuffer,
+                      .v = vk::BufferUsageFlagBits::eStorageBuffer},
+                Entry{.k = BufferUsage::IndexBuffer,
+                      .v = vk::BufferUsageFlagBits::eIndexBuffer},
+                Entry{.k = BufferUsage::VertexBuffer,
+                      .v = vk::BufferUsageFlagBits::eVertexBuffer},
+                Entry{.k = BufferUsage::IndirectBuffer,
+                      .v = vk::BufferUsageFlagBits::eIndirectBuffer},
+                Entry{.k = BufferUsage::ShaderDeviceAddress,
+                      .v = vk::BufferUsageFlagBits::eShaderDeviceAddress},
+            });
+
+        constexpr auto K_IMAGE_USAGE_MAP =
+            makeFlagsMap<TextureUsage, vk::ImageUsageFlagBits>(std::array{
+                Entry{.k = TextureUsage::TransferSrc,
+                      .v = vk::ImageUsageFlagBits::eTransferSrc},
+                Entry{.k = TextureUsage::TransferDst,
+                      .v = vk::ImageUsageFlagBits::eTransferDst},
+                Entry{.k = TextureUsage::Sampled,
+                      .v = vk::ImageUsageFlagBits::eSampled},
+                Entry{.k = TextureUsage::Storage,
+                      .v = vk::ImageUsageFlagBits::eStorage},
+                Entry{.k = TextureUsage::ColorAttachment,
+                      .v = vk::ImageUsageFlagBits::eColorAttachment},
+                Entry{.k = TextureUsage::DepthStencilAttachment,
+                      .v = vk::ImageUsageFlagBits::eDepthStencilAttachment},
+                Entry{.k = TextureUsage::InputAttachment,
+                      .v = vk::ImageUsageFlagBits::eInputAttachment},
+                Entry{.k = TextureUsage::TransientAttachment,
+                      .v = vk::ImageUsageFlagBits::eTransientAttachment},
+            });
+
+        constexpr auto K_MEMORY_USAGE_MAP = makeEnumMap<
+            MemoryUsage, VmaMemoryUsage>(std::array{
+            Entry{.k = MemoryUsage::GPUOnly, .v = VMA_MEMORY_USAGE_GPU_ONLY},
+            Entry{.k = MemoryUsage::CPUToGPU, .v = VMA_MEMORY_USAGE_CPU_TO_GPU},
+            Entry{.k = MemoryUsage::GPUToCPU, .v = VMA_MEMORY_USAGE_GPU_TO_CPU},
+            Entry{.k = MemoryUsage::CPUOnly, .v = VMA_MEMORY_USAGE_CPU_ONLY},
+            Entry{.k = MemoryUsage::GPULazy,
+                  .v = VMA_MEMORY_USAGE_GPU_LAZILY_ALLOCATED},
+        });
+
+        constexpr auto K_SHADER_STAGE_MAP =
+            makeFlagsMap<ShaderStage, vk::ShaderStageFlagBits>(std::array{
+                Entry{.k = ShaderStage::Vertex,
+                      .v = vk::ShaderStageFlagBits::eVertex},
+                Entry{.k = ShaderStage::Fragment,
+                      .v = vk::ShaderStageFlagBits::eFragment},
+                Entry{.k = ShaderStage::Geometry,
+                      .v = vk::ShaderStageFlagBits::eGeometry},
+                Entry{.k = ShaderStage::Compute,
+                      .v = vk::ShaderStageFlagBits::eCompute},
+                Entry{.k = ShaderStage::TessControl,
+                      .v = vk::ShaderStageFlagBits::eTessellationControl},
+                Entry{.k = ShaderStage::TessEval,
+                      .v = vk::ShaderStageFlagBits::eTessellationEvaluation},
+            });
+
+        constexpr auto K_RESOURCE_LAYOUT_MAP =
+            makeEnumMap<ResourceLayout, vk::ImageLayout>(std::array{
+                Entry{.k = ResourceLayout::Undefined,
+                      .v = vk::ImageLayout::eUndefined},
+                Entry{.k = ResourceLayout::General,
+                      .v = vk::ImageLayout::eGeneral},
+                Entry{.k = ResourceLayout::ColorAttachment,
+                      .v = vk::ImageLayout::eColorAttachmentOptimal},
+                Entry{.k = ResourceLayout::DepthStencilAttachment,
+                      .v = vk::ImageLayout::eDepthStencilAttachmentOptimal},
+                Entry{.k = ResourceLayout::DepthStencilReadOnly,
+                      .v = vk::ImageLayout::eDepthStencilReadOnlyOptimal},
+                Entry{.k = ResourceLayout::ShaderReadOnly,
+                      .v = vk::ImageLayout::eShaderReadOnlyOptimal},
+                Entry{.k = ResourceLayout::TransferSrc,
+                      .v = vk::ImageLayout::eTransferSrcOptimal},
+                Entry{.k = ResourceLayout::TransferDst,
+                      .v = vk::ImageLayout::eTransferDstOptimal},
+                Entry{.k = ResourceLayout::Present,
+                      .v = vk::ImageLayout::ePresentSrcKHR},
+            });
+
+        constexpr auto K_PRIMITIVE_TOPOLOGY_MAP =
+            makeEnumMap<PrimitiveTopology, vk::PrimitiveTopology>(std::array{
+                Entry{.k = PrimitiveTopology::PointList,
+                      .v = vk::PrimitiveTopology::ePointList},
+                Entry{.k = PrimitiveTopology::LineList,
+                      .v = vk::PrimitiveTopology::eLineList},
+                Entry{.k = PrimitiveTopology::LineStrip,
+                      .v = vk::PrimitiveTopology::eLineStrip},
+                Entry{.k = PrimitiveTopology::TriangleList,
+                      .v = vk::PrimitiveTopology::eTriangleList},
+                Entry{.k = PrimitiveTopology::TriangleStrip,
+                      .v = vk::PrimitiveTopology::eTriangleStrip},
+                Entry{.k = PrimitiveTopology::TriangleFan,
+                      .v = vk::PrimitiveTopology::eTriangleFan},
+                Entry{.k = PrimitiveTopology::PatchList,
+                      .v = vk::PrimitiveTopology::ePatchList},
+            });
+
+        constexpr auto K_POLYGON_MODE_MAP =
+            makeEnumMap<PolygonMode, vk::PolygonMode>(std::array{
+                Entry{.k = PolygonMode::Fill, .v = vk::PolygonMode::eFill},
+                Entry{.k = PolygonMode::Line, .v = vk::PolygonMode::eLine},
+                Entry{.k = PolygonMode::Point, .v = vk::PolygonMode::ePoint},
+            });
+
+        constexpr auto K_CULL_MODE_MAP =
+            makeEnumMap<CullMode, vk::CullModeFlagBits>(std::array{
+                Entry{.k = CullMode::None, .v = vk::CullModeFlagBits::eNone},
+                Entry{.k = CullMode::Front, .v = vk::CullModeFlagBits::eFront},
+                Entry{.k = CullMode::Back, .v = vk::CullModeFlagBits::eBack},
+                Entry{.k = CullMode::FrontAndBack,
+                      .v = vk::CullModeFlagBits::eFrontAndBack},
+            });
+
+        constexpr auto K_COMPARE_OP_MAP =
+            makeEnumMap<CompareOp, vk::CompareOp>(std::array{
+                Entry{.k = CompareOp::Never, .v = vk::CompareOp::eNever},
+                Entry{.k = CompareOp::Less, .v = vk::CompareOp::eLess},
+                Entry{.k = CompareOp::Equal, .v = vk::CompareOp::eEqual},
+                Entry{.k = CompareOp::LessOrEqual,
+                      .v = vk::CompareOp::eLessOrEqual},
+                Entry{.k = CompareOp::Greater, .v = vk::CompareOp::eGreater},
+                Entry{.k = CompareOp::NotEqual, .v = vk::CompareOp::eNotEqual},
+                Entry{.k = CompareOp::GreaterOrEqual,
+                      .v = vk::CompareOp::eGreaterOrEqual},
+                Entry{.k = CompareOp::Always, .v = vk::CompareOp::eAlways},
+            });
+
+        constexpr auto K_BLEND_FACTOR_MAP = makeEnumMap<
+            BlendFactor, vk::BlendFactor>(std::array{
+            Entry{.k = BlendFactor::Zero, .v = vk::BlendFactor::eZero},
+            Entry{.k = BlendFactor::One, .v = vk::BlendFactor::eOne},
+            Entry{.k = BlendFactor::SrcColor, .v = vk::BlendFactor::eSrcColor},
+            Entry{.k = BlendFactor::OneMinusSrcColor,
+                  .v = vk::BlendFactor::eOneMinusSrcColor},
+            Entry{.k = BlendFactor::DstColor, .v = vk::BlendFactor::eDstColor},
+            Entry{.k = BlendFactor::OneMinusDstColor,
+                  .v = vk::BlendFactor::eOneMinusDstColor},
+            Entry{.k = BlendFactor::SrcAlpha, .v = vk::BlendFactor::eSrcAlpha},
+            Entry{.k = BlendFactor::OneMinusSrcAlpha,
+                  .v = vk::BlendFactor::eOneMinusSrcAlpha},
+            Entry{.k = BlendFactor::DstAlpha, .v = vk::BlendFactor::eDstAlpha},
+            Entry{.k = BlendFactor::OneMinusDstAlpha,
+                  .v = vk::BlendFactor::eOneMinusDstAlpha},
+        });
+
+        constexpr auto K_BLEND_OP_MAP =
+            makeEnumMap<BlendOp, vk::BlendOp>(std::array{
+                Entry{.k = BlendOp::Add, .v = vk::BlendOp::eAdd},
+                Entry{.k = BlendOp::Subtract, .v = vk::BlendOp::eSubtract},
+                Entry{.k = BlendOp::ReverseSubtract,
+                      .v = vk::BlendOp::eReverseSubtract},
+                Entry{.k = BlendOp::Min, .v = vk::BlendOp::eMin},
+                Entry{.k = BlendOp::Max, .v = vk::BlendOp::eMax},
+            });
+
+        constexpr auto K_FILTER_MAP =
+            makeEnumMap<Filter, vk::Filter>(std::array{
+                Entry{.k = Filter::Nearest, .v = vk::Filter::eNearest},
+                Entry{.k = Filter::Linear, .v = vk::Filter::eLinear},
+            });
+
+        constexpr auto K_SAMPLER_ADDRESS_MODE_MAP =
+            makeEnumMap<SamplerAddressMode, vk::SamplerAddressMode>(std::array{
+                Entry{.k = SamplerAddressMode::Repeat,
+                      .v = vk::SamplerAddressMode::eRepeat},
+                Entry{.k = SamplerAddressMode::MirroredRepeat,
+                      .v = vk::SamplerAddressMode::eMirroredRepeat},
+                Entry{.k = SamplerAddressMode::ClampToEdge,
+                      .v = vk::SamplerAddressMode::eClampToEdge},
+                Entry{.k = SamplerAddressMode::ClampToBorder,
+                      .v = vk::SamplerAddressMode::eClampToBorder},
+            });
+
+        constexpr auto K_LOAD_OP_MAP =
+            makeEnumMap<LoadOp, vk::AttachmentLoadOp>(std::array{
+                Entry{.k = LoadOp::Load, .v = vk::AttachmentLoadOp::eLoad},
+                Entry{.k = LoadOp::Clear, .v = vk::AttachmentLoadOp::eClear},
+                Entry{.k = LoadOp::DontCare,
+                      .v = vk::AttachmentLoadOp::eDontCare},
+            });
+
+        constexpr auto K_STORE_OP_MAP =
+            makeEnumMap<StoreOp, vk::AttachmentStoreOp>(std::array{
+                Entry{.k = StoreOp::Store, .v = vk::AttachmentStoreOp::eStore},
+                Entry{.k = StoreOp::DontCare,
+                      .v = vk::AttachmentStoreOp::eDontCare},
+            });
+
+        constexpr auto K_DESCRIPTOR_TYPE_MAP =
+            makeEnumMap<DescriptorType, vk::DescriptorType>(std::array{
+                Entry{.k = DescriptorType::Sampler,
+                      .v = vk::DescriptorType::eSampler},
+                Entry{.k = DescriptorType::CombinedImageSampler,
+                      .v = vk::DescriptorType::eCombinedImageSampler},
+                Entry{.k = DescriptorType::SampledImage,
+                      .v = vk::DescriptorType::eSampledImage},
+                Entry{.k = DescriptorType::StorageImage,
+                      .v = vk::DescriptorType::eStorageImage},
+                Entry{.k = DescriptorType::UniformBuffer,
+                      .v = vk::DescriptorType::eUniformBuffer},
+                Entry{.k = DescriptorType::StorageBuffer,
+                      .v = vk::DescriptorType::eStorageBuffer},
+                Entry{.k = DescriptorType::UniformBufferDynamic,
+                      .v = vk::DescriptorType::eUniformBufferDynamic},
+                Entry{.k = DescriptorType::StorageBufferDynamic,
+                      .v = vk::DescriptorType::eStorageBufferDynamic},
+
+            });
+
+        constexpr auto K_DYNAMIC_STATE_MAP =
+            makeEnumMap<DynamicState, vk::DynamicState>(std::array{
+                Entry{.k = DynamicState::Viewport,
+                      .v = vk::DynamicState::eViewport},
+                Entry{.k = DynamicState::Scissor,
+                      .v = vk::DynamicState::eScissor},
+                Entry{.k = DynamicState::LineWidth,
+                      .v = vk::DynamicState::eLineWidth},
+                Entry{.k = DynamicState::DepthBias,
+                      .v = vk::DynamicState::eDepthBias},
+                Entry{.k = DynamicState::BlendConstants,
+                      .v = vk::DynamicState::eBlendConstants},
+                Entry{.k = DynamicState::DepthBounds,
+                      .v = vk::DynamicState::eDepthBounds},
+                Entry{.k = DynamicState::StencilCompareMask,
+                      .v = vk::DynamicState::eStencilCompareMask},
+                Entry{.k = DynamicState::StencilWriteMask,
+                      .v = vk::DynamicState::eStencilWriteMask},
+                Entry{.k = DynamicState::StencilReference,
+                      .v = vk::DynamicState::eStencilReference},
+                Entry{.k = DynamicState::CullMode,
+                      .v = vk::DynamicState::eCullMode},
+                Entry{.k = DynamicState::FrontFace,
+                      .v = vk::DynamicState::eFrontFace},
+                Entry{.k = DynamicState::PrimitiveTopology,
+                      .v = vk::DynamicState::ePrimitiveTopology},
+                Entry{.k = DynamicState::ViewportWithCount,
+                      .v = vk::DynamicState::eViewportWithCount},
+                Entry{.k = DynamicState::ScissorWithCount,
+                      .v = vk::DynamicState::eScissorWithCount},
+                Entry{.k = DynamicState::VertexInputBindingStride,
+                      .v = vk::DynamicState::eVertexInputBindingStride},
+                Entry{.k = DynamicState::DepthTestEnable,
+                      .v = vk::DynamicState::eDepthTestEnable},
+                Entry{.k = DynamicState::DepthWriteEnable,
+                      .v = vk::DynamicState::eDepthWriteEnable},
+                Entry{.k = DynamicState::DepthCompareOp,
+                      .v = vk::DynamicState::eDepthCompareOp},
+                Entry{.k = DynamicState::DepthBoundsTestEnable,
+                      .v = vk::DynamicState::eDepthBoundsTestEnable},
+                Entry{.k = DynamicState::StencilTestEnable,
+                      .v = vk::DynamicState::eStencilTestEnable},
+                Entry{.k = DynamicState::StencilOp,
+                      .v = vk::DynamicState::eStencilOp},
+                Entry{.k = DynamicState::RasterizerDiscardEnable,
+                      .v = vk::DynamicState::eRasterizerDiscardEnable},
+                Entry{.k = DynamicState::DepthBiasEnable,
+                      .v = vk::DynamicState::eDepthBiasEnable},
+                Entry{.k = DynamicState::PrimitiveRestartEnable,
+                      .v = vk::DynamicState::ePrimitiveRestartEnable},
+            });
+    }
+
     vk::Format VulkanUtils::toVkFormat(Format format)
     {
-        switch (format)
-        {
-        case Format::Undefined: return vk::Format::eUndefined;
-
-        // Color formats
-        case Format::R8_UNORM: return vk::Format::eR8Unorm;
-        case Format::R8_SNORM: return vk::Format::eR8Snorm;
-
-        case Format::R8G8_UNORM: return vk::Format::eR8G8Unorm;
-        case Format::R8G8_SNORM: return vk::Format::eR8G8Snorm;
-
-        case Format::R8G8B8_UNORM: return vk::Format::eR8G8B8Unorm;
-        case Format::R8G8B8_SNORM: return vk::Format::eR8G8B8Snorm;
-
-        case Format::R8G8B8A8_UNORM: return vk::Format::eR8G8B8A8Unorm;
-        case Format::R8G8B8A8_SNORM: return vk::Format::eR8G8B8A8Snorm;
-
-        case Format::R8G8B8A8_SRGB: return vk::Format::eR8G8B8A8Srgb;
-        case Format::B8G8R8A8_UNORM: return vk::Format::eB8G8R8A8Unorm;
-        case Format::B8G8R8A8_SRGB: return vk::Format::eB8G8R8A8Srgb;
-        case Format::B10G11R11_UFLOAT_PACK32: return vk::Format::eB10G11R11UfloatPack32;
-
-        case Format::R16_SFLOAT: return vk::Format::eR16Sfloat;
-        case Format::R16G16_SFLOAT: return vk::Format::eR16G16Sfloat;
-        case Format::R16G16B16A16_SFLOAT: return vk::Format::eR16G16B16A16Sfloat;
-
-        case Format::R32_SFLOAT: return vk::Format::eR32Sfloat;
-        case Format::R32G32_SFLOAT: return vk::Format::eR32G32Sfloat;
-        case Format::R32G32B32_SFLOAT: return vk::Format::eR32G32B32Sfloat;
-        case Format::R32G32B32A32_SFLOAT: return vk::Format::eR32G32B32A32Sfloat;
-        case Format::R32G32B32A32_UINT: return vk::Format::eR32G32B32A32Uint;
-
-        // Depth/stencil
-        case Format::D16_UNORM: return vk::Format::eD16Unorm;
-        case Format::D32_SFLOAT: return vk::Format::eD32Sfloat;
-        case Format::D24_UNORM_S8_UINT: return vk::Format::eD24UnormS8Uint;
-        case Format::D32_SFLOAT_S8_UINT: return vk::Format::eD32SfloatS8Uint;
-
-        // Compressed
-        case Format::BC1_RGB_UNORM: return vk::Format::eBc1RgbUnormBlock;
-        case Format::BC1_RGB_SRGB: return vk::Format::eBc1RgbSrgbBlock;
-        case Format::BC3_UNORM: return vk::Format::eBc3UnormBlock;
-        case Format::BC3_SRGB: return vk::Format::eBc3SrgbBlock;
-        case Format::BC7_UNORM: return vk::Format::eBc7UnormBlock;
-        case Format::BC7_SRGB: return vk::Format::eBc7SrgbBlock;
-
-        default: return vk::Format::eUndefined;
-        }
+      return K_FORMAT_MAP.to(format, vk::Format::eUndefined);
     }
 
     Format VulkanUtils::fromVkFormat(vk::Format format)
     {
-        switch (format)
-        {
-        case vk::Format::eUndefined: return Format::Undefined;
-
-        case vk::Format::eR8Unorm: return Format::R8_UNORM;
-        case vk::Format::eR8G8Unorm: return Format::R8G8_UNORM;
-        case vk::Format::eR8G8B8Unorm: return Format::R8G8B8_UNORM;
-        case vk::Format::eR8G8B8A8Unorm: return Format::R8G8B8A8_UNORM;
-        case vk::Format::eR8G8B8A8Srgb: return Format::R8G8B8A8_SRGB;
-        case vk::Format::eB8G8R8A8Unorm: return Format::B8G8R8A8_UNORM;
-        case vk::Format::eB8G8R8A8Srgb: return Format::B8G8R8A8_SRGB;
-        case vk::Format::eB10G11R11UfloatPack32: return Format::B10G11R11_UFLOAT_PACK32;
-
-        case vk::Format::eR16Sfloat: return Format::R16_SFLOAT;
-        case vk::Format::eR16G16Sfloat: return Format::R16G16_SFLOAT;
-        case vk::Format::eR16G16B16A16Sfloat: return Format::R16G16B16A16_SFLOAT;
-
-        case vk::Format::eR32Sfloat: return Format::R32_SFLOAT;
-        case vk::Format::eR32G32Sfloat: return Format::R32G32_SFLOAT;
-        case vk::Format::eR32G32B32Sfloat: return Format::R32G32B32_SFLOAT;
-        case vk::Format::eR32G32B32A32Sfloat: return Format::R32G32B32A32_SFLOAT;
-        case vk::Format::eR32G32B32A32Uint: return Format::R32G32B32A32_UINT;
-
-        case vk::Format::eD16Unorm: return Format::D16_UNORM;
-        case vk::Format::eD32Sfloat: return Format::D32_SFLOAT;
-        case vk::Format::eD24UnormS8Uint: return Format::D24_UNORM_S8_UINT;
-        case vk::Format::eD32SfloatS8Uint: return Format::D32_SFLOAT_S8_UINT;
-
-        default: return Format::Undefined;
-        }
+      return K_FORMAT_MAP.from(format, Format::Undefined);
     }
 
-    vk::BufferUsageFlags VulkanUtils::toVkBufferUsage(BufferUsage usage)
+    vk::BufferUsageFlags VulkanUtils::toVkBufferUsage(BufferUsageFlags usage)
     {
-        vk::BufferUsageFlags flags{};
-
-        if (hasFlag(usage, BufferUsage::TransferSrc)) {
-            flags |= vk::BufferUsageFlagBits::eTransferSrc;
-        }
-        if (hasFlag(usage, BufferUsage::TransferDst)) {
-            flags |= vk::BufferUsageFlagBits::eTransferDst;
-        }
-        if (hasFlag(usage, BufferUsage::UniformBuffer)) {
-            flags |= vk::BufferUsageFlagBits::eUniformBuffer;
-        }
-        if (hasFlag(usage, BufferUsage::StorageBuffer)) {
-            flags |= vk::BufferUsageFlagBits::eStorageBuffer;
-        }
-        if (hasFlag(usage, BufferUsage::IndexBuffer)) {
-            flags |= vk::BufferUsageFlagBits::eIndexBuffer;
-        }
-        if (hasFlag(usage, BufferUsage::VertexBuffer)) {
-            flags |= vk::BufferUsageFlagBits::eVertexBuffer;
-        }
-        if (hasFlag(usage, BufferUsage::IndirectBuffer)) {
-            flags |= vk::BufferUsageFlagBits::eIndirectBuffer;
-        }
-        if (hasFlag(usage, BufferUsage::ShaderDeviceAddress)) {
-            flags |= vk::BufferUsageFlagBits::eShaderDeviceAddress;
-        }
-
-        return flags;
+      return K_BUFFER_USAGE_MAP.to(usage);
     }
 
-    BufferUsage VulkanUtils::fromVkBufferUsage(vk::BufferUsageFlags flags)
+    BufferUsageFlags VulkanUtils::fromVkBufferUsage(vk::BufferUsageFlags flags)
     {
-        BufferUsage usage = BufferUsage::None;
-
-        if (flags & vk::BufferUsageFlagBits::eTransferSrc) {
-            usage |= BufferUsage::TransferSrc;
-        }
-        if (flags & vk::BufferUsageFlagBits::eTransferDst) {
-            usage |= BufferUsage::TransferDst;
-        }
-        if (flags & vk::BufferUsageFlagBits::eUniformBuffer) {
-            usage |= BufferUsage::UniformBuffer;
-        }
-        if (flags & vk::BufferUsageFlagBits::eStorageBuffer) {
-            usage |= BufferUsage::StorageBuffer;
-        }
-        if (flags & vk::BufferUsageFlagBits::eIndexBuffer) {
-            usage |= BufferUsage::IndexBuffer;
-        }
-        if (flags & vk::BufferUsageFlagBits::eVertexBuffer) {
-            usage |= BufferUsage::VertexBuffer;
-        }
-        if (flags & vk::BufferUsageFlagBits::eIndirectBuffer) {
-            usage |= BufferUsage::IndirectBuffer;
-        }
-
-        return usage;
+      return K_BUFFER_USAGE_MAP.from(flags);
     }
 
-    vk::ImageUsageFlags VulkanUtils::toVkImageUsage(TextureUsage usage)
+    vk::ImageUsageFlags VulkanUtils::toVkImageUsage(TextureUsageFlags usage)
     {
-        vk::ImageUsageFlags flags{};
-
-        if (hasFlag(usage, TextureUsage::TransferSrc)) {
-            flags |= vk::ImageUsageFlagBits::eTransferSrc;
-        }
-        if (hasFlag(usage, TextureUsage::TransferDst)) {
-            flags |= vk::ImageUsageFlagBits::eTransferDst;
-        }
-        if (hasFlag(usage, TextureUsage::Sampled)) {
-            flags |= vk::ImageUsageFlagBits::eSampled;
-        }
-        if (hasFlag(usage, TextureUsage::Storage)) {
-            flags |= vk::ImageUsageFlagBits::eStorage;
-        }
-        if (hasFlag(usage, TextureUsage::ColorAttachment)) {
-            flags |= vk::ImageUsageFlagBits::eColorAttachment;
-        }
-        if (hasFlag(usage, TextureUsage::DepthStencilAttachment)) {
-            flags |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
-        }
-        if (hasFlag(usage, TextureUsage::InputAttachment)) {
-            flags |= vk::ImageUsageFlagBits::eInputAttachment;
-        }
-        if (hasFlag(usage, TextureUsage::TransientAttachment)) {
-            flags |= vk::ImageUsageFlagBits::eTransientAttachment;
-        }
-
-        return flags;
+      return K_IMAGE_USAGE_MAP.to(usage);
     }
 
-    TextureUsage VulkanUtils::fromVkImageUsage(vk::ImageUsageFlags flags)
+    TextureUsageFlags VulkanUtils::fromVkImageUsage(vk::ImageUsageFlags flags)
     {
-        TextureUsage usage = TextureUsage::None;
-
-        if (flags & vk::ImageUsageFlagBits::eTransferSrc) {
-            usage |= TextureUsage::TransferSrc;
-        }
-        if (flags & vk::ImageUsageFlagBits::eTransferDst) {
-            usage |= TextureUsage::TransferDst;
-        }
-        if (flags & vk::ImageUsageFlagBits::eSampled) {
-            usage |= TextureUsage::Sampled;
-        }
-        if (flags & vk::ImageUsageFlagBits::eStorage) {
-            usage |= TextureUsage::Storage;
-        }
-        if (flags & vk::ImageUsageFlagBits::eColorAttachment) {
-            usage |= TextureUsage::ColorAttachment;
-        }
-        if (flags & vk::ImageUsageFlagBits::eDepthStencilAttachment) {
-            usage |= TextureUsage::DepthStencilAttachment;
-        }
-
-        return usage;
+      return K_IMAGE_USAGE_MAP.from(flags);
     }
 
     vk::SampleCountFlagBits VulkanUtils::toVkSampleCount(uint32_t count)
     {
-        switch (count) {
-            case 1: return vk::SampleCountFlagBits::e1;
-            case 2: return vk::SampleCountFlagBits::e2;
-            case 4: return vk::SampleCountFlagBits::e4;
-            case 8: return vk::SampleCountFlagBits::e8;
-            case 16: return vk::SampleCountFlagBits::e16;
-            case 32: return vk::SampleCountFlagBits::e32;
-            case 64: return vk::SampleCountFlagBits::e64;
-            default: return vk::SampleCountFlagBits::e1;
+        switch (count)
+        {
+        case 1: return vk::SampleCountFlagBits::e1;
+        case 2: return vk::SampleCountFlagBits::e2;
+        case 4: return vk::SampleCountFlagBits::e4;
+        case 8: return vk::SampleCountFlagBits::e8;
+        case 16: return vk::SampleCountFlagBits::e16;
+        case 32: return vk::SampleCountFlagBits::e32;
+        case 64: return vk::SampleCountFlagBits::e64;
+        default: return vk::SampleCountFlagBits::e1;
         }
     }
 
     VmaMemoryUsage VulkanUtils::toVmaMemoryUsage(MemoryUsage usage)
     {
-        switch (usage)
-        {
-        case MemoryUsage::GPUOnly: return VMA_MEMORY_USAGE_GPU_ONLY;
-        case MemoryUsage::CPUToGPU: return VMA_MEMORY_USAGE_CPU_TO_GPU;
-        case MemoryUsage::GPUToCPU: return VMA_MEMORY_USAGE_GPU_TO_CPU;
-        case MemoryUsage::CPUOnly: return VMA_MEMORY_USAGE_CPU_ONLY;
-        case MemoryUsage::GPULazy: return VMA_MEMORY_USAGE_GPU_LAZILY_ALLOCATED;
-        default: return VMA_MEMORY_USAGE_AUTO;
-        }
+      return K_MEMORY_USAGE_MAP.to(usage, VMA_MEMORY_USAGE_AUTO);
     }
 
-    vk::ShaderStageFlags VulkanUtils::toVkShaderStage(ShaderStage stage)
+    vk::ShaderStageFlags VulkanUtils::toVkShaderStage(ShaderStageFlags stage)
     {
-        vk::ShaderStageFlags flags{};
-
-        if (hasFlag(stage, ShaderStage::Vertex)) {
-            flags |= vk::ShaderStageFlagBits::eVertex;
-        }
-        if (hasFlag(stage, ShaderStage::Fragment)) {
-            flags |= vk::ShaderStageFlagBits::eFragment;
-        }
-        if (hasFlag(stage, ShaderStage::Geometry)) {
-            flags |= vk::ShaderStageFlagBits::eGeometry;
-        }
-        if (hasFlag(stage, ShaderStage::Compute)) {
-            flags |= vk::ShaderStageFlagBits::eCompute;
-        }
-        if (hasFlag(stage, ShaderStage::TessControl)) {
-            flags |= vk::ShaderStageFlagBits::eTessellationControl;
-        }
-        if (hasFlag(stage, ShaderStage::TessEval)) {
-            flags |= vk::ShaderStageFlagBits::eTessellationEvaluation;
-        }
-
-        return flags;
+      return K_SHADER_STAGE_MAP.to(stage);
     }
 
-    ShaderStage VulkanUtils::fromVkShaderStage(vk::ShaderStageFlags flags)
+    ShaderStageFlags VulkanUtils::fromVkShaderStage(vk::ShaderStageFlags flags)
     {
-        uint32_t stage = 0;
-
-        if (flags & vk::ShaderStageFlagBits::eVertex) {
-            stage |= static_cast<uint32_t>(ShaderStage::Vertex);
-}
-        if (flags & vk::ShaderStageFlagBits::eFragment) {
-            stage |= static_cast<uint32_t>(ShaderStage::Fragment);
-}
-        if (flags & vk::ShaderStageFlagBits::eGeometry) {
-            stage |= static_cast<uint32_t>(ShaderStage::Geometry);
-}
-        if (flags & vk::ShaderStageFlagBits::eCompute) {
-            stage |= static_cast<uint32_t>(ShaderStage::Compute);
-}
-        if (flags & vk::ShaderStageFlagBits::eTessellationControl) {
-            stage |= static_cast<uint32_t>(ShaderStage::TessControl);
-}
-        if (flags & vk::ShaderStageFlagBits::eTessellationEvaluation) {
-            stage |= static_cast<uint32_t>(ShaderStage::TessEval);
-}
-
-        return static_cast<ShaderStage>(stage);
+      return K_SHADER_STAGE_MAP.from(flags);
     }
 
-    vk::PipelineStageFlags2 VulkanUtils::toVkPipelineStage(ShaderStage stage)
+    vk::PipelineStageFlags2 VulkanUtils::toVkPipelineStage(ShaderStageFlags stage)
     {
-        if (stage == ShaderStage::None)
+      if (!stage) {
+        return vk::PipelineStageFlagBits2::eNone;
+      }
+      if (stage.has(ShaderStage::Host)) {
+        return vk::PipelineStageFlagBits2::eHost;
+      }
+
+        if (stage.has(ShaderStage::All))
         {
-            return vk::PipelineStageFlagBits2::eNone;
-        }
-        if (stage == ShaderStage::Host)
-        {
-            return vk::PipelineStageFlagBits2::eHost;
-        }
-        if (stage == ShaderStage::All)
-        {
-            return vk::PipelineStageFlagBits2::eAllCommands;
+            return vk::PipelineStageFlagBits2::eAllCommands | vk::PipelineStageFlagBits2::eHost;
         }
 
         vk::PipelineStageFlags2 flags{};
-        if (hasFlag(stage, ShaderStage::Vertex))
-        {
-            flags |= vk::PipelineStageFlagBits2::eVertexShader;
+
+        if (stage.has(ShaderStage::Vertex)) {
+          flags |= vk::PipelineStageFlagBits2::eVertexShader;
         }
-        if (hasFlag(stage, ShaderStage::Fragment))
-        {
-            flags |= vk::PipelineStageFlagBits2::eFragmentShader;
+        if (stage.has(ShaderStage::Fragment)) {
+          flags |= vk::PipelineStageFlagBits2::eFragmentShader;
         }
-        if (hasFlag(stage, ShaderStage::Geometry))
-        {
-            flags |= vk::PipelineStageFlagBits2::eGeometryShader;
+        if (stage.has(ShaderStage::Geometry)) {
+          flags |= vk::PipelineStageFlagBits2::eGeometryShader;
         }
-        if (hasFlag(stage, ShaderStage::Compute))
-        {
-            flags |= vk::PipelineStageFlagBits2::eComputeShader;
+        if (stage.has(ShaderStage::Compute)) {
+          flags |= vk::PipelineStageFlagBits2::eComputeShader;
         }
 
-        if (hasFlag(stage, ShaderStage::TessEval))
-        {
-            flags |= vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
+        if (stage.has(ShaderStage::TessEval)) {
+          flags |= vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
         }
-        if (hasFlag(stage, ShaderStage::TessControl))
-        {
-            flags |= vk::PipelineStageFlagBits2::eTessellationControlShader;
+        if (stage.has(ShaderStage::TessControl)) {
+          flags |= vk::PipelineStageFlagBits2::eTessellationControlShader;
         }
-        if (hasFlag(stage, ShaderStage::DepthStencilAttachment))
+
+        if (stage.has(ShaderStage::DepthStencilAttachment))
         {
             flags |= vk::PipelineStageFlagBits2::eEarlyFragmentTests |
                 vk::PipelineStageFlagBits2::eLateFragmentTests;
         }
-        if (hasFlag(stage, ShaderStage::RenderTarget))
+
+        if (stage.has(ShaderStage::RenderTarget))
         {
             flags |= vk::PipelineStageFlagBits2::eColorAttachmentOutput |
                 vk::PipelineStageFlagBits2::eEarlyFragmentTests |
                 vk::PipelineStageFlagBits2::eLateFragmentTests;
         }
-        if (hasFlag(stage, ShaderStage::Transfer))
-        {
-            flags |= vk::PipelineStageFlagBits2::eTransfer;
+
+        if (stage.has(ShaderStage::Transfer)) {
+          flags |= vk::PipelineStageFlagBits2::eTransfer;
         }
-        if (hasFlag(stage, ShaderStage::DrawIndirect))
-        {
-            flags |= vk::PipelineStageFlagBits2::eDrawIndirect;
+        if (stage.has(ShaderStage::DrawIndirect)) {
+          flags |= vk::PipelineStageFlagBits2::eDrawIndirect;
         }
-        if (hasFlag(stage, ShaderStage::Host))
-        {
-            flags |= vk::PipelineStageFlagBits2::eHost;
+        if (stage.has(ShaderStage::Host)) {
+          flags |= vk::PipelineStageFlagBits2::eHost;
         }
 
         return flags;
@@ -364,284 +650,135 @@ namespace pnkr::renderer::rhi::vulkan
     {
         switch (layout)
         {
-        case ResourceLayout::Undefined: return vk::ImageLayout::eUndefined;
-        case ResourceLayout::General: return vk::ImageLayout::eGeneral;
-        case ResourceLayout::ColorAttachment: return vk::ImageLayout::eColorAttachmentOptimal;
-        case ResourceLayout::DepthStencilAttachment: return vk::ImageLayout::eDepthStencilAttachmentOptimal;
-        case ResourceLayout::DepthStencilReadOnly: return vk::ImageLayout::eDepthStencilReadOnlyOptimal;
-        case ResourceLayout::ShaderReadOnly: return vk::ImageLayout::eShaderReadOnlyOptimal;
-        case ResourceLayout::TransferSrc: return vk::ImageLayout::eTransferSrcOptimal;
-        case ResourceLayout::TransferDst: return vk::ImageLayout::eTransferDstOptimal;
-        case ResourceLayout::Present: return vk::ImageLayout::ePresentSrcKHR;
-        default: return vk::ImageLayout::eUndefined;
+        case ResourceLayout::VertexBufferRead:
+        case ResourceLayout::IndexBufferRead:
+        case ResourceLayout::IndirectBufferRead:
+        case ResourceLayout::UniformBufferRead:
+            PNKR_ASSERT(false, "toVkImageLayout called with buffer-only ResourceLayout");
+            return vk::ImageLayout::eUndefined;
+        default:
+            break;
         }
+
+        return K_RESOURCE_LAYOUT_MAP.to(layout, vk::ImageLayout::eUndefined);
     }
 
     vk::PrimitiveTopology VulkanUtils::toVkTopology(PrimitiveTopology topology)
     {
-        switch (topology)
-        {
-        case PrimitiveTopology::PointList: return vk::PrimitiveTopology::ePointList;
-        case PrimitiveTopology::LineList: return vk::PrimitiveTopology::eLineList;
-        case PrimitiveTopology::LineStrip: return vk::PrimitiveTopology::eLineStrip;
-        case PrimitiveTopology::TriangleList: return vk::PrimitiveTopology::eTriangleList;
-        case PrimitiveTopology::TriangleStrip: return vk::PrimitiveTopology::eTriangleStrip;
-        case PrimitiveTopology::TriangleFan: return vk::PrimitiveTopology::eTriangleFan;
-        case PrimitiveTopology::PatchList: return vk::PrimitiveTopology::ePatchList;
-        default: return vk::PrimitiveTopology::eTriangleList;
-        }
+      return K_PRIMITIVE_TOPOLOGY_MAP.to(topology,
+                                         vk::PrimitiveTopology::eTriangleList);
     }
 
     PrimitiveTopology VulkanUtils::fromVkTopology(vk::PrimitiveTopology topology)
     {
-        switch (topology)
-        {
-        case vk::PrimitiveTopology::ePointList: return PrimitiveTopology::PointList;
-        case vk::PrimitiveTopology::eLineList: return PrimitiveTopology::LineList;
-        case vk::PrimitiveTopology::eLineStrip: return PrimitiveTopology::LineStrip;
-        case vk::PrimitiveTopology::eTriangleList: return PrimitiveTopology::TriangleList;
-        case vk::PrimitiveTopology::eTriangleStrip: return PrimitiveTopology::TriangleStrip;
-        case vk::PrimitiveTopology::eTriangleFan: return PrimitiveTopology::TriangleFan;
-        case vk::PrimitiveTopology::ePatchList: return PrimitiveTopology::PatchList;
-        default: return PrimitiveTopology::TriangleList;
-        }
+      return K_PRIMITIVE_TOPOLOGY_MAP.from(topology,
+                                           PrimitiveTopology::TriangleList);
     }
 
     vk::PolygonMode VulkanUtils::toVkPolygonMode(PolygonMode mode)
     {
-        switch (mode)
-        {
-        case PolygonMode::Fill: return vk::PolygonMode::eFill;
-        case PolygonMode::Line: return vk::PolygonMode::eLine;
-        case PolygonMode::Point: return vk::PolygonMode::ePoint;
-        default: return vk::PolygonMode::eFill;
-        }
+      return K_POLYGON_MODE_MAP.to(mode, vk::PolygonMode::eFill);
     }
 
     PolygonMode VulkanUtils::fromVkPolygonMode(vk::PolygonMode mode)
     {
-        switch (mode)
-        {
-        case vk::PolygonMode::eFill: return PolygonMode::Fill;
-        case vk::PolygonMode::eLine: return PolygonMode::Line;
-        case vk::PolygonMode::ePoint: return PolygonMode::Point;
-        default: return PolygonMode::Fill;
-        }
+      return K_POLYGON_MODE_MAP.from(mode, PolygonMode::Fill);
     }
 
     vk::CullModeFlags VulkanUtils::toVkCullMode(CullMode mode)
     {
-        switch (mode)
-        {
-        case CullMode::None: return vk::CullModeFlagBits::eNone;
-        case CullMode::Front: return vk::CullModeFlagBits::eFront;
-        case CullMode::Back: return vk::CullModeFlagBits::eBack;
-        case CullMode::FrontAndBack: return vk::CullModeFlagBits::eFrontAndBack;
-        default: return vk::CullModeFlagBits::eNone;
-        }
+      const vk::CullModeFlagBits bits =
+          K_CULL_MODE_MAP.to(mode, vk::CullModeFlagBits::eNone);
+      return {bits};
     }
 
     CullMode VulkanUtils::fromVkCullMode(vk::CullModeFlags flags)
     {
-        if (flags & vk::CullModeFlagBits::eFrontAndBack) { return CullMode::FrontAndBack;
-}
-        if (flags & vk::CullModeFlagBits::eFront) { return CullMode::Front;
-}
-        if (flags & vk::CullModeFlagBits::eBack) { return CullMode::Back;
-}
+      if ((flags & vk::CullModeFlagBits::eFront) &&
+          (flags & vk::CullModeFlagBits::eBack)) {
+        return CullMode::FrontAndBack;
+      }
+      if (flags & vk::CullModeFlagBits::eFront) {
+        return CullMode::Front;
+      }
+      if (flags & vk::CullModeFlagBits::eBack) {
+        return CullMode::Back;
+      }
         return CullMode::None;
     }
 
     vk::CompareOp VulkanUtils::toVkCompareOp(CompareOp op)
     {
-        switch (op)
-        {
-        case CompareOp::None: return vk::CompareOp::eAlways;
-        case CompareOp::Never: return vk::CompareOp::eNever;
-        case CompareOp::Less: return vk::CompareOp::eLess;
-        case CompareOp::Equal: return vk::CompareOp::eEqual;
-        case CompareOp::LessOrEqual: return vk::CompareOp::eLessOrEqual;
-        case CompareOp::Greater: return vk::CompareOp::eGreater;
-        case CompareOp::NotEqual: return vk::CompareOp::eNotEqual;
-        case CompareOp::GreaterOrEqual: return vk::CompareOp::eGreaterOrEqual;
-        case CompareOp::Always: return vk::CompareOp::eAlways;
-        default: return vk::CompareOp::eLess;
-        }
+      if (op == CompareOp::None) {
+        return vk::CompareOp::eAlways;
+      }
+      return K_COMPARE_OP_MAP.to(op, vk::CompareOp::eLess);
     }
 
     CompareOp VulkanUtils::fromVkCompareOp(vk::CompareOp op)
     {
-        switch (op)
-        {
-        case vk::CompareOp::eNever: return CompareOp::Never;
-        case vk::CompareOp::eLess: return CompareOp::Less;
-        case vk::CompareOp::eEqual: return CompareOp::Equal;
-        case vk::CompareOp::eLessOrEqual: return CompareOp::LessOrEqual;
-        case vk::CompareOp::eGreater: return CompareOp::Greater;
-        case vk::CompareOp::eNotEqual: return CompareOp::NotEqual;
-        case vk::CompareOp::eGreaterOrEqual: return CompareOp::GreaterOrEqual;
-        case vk::CompareOp::eAlways: return CompareOp::Always;
-        default: return CompareOp::Less;
-        }
+      return K_COMPARE_OP_MAP.from(op, CompareOp::Less);
     }
 
     vk::BlendFactor VulkanUtils::toVkBlendFactor(BlendFactor factor)
     {
-        switch (factor)
-        {
-        case BlendFactor::Zero: return vk::BlendFactor::eZero;
-        case BlendFactor::One: return vk::BlendFactor::eOne;
-        case BlendFactor::SrcColor: return vk::BlendFactor::eSrcColor;
-        case BlendFactor::OneMinusSrcColor: return vk::BlendFactor::eOneMinusSrcColor;
-        case BlendFactor::DstColor: return vk::BlendFactor::eDstColor;
-        case BlendFactor::OneMinusDstColor: return vk::BlendFactor::eOneMinusDstColor;
-        case BlendFactor::SrcAlpha: return vk::BlendFactor::eSrcAlpha;
-        case BlendFactor::OneMinusSrcAlpha: return vk::BlendFactor::eOneMinusSrcAlpha;
-        case BlendFactor::DstAlpha: return vk::BlendFactor::eDstAlpha;
-        case BlendFactor::OneMinusDstAlpha: return vk::BlendFactor::eOneMinusDstAlpha;
-        default: return vk::BlendFactor::eOne;
-        }
+      return K_BLEND_FACTOR_MAP.to(factor, vk::BlendFactor::eOne);
     }
 
     BlendFactor VulkanUtils::fromVkBlendFactor(vk::BlendFactor factor)
     {
-        switch (factor)
-        {
-        case vk::BlendFactor::eZero: return BlendFactor::Zero;
-        case vk::BlendFactor::eOne: return BlendFactor::One;
-        case vk::BlendFactor::eSrcColor: return BlendFactor::SrcColor;
-        case vk::BlendFactor::eOneMinusSrcColor: return BlendFactor::OneMinusSrcColor;
-        case vk::BlendFactor::eDstColor: return BlendFactor::DstColor;
-        case vk::BlendFactor::eOneMinusDstColor: return BlendFactor::OneMinusDstColor;
-        case vk::BlendFactor::eSrcAlpha: return BlendFactor::SrcAlpha;
-        case vk::BlendFactor::eOneMinusSrcAlpha: return BlendFactor::OneMinusSrcAlpha;
-        case vk::BlendFactor::eDstAlpha: return BlendFactor::DstAlpha;
-        case vk::BlendFactor::eOneMinusDstAlpha: return BlendFactor::OneMinusDstAlpha;
-        default: return BlendFactor::One;
-        }
+      return K_BLEND_FACTOR_MAP.from(factor, BlendFactor::One);
     }
 
     vk::BlendOp VulkanUtils::toVkBlendOp(BlendOp op)
     {
-        switch (op)
-        {
-        case BlendOp::Add: return vk::BlendOp::eAdd;
-        case BlendOp::Subtract: return vk::BlendOp::eSubtract;
-        case BlendOp::ReverseSubtract: return vk::BlendOp::eReverseSubtract;
-        case BlendOp::Min: return vk::BlendOp::eMin;
-        case BlendOp::Max: return vk::BlendOp::eMax;
-        default: return vk::BlendOp::eAdd;
-        }
+      return K_BLEND_OP_MAP.to(op, vk::BlendOp::eAdd);
     }
 
     BlendOp VulkanUtils::fromVkBlendOp(vk::BlendOp op)
     {
-        switch (op)
-        {
-        case vk::BlendOp::eAdd: return BlendOp::Add;
-        case vk::BlendOp::eSubtract: return BlendOp::Subtract;
-        case vk::BlendOp::eReverseSubtract: return BlendOp::ReverseSubtract;
-        case vk::BlendOp::eMin: return BlendOp::Min;
-        case vk::BlendOp::eMax: return BlendOp::Max;
-        default: return BlendOp::Add;
-        }
+      return K_BLEND_OP_MAP.from(op, BlendOp::Add);
     }
 
     vk::Filter VulkanUtils::toVkFilter(Filter filter)
     {
-        switch (filter)
-        {
-        case Filter::Nearest: return vk::Filter::eNearest;
-        case Filter::Linear: return vk::Filter::eLinear;
-        default: return vk::Filter::eLinear;
-        }
+      return K_FILTER_MAP.to(filter, vk::Filter::eLinear);
     }
 
     Filter VulkanUtils::fromVkFilter(vk::Filter filter)
     {
-        switch (filter)
-        {
-        case vk::Filter::eNearest: return Filter::Nearest;
-        case vk::Filter::eLinear: return Filter::Linear;
-        default: return Filter::Linear;
-        }
+      return K_FILTER_MAP.from(filter, Filter::Linear);
     }
 
     vk::SamplerAddressMode VulkanUtils::toVkAddressMode(SamplerAddressMode mode)
     {
-        switch (mode)
-        {
-        case SamplerAddressMode::Repeat: return vk::SamplerAddressMode::eRepeat;
-        case SamplerAddressMode::MirroredRepeat: return vk::SamplerAddressMode::eMirroredRepeat;
-        case SamplerAddressMode::ClampToEdge: return vk::SamplerAddressMode::eClampToEdge;
-        case SamplerAddressMode::ClampToBorder: return vk::SamplerAddressMode::eClampToBorder;
-        default: return vk::SamplerAddressMode::eRepeat;
-        }
+      return K_SAMPLER_ADDRESS_MODE_MAP.to(mode,
+                                           vk::SamplerAddressMode::eRepeat);
     }
 
     SamplerAddressMode VulkanUtils::fromVkAddressMode(vk::SamplerAddressMode mode)
     {
-        switch (mode)
-        {
-        case vk::SamplerAddressMode::eRepeat: return SamplerAddressMode::Repeat;
-        case vk::SamplerAddressMode::eMirroredRepeat: return SamplerAddressMode::MirroredRepeat;
-        case vk::SamplerAddressMode::eClampToEdge: return SamplerAddressMode::ClampToEdge;
-        case vk::SamplerAddressMode::eClampToBorder: return SamplerAddressMode::ClampToBorder;
-        default: return SamplerAddressMode::Repeat;
-        }
+      return K_SAMPLER_ADDRESS_MODE_MAP.from(mode, SamplerAddressMode::Repeat);
     }
 
     vk::AttachmentLoadOp VulkanUtils::toVkLoadOp(LoadOp op)
     {
-        switch (op)
-        {
-        case LoadOp::Load: return vk::AttachmentLoadOp::eLoad;
-        case LoadOp::Clear: return vk::AttachmentLoadOp::eClear;
-        case LoadOp::DontCare: return vk::AttachmentLoadOp::eDontCare;
-        default: return vk::AttachmentLoadOp::eDontCare;
-        }
+      return K_LOAD_OP_MAP.to(op, vk::AttachmentLoadOp::eDontCare);
     }
 
     vk::AttachmentStoreOp VulkanUtils::toVkStoreOp(StoreOp op)
     {
-        switch (op)
-        {
-        case StoreOp::Store: return vk::AttachmentStoreOp::eStore;
-        case StoreOp::DontCare: return vk::AttachmentStoreOp::eDontCare;
-        default: return vk::AttachmentStoreOp::eStore;
-        }
+      return K_STORE_OP_MAP.to(op, vk::AttachmentStoreOp::eStore);
     }
 
     vk::DescriptorType VulkanUtils::toVkDescriptorType(DescriptorType type)
     {
-        switch (type)
-        {
-        case DescriptorType::Sampler: return vk::DescriptorType::eSampler;
-        case DescriptorType::CombinedImageSampler: return vk::DescriptorType::eCombinedImageSampler;
-        case DescriptorType::SampledImage: return vk::DescriptorType::eSampledImage;
-        case DescriptorType::StorageImage: return vk::DescriptorType::eStorageImage;
-        case DescriptorType::UniformBuffer: return vk::DescriptorType::eUniformBuffer;
-        case DescriptorType::StorageBuffer: return vk::DescriptorType::eStorageBuffer;
-        case DescriptorType::UniformBufferDynamic: return vk::DescriptorType::eUniformBufferDynamic;
-        case DescriptorType::StorageBufferDynamic: return vk::DescriptorType::eStorageBufferDynamic;
-        default: return vk::DescriptorType::eUniformBuffer;
-        }
+      return K_DESCRIPTOR_TYPE_MAP.to(type, vk::DescriptorType::eUniformBuffer);
     }
 
     DescriptorType VulkanUtils::fromVkDescriptorType(vk::DescriptorType type)
     {
-        switch (type)
-        {
-        case vk::DescriptorType::eSampler: return DescriptorType::Sampler;
-        case vk::DescriptorType::eCombinedImageSampler: return DescriptorType::CombinedImageSampler;
-        case vk::DescriptorType::eSampledImage: return DescriptorType::SampledImage;
-        case vk::DescriptorType::eStorageImage: return DescriptorType::StorageImage;
-        case vk::DescriptorType::eUniformBuffer: return DescriptorType::UniformBuffer;
-        case vk::DescriptorType::eStorageBuffer: return DescriptorType::StorageBuffer;
-        case vk::DescriptorType::eUniformBufferDynamic: return DescriptorType::UniformBufferDynamic;
-        case vk::DescriptorType::eStorageBufferDynamic: return DescriptorType::StorageBufferDynamic;
-        default: return DescriptorType::UniformBuffer;
-        }
+      return K_DESCRIPTOR_TYPE_MAP.from(type, DescriptorType::UniformBuffer);
     }
 
     vk::Viewport VulkanUtils::toVkViewport(const Viewport& viewport)
@@ -676,7 +813,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     vk::ClearValue VulkanUtils::toVkClearValue(const ClearValue& clearValue)
     {
-        vk::ClearValue vkClear;
+        vk::ClearValue vkClear{};
 
         if (clearValue.isDepthStencil)
         {
@@ -693,33 +830,49 @@ namespace pnkr::renderer::rhi::vulkan
 
     vk::DynamicState VulkanUtils::toVkDynamicState(DynamicState state)
     {
-        switch (state)
+      return K_DYNAMIC_STATE_MAP.to(state, vk::DynamicState::eViewport);
+    }
+
+    vk::ImageAspectFlags VulkanUtils::getImageAspectMask(vk::Format format)
+    {
+        if (format == vk::Format::eD16Unorm ||
+            format == vk::Format::eD32Sfloat ||
+            format == vk::Format::eD24UnormS8Uint ||
+            format == vk::Format::eD32SfloatS8Uint)
         {
-        case DynamicState::Viewport: return vk::DynamicState::eViewport;
-        case DynamicState::Scissor: return vk::DynamicState::eScissor;
-        case DynamicState::LineWidth: return vk::DynamicState::eLineWidth;
-        case DynamicState::DepthBias: return vk::DynamicState::eDepthBias;
-        case DynamicState::BlendConstants: return vk::DynamicState::eBlendConstants;
-        case DynamicState::DepthBounds: return vk::DynamicState::eDepthBounds;
-        case DynamicState::StencilCompareMask: return vk::DynamicState::eStencilCompareMask;
-        case DynamicState::StencilWriteMask: return vk::DynamicState::eStencilWriteMask;
-        case DynamicState::StencilReference: return vk::DynamicState::eStencilReference;
-        case DynamicState::CullMode: return vk::DynamicState::eCullMode;
-        case DynamicState::FrontFace: return vk::DynamicState::eFrontFace;
-        case DynamicState::PrimitiveTopology: return vk::DynamicState::ePrimitiveTopology;
-        case DynamicState::ViewportWithCount: return vk::DynamicState::eViewportWithCount;
-        case DynamicState::ScissorWithCount: return vk::DynamicState::eScissorWithCount;
-        case DynamicState::VertexInputBindingStride: return vk::DynamicState::eVertexInputBindingStride;
-        case DynamicState::DepthTestEnable: return vk::DynamicState::eDepthTestEnable;
-        case DynamicState::DepthWriteEnable: return vk::DynamicState::eDepthWriteEnable;
-        case DynamicState::DepthCompareOp: return vk::DynamicState::eDepthCompareOp;
-        case DynamicState::DepthBoundsTestEnable: return vk::DynamicState::eDepthBoundsTestEnable;
-        case DynamicState::StencilTestEnable: return vk::DynamicState::eStencilTestEnable;
-        case DynamicState::StencilOp: return vk::DynamicState::eStencilOp;
-        case DynamicState::RasterizerDiscardEnable: return vk::DynamicState::eRasterizerDiscardEnable;
-        case DynamicState::DepthBiasEnable: return vk::DynamicState::eDepthBiasEnable;
-        case DynamicState::PrimitiveRestartEnable: return vk::DynamicState::ePrimitiveRestartEnable;
-        default: return vk::DynamicState::eViewport;
+            vk::ImageAspectFlags aspectMask = vk::ImageAspectFlagBits::eDepth;
+
+            if (format == vk::Format::eD24UnormS8Uint ||
+                format == vk::Format::eD32SfloatS8Uint)
+            {
+                aspectMask |= vk::ImageAspectFlagBits::eStencil;
+            }
+
+            return aspectMask;
+        }
+
+        return vk::ImageAspectFlagBits::eColor;
+    }
+
+    vk::ImageAspectFlags VulkanUtils::rhiToVkTextureAspectFlags(Format format) {
+        switch (format) {
+            case Format::D16_UNORM:
+            case Format::D32_SFLOAT:
+            case Format::D24_UNORM_S8_UINT: return vk::ImageAspectFlagBits::eDepth;
+            case Format::S8_UINT: return vk::ImageAspectFlagBits::eStencil;
+            default: return vk::ImageAspectFlagBits::eColor;
+        }
+    }
+
+    void VulkanUtils::setDebugName(vk::Device device, vk::ObjectType type, uint64_t handle, const std::string& name)
+    {
+        if (!name.empty() && VULKAN_HPP_DEFAULT_DISPATCHER.vkSetDebugUtilsObjectNameEXT != nullptr)
+        {
+            vk::DebugUtilsObjectNameInfoEXT nameInfo{};
+            nameInfo.objectType = type;
+            nameInfo.objectHandle = handle;
+            nameInfo.pObjectName = name.c_str();
+            device.setDebugUtilsObjectNameEXT(nameInfo);
         }
     }
 
@@ -737,29 +890,40 @@ namespace pnkr::renderer::rhi::vulkan
             return {vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferRead};
 
         case vk::ImageLayout::eColorAttachmentOptimal:
-            return {vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-                    vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite};
+            return {
+                vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite
+            };
 
         case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-            return {vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
-                    vk::AccessFlagBits2::eDepthStencilAttachmentWrite | vk::AccessFlagBits2::eDepthStencilAttachmentRead};
+            return {
+                vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
+                vk::AccessFlagBits2::eDepthStencilAttachmentWrite | vk::AccessFlagBits2::eDepthStencilAttachmentRead
+            };
 
         case vk::ImageLayout::eShaderReadOnlyOptimal:
-            return {vk::PipelineStageFlagBits2::eFragmentShader | vk::PipelineStageFlagBits2::eComputeShader | vk::PipelineStageFlagBits2::eVertexShader,
-                    vk::AccessFlagBits2::eShaderRead};
+            return {
+                vk::PipelineStageFlagBits2::eFragmentShader |
+                vk::PipelineStageFlagBits2::eComputeShader |
+                vk::PipelineStageFlagBits2::eVertexShader,
+                vk::AccessFlagBits2::eShaderRead
+            };
 
         case vk::ImageLayout::eGeneral:
-            return {vk::PipelineStageFlagBits2::eAllCommands,
-                    vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite};
+            return {
+                vk::PipelineStageFlagBits2::eAllCommands,
+                vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite
+            };
 
         case vk::ImageLayout::ePresentSrcKHR:
-            return {vk::PipelineStageFlagBits2::eAllCommands, vk::AccessFlags2{}};
+            return {vk::PipelineStageFlagBits2::eBottomOfPipe, vk::AccessFlags2{}};
 
         default:
-            // Fallback for unhandled layouts
-            return {vk::PipelineStageFlagBits2::eAllCommands,
-                    vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite};
+            return {
+                vk::PipelineStageFlagBits2::eAllCommands,
+                vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite
+            };
         }
     }
-} // namespace pnkr::renderer::rhi::vulkan
+}
 

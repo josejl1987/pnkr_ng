@@ -9,9 +9,6 @@ namespace pnkr::renderer::rhi
     class RHITexture;
     class RHISampler;
 
-
-
-
     class RHIDescriptorSetLayout
     {
     public:
@@ -35,4 +32,4 @@ namespace pnkr::renderer::rhi
 
         virtual void* nativeHandle() const = 0;
     };
-} // namespace pnkr::renderer::rhi
+}
