@@ -1,12 +1,15 @@
 #include "pnkr/renderer/scene/SpriteRenderer.hpp"
 
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
+#include "pnkr/renderer/passes/RenderPassUtils.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/renderer/scene/Sprite.hpp"
-#include "generated/sprite_billboard.vert.h"
+#include "pnkr/renderer/gpu_shared/SpriteShared.h"
 
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -18,34 +21,20 @@ namespace pnkr::renderer::scene
 {
     namespace
     {
-        struct SpriteInstanceGPU
-        {
-            glm::vec4 pos_space;
-            glm::vec4 size_rot;
-            glm::vec4 color;
-            glm::uvec4 tex;
-            glm::vec4 uvRect;
-            glm::vec4 pivot_cutoff; // xy=pivot, z=alphaCutoff, w=unused
-        };
+        static_assert(sizeof(gpu::SpriteInstanceGPU) % 16 == 0, "SpriteInstanceGPU must be 16-byte aligned");
 
-        static_assert(sizeof(SpriteInstanceGPU) % 16 == 0, "SpriteInstanceGPU must be 16-byte aligned");
-
-        constexpr uint32_t kFlagScreenSpace = 1u << 0u;
-        constexpr size_t kDefaultFrameCount = 3;
+        constexpr uint32_t K_FLAG_SCREEN_SPACE = 1U << 0U;
+        constexpr size_t K_DEFAULT_FRAME_COUNT = 3;
         constexpr size_t kDefaultCapacity = 1024;
 
-        static uint32_t floatToSortableUint(float f)
-        {
-            // Total ordering for IEEE754 floats:
-            //  - flip sign bit for positives
-            //  - invert all bits for negatives
-            uint32_t u = std::bit_cast<uint32_t>(f);
-            return (u & 0x80000000u) ? ~u : (u | 0x80000000u);
+        uint32_t floatToSortableUint(float f) {
+
+          auto u = std::bit_cast<uint32_t>(f);
+          return ((u & 0x80000000U) != 0u) ? ~u : (u | 0x80000000U);
         }
 
-        static uint32_t orderToKey(int16_t order)
-        {
-            return static_cast<uint32_t>(static_cast<uint16_t>(order + 32768));
+        uint32_t orderToKey(int16_t order) {
+          return static_cast<uint16_t>(order + 32768);
         }
     }
 
@@ -58,8 +47,8 @@ namespace pnkr::renderer::scene
         createQuadMesh();
         createPipelines();
 
-        m_frames.resize(kDefaultFrameCount);
-        // Pre-allocate with debug names
+        m_frames.resize(K_DEFAULT_FRAME_COUNT);
+
         for (uint32_t i = 0; i < m_frames.size(); ++i)
         {
             ensureFrameCapacity(m_frames[i], kDefaultCapacity, i);
@@ -69,30 +58,28 @@ namespace pnkr::renderer::scene
     void SpriteRenderer::createQuadMesh()
     {
         std::vector<Vertex> vertices(4);
-        vertices[0].m_texCoord0 = {0.0F, 0.0F}; vertices[1].m_texCoord0 = {1.0F, 0.0F};
-        vertices[2].m_texCoord0 = {1.0F, 1.0F}; vertices[3].m_texCoord0 = {0.0F, 1.0F};
-        vertices[0].m_texCoord1 = {-0.5F, -0.5F}; vertices[1].m_texCoord1 = {0.5F, -0.5F};
-        vertices[2].m_texCoord1 = {0.5F, 0.5F}; vertices[3].m_texCoord1 = {-0.5F, 0.5F};
+        vertices[0].uv0 = {0.0F, 0.0F}; vertices[1].uv0 = {1.0F, 0.0F};
+        vertices[2].uv0 = {1.0F, 1.0F}; vertices[3].uv0 = {0.0F, 1.0F};
+        vertices[0].uv1 = {-0.5F, -0.5F}; vertices[1].uv1 = {0.5F, -0.5F};
+        vertices[2].uv1 = {0.5F, 0.5F}; vertices[3].uv1 = {-0.5F, 0.5F};
         std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
         m_quadMesh = m_renderer.createMesh(vertices, indices, false);
     }
 
     void SpriteRenderer::createPipelines()
     {
-        auto vertShader = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/sprite_billboard.vert.spv");
-        auto fragShader = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/sprite_billboard.frag.spv");
-
-        if (!vertShader || !fragShader) { core::Logger::error("SpriteRenderer: failed to load shaders."); return; }
+        using namespace passes::utils;
+        auto shaders = loadGraphicsShaders("shaders/sprite_billboard.vert.spv", "shaders/sprite_billboard.frag.spv", "SpriteRenderer");
+        if (!shaders.success) { return; }
 
         auto base = rhi::RHIPipelineBuilder()
-                               .setShaders(vertShader.get(), fragShader.get(), nullptr)
+                               .setShaders(shaders.vertex.get(), shaders.fragment.get(), nullptr)
                                .useVertexType<Vertex>()
                                .setTopology(rhi::PrimitiveTopology::TriangleList)
                                .setCullMode(rhi::CullMode::None)
                                .setColorFormat(m_renderer.getDrawColorFormat())
                                .setDepthFormat(m_renderer.getDrawDepthFormat());
 
-        // World pipelines
         {
             auto worldCutout = base;
             worldCutout.enableDepthTest(true, rhi::CompareOp::LessOrEqual)
@@ -117,7 +104,9 @@ namespace pnkr::renderer::scene
                        .setAlphaBlend()
                        .setName("SpriteWorldPremultiplied");
             auto premulDesc = worldPremul.buildGraphics();
-            if (premulDesc.blend.attachments.empty()) premulDesc.blend.attachments.resize(1);
+            if (premulDesc.blend.attachments.empty()) {
+              premulDesc.blend.attachments.resize(1);
+            }
             auto& att = premulDesc.blend.attachments[0];
             att.blendEnable = true;
             att.srcColorBlendFactor = rhi::BlendFactor::One;
@@ -129,7 +118,6 @@ namespace pnkr::renderer::scene
             m_worldPremultipliedPipeline = m_renderer.createGraphicsPipeline(premulDesc);
         }
 
-        // UI pipelines (depth off)
         {
             auto uiAlpha = base;
             uiAlpha.disableDepthTest()
@@ -148,7 +136,9 @@ namespace pnkr::renderer::scene
                     .setAlphaBlend()
                     .setName("SpriteUIPremultiplied");
             auto premulDesc = uiPremul.buildGraphics();
-            if (premulDesc.blend.attachments.empty()) premulDesc.blend.attachments.resize(1);
+            if (premulDesc.blend.attachments.empty()) {
+              premulDesc.blend.attachments.resize(1);
+            }
             auto& att = premulDesc.blend.attachments[0];
             att.blendEnable = true;
             att.srcColorBlendFactor = rhi::BlendFactor::One;
@@ -161,7 +151,9 @@ namespace pnkr::renderer::scene
         }
 
         auto* pipeline = m_renderer.getPipeline(m_worldAlphaPipeline);
-        if (pipeline != nullptr) m_instanceLayout = pipeline->descriptorSetLayout(0);
+        if (pipeline != nullptr) {
+          m_instanceLayout = pipeline->descriptorSetLayout(0);
+        }
     }
 
     void SpriteRenderer::ensureFrameCapacity(FrameResources& frame, size_t requiredInstances, uint32_t frameIndex)
@@ -169,24 +161,24 @@ namespace pnkr::renderer::scene
         bool recreated = false;
         if (requiredInstances > frame.capacityInstances || !frame.instanceBuffer)
         {
-            size_t newCapacity = std::max(requiredInstances, frame.capacityInstances * 2u);
-            if (newCapacity < kDefaultCapacity) newCapacity = kDefaultCapacity;
+          size_t newCapacity =
+              std::max(requiredInstances, frame.capacityInstances * 2U);
+          newCapacity = std::max(newCapacity, kDefaultCapacity);
 
-            // Debug Name for RenderDoc
-            std::string debugName = "SpriteBuffer_F" + std::to_string(frameIndex);
+          std::string debugName = "SpriteBuffer_F" + std::to_string(frameIndex);
 
-            frame.instanceBuffer = m_renderer.device()->createBuffer({
-                .size = newCapacity * sizeof(SpriteInstanceGPU),
-                .usage = rhi::BufferUsage::StorageBuffer,
-                .memoryUsage = rhi::MemoryUsage::CPUToGPU,
-                .debugName = debugName.c_str()
-            });
+          frame.instanceBuffer = m_renderer.device()->createBuffer(
+              {.size = newCapacity * sizeof(gpu::SpriteInstanceGPU),
+               .usage = rhi::BufferUsage::StorageBuffer,
+               .memoryUsage = rhi::MemoryUsage::CPUToGPU,
+               .debugName = debugName});
 
-            frame.capacityInstances = newCapacity;
-            recreated = true;
-            
-            // Log reallocation for visibility
-            core::Logger::debug("SpriteRenderer: Resized buffer Frame[{}] to {} sprites", frameIndex, newCapacity);
+          frame.capacityInstances = newCapacity;
+          recreated = true;
+
+          core::Logger::Scene.debug(
+              "SpriteRenderer: Resized buffer Frame[{}] to {} sprites",
+              frameIndex, newCapacity);
         }
 
         if (!frame.descriptorSet && m_instanceLayout != nullptr)
@@ -200,25 +192,23 @@ namespace pnkr::renderer::scene
         }
     }
 
-    void SpriteRenderer::uploadAndDraw(rhi::RHICommandBuffer* cmd,
+    void SpriteRenderer::uploadAndDraw(rhi::RHICommandList* cmd,
                                        const Camera& camera,
                                        uint32_t viewportW,
                                        uint32_t viewportH,
                                        uint32_t frameIndex,
                                        std::span<const Sprite*> sprites)
     {
-        if (sprites.empty() || !m_quadMesh) return;
+      if (sprites.empty() || !m_quadMesh) {
+        return;
+      }
 
         struct DrawItem
         {
-            uint64_t key = 0;
-            SpriteInstanceGPU inst{};
+          uint64_t m_key = 0;
+          gpu::SpriteInstanceGPU m_inst{};
         };
 
-        // Buckets:
-        //  - WorldCutout (no blending)
-        //  - WorldTranslucent: alpha/additive/premul
-        //  - UI: alpha/additive/premul
         std::vector<DrawItem> worldCutout;
         std::vector<DrawItem> worldAlpha;
         std::vector<DrawItem> worldAdd;
@@ -239,65 +229,70 @@ namespace pnkr::renderer::scene
 
         for (const Sprite* sprite : sprites)
         {
-            if (!sprite || !sprite->alive) continue;
+          if ((sprite == nullptr) || !sprite->alive) {
+            continue;
+          }
 
-            uint32_t textureIndex = (sprite->textureBindlessIndex == 0xFFFFFFFFu) ? m_whiteTextureIndex : sprite->textureBindlessIndex;
-            uint32_t samplerIndex = (sprite->samplerIndex == 0xFFFFFFFFu) ? m_defaultSamplerIndex : sprite->samplerIndex;
-            uint32_t flags = (sprite->space == SpriteSpace::Screen) ? kFlagScreenSpace : 0u;
+            uint32_t textureIndex = (!sprite->textureBindlessIndex.isValid()) ? util::u32(m_whiteTextureIndex) : util::u32(sprite->textureBindlessIndex);
+            uint32_t samplerIndex = (!sprite->samplerIndex.isValid()) ? util::u32(m_defaultSamplerIndex) : util::u32(sprite->samplerIndex);
 
-            SpriteInstanceGPU instance{};
+            uint32_t flags = (sprite->space == SpriteSpace::Screen)
+                                 ? K_FLAG_SCREEN_SPACE
+                                 : 0U;
+
+            gpu::SpriteInstanceGPU instance{};
             instance.pos_space = glm::vec4(sprite->position, 0.0F);
             instance.size_rot = glm::vec4(sprite->size, sprite->rotation, 0.0F);
             instance.color = sprite->color;
-            instance.tex = glm::uvec4(textureIndex, samplerIndex, flags, 0u);
+            instance.tex = glm::uvec4(textureIndex, samplerIndex, flags, 0U);
             instance.uvRect = glm::vec4(sprite->uvMin, sprite->uvMax);
             instance.pivot_cutoff = glm::vec4(sprite->pivot, sprite->alphaCutoff, 0.0F);
 
-            // Resolve effective pass (Auto behavior)
             SpritePass pass = sprite->pass;
             if (pass == SpritePass::Auto)
             {
                 pass = (sprite->space == SpriteSpace::Screen) ? SpritePass::UI : SpritePass::WorldTranslucent;
             }
 
-            // Build sort keys
             const uint32_t orderKey = orderToKey(sprite->order);
             uint64_t key = 0;
 
             if (pass == SpritePass::UI)
             {
-                // UI: primary (layer, order), then stable seq
+
                 key = (uint64_t(sprite->layer) << 48) |
                       (uint64_t(orderKey) << 32) |
                       uint64_t(seq);
             }
             else
             {
-                // World: depth sort using clip-space z/w (0..1 in Vulkan depth convention)
-                const glm::vec4 clip = camera.viewProj() * glm::vec4(sprite->position, 1.0f);
-                float ndcZ = 0.0f;
-                if (clip.w != 0.0f) ndcZ = clip.z / clip.w;
+
+              const glm::vec4 clip =
+                  camera.viewProj() * glm::vec4(sprite->position, 1.0F);
+              float ndcZ = 0.0F;
+              if (clip.w != 0.0F) {
+                ndcZ = clip.z / clip.w;
+              }
                 const uint32_t depthKey = floatToSortableUint(ndcZ);
 
                 if (pass == SpritePass::WorldCutout)
                 {
-                    // Front-to-back to reduce overdraw (smaller depth first)
+
                     key = (uint64_t(depthKey) << 32) | uint64_t(seq);
                 }
                 else
                 {
-                    // Back-to-front for translucency (larger depth first)
-                    const uint32_t invDepth = 0xFFFFFFFFu - depthKey;
-                    // Include layer/order as tie-breaker (optional but useful)
+
+                    const uint32_t invDepth = BINDLESS_INVALID_ID - depthKey;
+
                     key = (uint64_t(invDepth) << 32) | uint64_t(seq);
                 }
             }
 
             DrawItem item{};
-            item.key = key;
-            item.inst = instance;
+            item.m_key = key;
+            item.m_inst = instance;
 
-            // Route to bucket/pipeline
             if (pass == SpritePass::WorldCutout)
             {
                 worldCutout.push_back(item);
@@ -324,9 +319,10 @@ namespace pnkr::renderer::scene
             ++seq;
         }
 
-        auto sortByKey = [](std::vector<DrawItem>& v)
-        {
-            std::sort(v.begin(), v.end(), [](const DrawItem& a, const DrawItem& b) { return a.key < b.key; });
+        auto sortByKey = [](std::vector<DrawItem> &v) {
+          std::ranges::sort(v, [](const DrawItem &a, const DrawItem &b) {
+            return a.m_key < b.m_key;
+          });
         };
 
         sortByKey(worldCutout);
@@ -341,49 +337,53 @@ namespace pnkr::renderer::scene
             worldCutout.size() +
             worldAlpha.size() + worldAdd.size() + worldPremul.size() +
             uiAlpha.size() + uiAdd.size() + uiPremul.size();
-        if (totalInstances == 0) return;
+        if (totalInstances == 0) {
+          return;
+        }
 
-        // FIXED: Ring buffer logic
         size_t frameResIdx = frameIndex % m_frames.size();
         auto& frame = m_frames[frameResIdx];
-        
-        ensureFrameCapacity(frame, totalInstances, static_cast<uint32_t>(frameResIdx));
 
-        if (!frame.instanceBuffer || !frame.descriptorSet) return;
+        ensureFrameCapacity(frame, totalInstances, util::u32(frameResIdx));
 
-        std::vector<SpriteInstanceGPU> packed;
+        if (!frame.instanceBuffer || !frame.descriptorSet) {
+          return;
+        }
+
+        std::vector<gpu::SpriteInstanceGPU> packed;
         packed.reserve(totalInstances);
 
-        auto append = [&](const std::vector<DrawItem>& src)
-        {
-            for (const auto& it : src) packed.push_back(it.inst);
+        auto append = [&](const std::vector<DrawItem> &src) {
+          for (const auto &it : src) {
+            packed.push_back(it.m_inst);
+          }
         };
 
-        const uint32_t worldCutoutOffset = 0u;
+        const uint32_t worldCutoutOffset = 0U;
         append(worldCutout);
-        const uint32_t worldAlphaOffset = static_cast<uint32_t>(packed.size());
+        const uint32_t worldAlphaOffset = util::u32(packed.size());
         append(worldAlpha);
-        const uint32_t worldAddOffset = static_cast<uint32_t>(packed.size());
+        const uint32_t worldAddOffset = util::u32(packed.size());
         append(worldAdd);
-        const uint32_t worldPremulOffset = static_cast<uint32_t>(packed.size());
+        const uint32_t worldPremulOffset = util::u32(packed.size());
         append(worldPremul);
-        const uint32_t uiAlphaOffset = static_cast<uint32_t>(packed.size());
+        const uint32_t uiAlphaOffset = util::u32(packed.size());
         append(uiAlpha);
-        const uint32_t uiAddOffset = static_cast<uint32_t>(packed.size());
+        const uint32_t uiAddOffset = util::u32(packed.size());
         append(uiAdd);
-        const uint32_t uiPremulOffset = static_cast<uint32_t>(packed.size());
+        const uint32_t uiPremulOffset = util::u32(packed.size());
         append(uiPremul);
 
-        frame.instanceBuffer->uploadData(packed.data(), packed.size() * sizeof(SpriteInstanceGPU), 0);
+        frame.instanceBuffer->uploadData(std::span<const std::byte>(reinterpret_cast<const std::byte*>(packed.data()), packed.size() * sizeof(gpu::SpriteInstanceGPU)), 0);
 
         glm::mat4 invView = glm::inverse(camera.view());
-        glm::vec3 camRight = glm::vec3(invView[0]);
-        glm::vec3 camUp = glm::vec3(invView[1]);
+        auto camRight = glm::vec3(invView[0]);
+        auto camUp = glm::vec3(invView[1]);
 
-        uint32_t safeW = viewportW > 0 ? viewportW : 1u;
-        uint32_t safeH = viewportH > 0 ? viewportH : 1u;
+        uint32_t safeW = viewportW > 0 ? viewportW : 1U;
+        uint32_t safeH = viewportH > 0 ? viewportH : 1U;
 
-        ShaderGen::sprite_billboard_vert::SpritePushConstants pc{};
+        gpu::SpritePushConstants pc{};
         pc.viewProj = camera.viewProj();
         pc.camRight = glm::vec4(camRight, 0.0F);
         pc.camUp = glm::vec4(camUp, 0.0F);
@@ -392,26 +392,33 @@ namespace pnkr::renderer::scene
                                 1.0F / static_cast<float>(safeW),
                                 1.0F / static_cast<float>(safeH));
 
-        auto drawBatch = [&](PipelineHandle pipeline,
-                             uint32_t instanceCount,
-                             uint32_t firstInstance)
-        {
-            if (instanceCount == 0) return;
+        auto drawBatch = [&](PipelineHandle pipeline, uint32_t instanceCount,
+                             uint32_t firstInstance) {
+          if (instanceCount == 0) {
+            return;
+          }
 
-            m_renderer.bindPipeline(cmd, pipeline);
-            m_renderer.bindMesh(cmd, m_quadMesh);
-            m_renderer.bindDescriptorSet(cmd, pipeline, 0, frame.descriptorSet.get());
-            m_renderer.pushConstants(cmd, pipeline, rhi::ShaderStage::Vertex, pc);
+          cmd->bindPipeline(m_renderer.getPipeline(pipeline));
+          auto meshView = m_renderer.getMeshView(m_quadMesh);
+          if (!meshView) {
+            return;
+          }
+          if (!meshView->vertexPulling) {
+            cmd->bindVertexBuffer(0, meshView->vertexBuffer, 0);
+          }
+          cmd->bindIndexBuffer(meshView->indexBuffer, 0, false);
+          cmd->bindDescriptorSet(0, frame.descriptorSet.get());
+          cmd->pushConstants(rhi::ShaderStage::Vertex, pc);
 
-            cmd->drawIndexed(6, instanceCount, 0, 0, firstInstance);
+          cmd->drawIndexed(6, instanceCount, 0, 0, firstInstance);
         };
 
-        drawBatch(m_worldCutoutPipeline, static_cast<uint32_t>(worldCutout.size()), worldCutoutOffset);
-        drawBatch(m_worldAlphaPipeline, static_cast<uint32_t>(worldAlpha.size()), worldAlphaOffset);
-        drawBatch(m_worldAdditivePipeline, static_cast<uint32_t>(worldAdd.size()), worldAddOffset);
-        drawBatch(m_worldPremultipliedPipeline, static_cast<uint32_t>(worldPremul.size()), worldPremulOffset);
-        drawBatch(m_uiAlphaPipeline, static_cast<uint32_t>(uiAlpha.size()), uiAlphaOffset);
-        drawBatch(m_uiAdditivePipeline, static_cast<uint32_t>(uiAdd.size()), uiAddOffset);
-        drawBatch(m_uiPremultipliedPipeline, static_cast<uint32_t>(uiPremul.size()), uiPremulOffset);
+        drawBatch(m_worldCutoutPipeline, util::u32(worldCutout.size()), worldCutoutOffset);
+        drawBatch(m_worldAlphaPipeline, util::u32(worldAlpha.size()), worldAlphaOffset);
+        drawBatch(m_worldAdditivePipeline, util::u32(worldAdd.size()), worldAddOffset);
+        drawBatch(m_worldPremultipliedPipeline, util::u32(worldPremul.size()), worldPremulOffset);
+        drawBatch(m_uiAlphaPipeline, util::u32(uiAlpha.size()), uiAlphaOffset);
+        drawBatch(m_uiAdditivePipeline, util::u32(uiAdd.size()), uiAddOffset);
+        drawBatch(m_uiPremultipliedPipeline, util::u32(uiPremul.size()), uiPremulOffset);
     }
-} // namespace pnkr::renderer::scene
+}

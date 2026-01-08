@@ -6,244 +6,268 @@
 namespace pnkr::renderer::scene {
 
     ecs::Entity SceneGraphDOD::createNode(ecs::Entity parent) {
-        ecs::Entity entity = registry.create();
-        if (root == ecs::NULL_ENTITY) root = entity; // Compatibility: first node is root
+        ecs::Entity entity = registry_.create();
+        if (root_ == ecs::NULL_ENTITY) {
+          root_ = entity;
+        }
 
-        registry.emplace<LocalTransform>(entity);
-        registry.emplace<WorldTransform>(entity);
-        Relationship& rel = registry.emplace<Relationship>(entity);
-        
+        registry_.emplace<LocalTransform>(entity);
+        registry_.emplace<WorldTransform>(entity);
+        auto &rel = registry_.emplace<Relationship>(entity);
+
         if (parent != ecs::NULL_ENTITY) {
-            rel.parent = parent;
-            Relationship& parentRel = registry.get<Relationship>(parent);
-            rel.level = parentRel.level + 1;
-            
-            if (parentRel.firstChild == ecs::NULL_ENTITY) {
-                parentRel.firstChild = entity;
-                parentRel.lastChild = entity;
+            rel.setParent(parent);
+            auto &parentRel = registry_.get<Relationship>(parent);
+            rel.setLevel(static_cast<uint16_t>(parentRel.level() + 1));
+
+            if (parentRel.firstChild() == ecs::NULL_ENTITY) {
+                parentRel.setFirstChild(entity);
+                parentRel.setLastChild(entity);
             } else {
-                ecs::Entity lastChild = parentRel.lastChild;
-                registry.get<Relationship>(lastChild).nextSibling = entity;
-                rel.prevSibling = lastChild;
-                parentRel.lastChild = entity;
+                ecs::Entity lastChild = parentRel.lastChild();
+                registry_.get<Relationship>(lastChild).setNextSibling(entity);
+                rel.setPrevSibling(lastChild);
+                parentRel.setLastChild(entity);
             }
         } else {
-            roots.push_back(entity);
-            rel.level = 0;
+            roots_.push_back(entity);
+            rel.setLevel(0);
         }
-        
-        hierarchyDirty = true;
+
+        hierarchyDirty_ = true;
         return entity;
     }
 
     void SceneGraphDOD::destroyNode(ecs::Entity entity) {
-        if (!registry.has<Relationship>(entity)) return;
+      if (!registry_.has<Relationship>(entity)) {
+        return;
+      }
 
-        Relationship& rel = registry.get<Relationship>(entity);
-        
-        // Recursively destroy children
-        ecs::Entity child = rel.firstChild;
-        while (child != ecs::NULL_ENTITY) {
-            ecs::Entity next = registry.get<Relationship>(child).nextSibling;
-            destroyNode(child);
-            child = next;
-        }
-        
-        // Remove from parent's list
-        if (rel.parent != ecs::NULL_ENTITY) {
-            Relationship& parentRel = registry.get<Relationship>(rel.parent);
-            if (parentRel.firstChild == entity) {
-                parentRel.firstChild = rel.nextSibling;
-            }
-            if (parentRel.lastChild == entity) {
-                parentRel.lastChild = rel.prevSibling;
+      auto &rel = registry_.get<Relationship>(entity);
+
+      ecs::Entity child = rel.firstChild();
+      while (child != ecs::NULL_ENTITY) {
+        ecs::Entity next = registry_.get<Relationship>(child).nextSibling();
+        destroyNode(child);
+        child = next;
+      }
+
+        if (rel.parent() != ecs::NULL_ENTITY) {
+          auto &parentRel = registry_.get<Relationship>(rel.parent());
+          if (parentRel.firstChild() == entity) {
+            parentRel.setFirstChild(rel.nextSibling());
+          }
+            if (parentRel.lastChild() == entity) {
+                parentRel.setLastChild(rel.prevSibling());
             }
         } else {
-            // Remove from roots
-            auto it = std::find(roots.begin(), roots.end(), entity);
-            if (it != roots.end()) roots.erase(it);
-        }
-        
-        // Fix siblings
-        if (rel.prevSibling != ecs::NULL_ENTITY) {
-            registry.get<Relationship>(rel.prevSibling).nextSibling = rel.nextSibling;
-        }
-        if (rel.nextSibling != ecs::NULL_ENTITY) {
-            registry.get<Relationship>(rel.nextSibling).prevSibling = rel.prevSibling;
-        }
-        
-        if (root == entity) root = ecs::NULL_ENTITY;
 
-        registry.destroy(entity);
-        hierarchyDirty = true;
+          auto it = std::ranges::find(roots_, entity);
+          if (it != roots_.end()) {
+            roots_.erase(it);
+          }
+        }
+
+        if (rel.prevSibling() != ecs::NULL_ENTITY) {
+            registry_.get<Relationship>(rel.prevSibling()).setNextSibling(rel.nextSibling());
+        }
+        if (rel.nextSibling() != ecs::NULL_ENTITY) {
+            registry_.get<Relationship>(rel.nextSibling()).setPrevSibling(rel.prevSibling());
+        }
+
+        if (root_ == entity) {
+          root_ = ecs::NULL_ENTITY;
+        }
+
+        registry_.destroy(entity);
+        hierarchyDirty_ = true;
     }
 
     void SceneGraphDOD::updateTopoOrder() {
-        topoOrder.clear();
+        topoOrder_.clear();
         std::stack<ecs::Entity> stack;
-        for (auto it = roots.rbegin(); it != roots.rend(); ++it) {
+        for (auto it = roots_.rbegin(); it != roots_.rend(); ++it) {
             stack.push(*it);
         }
 
         while (!stack.empty()) {
             ecs::Entity e = stack.top();
             stack.pop();
-            topoOrder.push_back(e);
-            
-            Relationship& rel = registry.get<Relationship>(e);
-            
-            ecs::Entity child = rel.firstChild;
+            topoOrder_.push_back(e);
+
+            auto &rel = registry_.get<Relationship>(e);
+
+            ecs::Entity child = rel.firstChild();
             std::vector<ecs::Entity> children;
             while (child != ecs::NULL_ENTITY) {
                 children.push_back(child);
-                child = registry.get<Relationship>(child).nextSibling;
+                child = registry_.get<Relationship>(child).nextSibling();
             }
             for (auto it = children.rbegin(); it != children.rend(); ++it) {
                 stack.push(*it);
             }
         }
-        hierarchyDirty = false;
+        hierarchyDirty_ = false;
     }
 
     void SceneGraphDOD::recalculateGlobalTransformsFull() {
-        if (hierarchyDirty) updateTopoOrder();
-        
-        for (ecs::Entity e : topoOrder) {
-            const Relationship& rel = registry.get<Relationship>(e);
-            const glm::mat4& local = registry.get<LocalTransform>(e).matrix;
-            
-            if (rel.parent != ecs::NULL_ENTITY) {
-                registry.get<WorldTransform>(e).matrix = registry.get<WorldTransform>(rel.parent).matrix * local;
+      if (hierarchyDirty_) {
+        updateTopoOrder();
+      }
+
+        for (ecs::Entity e : topoOrder_) {
+            const Relationship& rel = registry_.get<Relationship>(e);
+            const glm::mat4& local = registry_.get<LocalTransform>(e).matrix;
+
+            if (rel.parent() != ecs::NULL_ENTITY) {
+                registry_.get<WorldTransform>(e).matrix = registry_.get<WorldTransform>(rel.parent()).matrix * local;
             } else {
-                registry.get<WorldTransform>(e).matrix = local;
+                registry_.get<WorldTransform>(e).matrix = local;
             }
-            registry.remove<TransformDirtyTag>(e);
         }
+        registry_.getPool<TransformDirtyTag>().clear();
     }
 
     void SceneGraphDOD::updateTransforms() {
-        if (hierarchyDirty) {
+        if (hierarchyDirty_) {
             recalculateGlobalTransformsFull();
             return;
         }
 
-        // 1. Identify if anything is dirty
-        if (registry.getPool<TransformDirtyTag>().size() == 0) return;
+        if (registry_.getPool<TransformDirtyTag>().size() == 0) {
+          return;
+        }
 
-        for (ecs::Entity e : topoOrder) {
-            Relationship& rel = registry.get<Relationship>(e);
-            bool isDirty = registry.has<TransformDirtyTag>(e);
-            
-            if (!isDirty && rel.parent != ecs::NULL_ENTITY) {
-                if (registry.has<TransformDirtyTag>(rel.parent)) {
-                    registry.emplace<TransformDirtyTag>(e);
-                    if (!registry.has<BoundsDirtyTag>(e)) {
-                        registry.emplace<BoundsDirtyTag>(e);
-                    }
-                    isDirty = true;
-                }
+        for (ecs::Entity e : topoOrder_) {
+          auto &rel = registry_.get<Relationship>(e);
+          bool isDirty = registry_.has<TransformDirtyTag>(e);
+
+          if (!isDirty && rel.parent() != ecs::NULL_ENTITY) {
+            if (registry_.has<TransformDirtyTag>(rel.parent())) {
+              registry_.emplace<TransformDirtyTag>(e);
+              if (!registry_.has<BoundsDirtyTag>(e)) {
+                registry_.emplace<BoundsDirtyTag>(e);
+              }
+              isDirty = true;
+            }
             }
 
             if (isDirty) {
-                if (!registry.has<BoundsDirtyTag>(e)) {
-                    registry.emplace<BoundsDirtyTag>(e);
+                if (!registry_.has<BoundsDirtyTag>(e)) {
+                    registry_.emplace<BoundsDirtyTag>(e);
                 }
-                const glm::mat4& local = registry.get<LocalTransform>(e).matrix;
-                if (rel.parent != ecs::NULL_ENTITY) {
-                    registry.get<WorldTransform>(e).matrix = registry.get<WorldTransform>(rel.parent).matrix * local;
+                const glm::mat4& local = registry_.get<LocalTransform>(e).matrix;
+                if (rel.parent() != ecs::NULL_ENTITY) {
+                    registry_.get<WorldTransform>(e).matrix = registry_.get<WorldTransform>(rel.parent()).matrix * local;
                 } else {
-                    registry.get<WorldTransform>(e).matrix = local;
+                    registry_.get<WorldTransform>(e).matrix = local;
                 }
             }
         }
 
-        // 2. Clear all dirty tags
-        registry.getPool<TransformDirtyTag>().clear();
+        registry_.getPool<TransformDirtyTag>().clear();
     }
 
     void SceneGraphDOD::markAsChanged(ecs::Entity entity) {
-        if (!registry.has<TransformDirtyTag>(entity)) {
-            registry.emplace<TransformDirtyTag>(entity);
+        if (!registry_.has<TransformDirtyTag>(entity)) {
+            registry_.emplace<TransformDirtyTag>(entity);
         }
-        if (!registry.has<BoundsDirtyTag>(entity)) {
-            registry.emplace<BoundsDirtyTag>(entity);
+        if (!registry_.has<BoundsDirtyTag>(entity)) {
+            registry_.emplace<BoundsDirtyTag>(entity);
         }
     }
 
     void SceneGraphDOD::onHierarchyChanged() {
-        hierarchyDirty = true;
+        hierarchyDirty_ = true;
         updateTopoOrder();
     }
 
     void SceneGraphDOD::setParent(ecs::Entity entity, ecs::Entity parent) {
-        if (entity == parent) return;
-        if (parent != ecs::NULL_ENTITY && registry.getPool<Relationship>().has(parent)) {
+      if (entity == parent) {
+        return;
+      }
+        if (parent != ecs::NULL_ENTITY && registry_.getPool<Relationship>().has(parent)) {
             ecs::Entity current = parent;
             while (current != ecs::NULL_ENTITY) {
-                if (current == entity) return;
-                Relationship& rel = registry.get<Relationship>(current);
-                current = rel.parent;
+              if (current == entity) {
+                return;
+              }
+              auto &rel = registry_.get<Relationship>(current);
+              current = rel.parent();
             }
         }
-        Relationship& rel = registry.getPool<Relationship>().has(entity) ? 
-            registry.get<Relationship>(entity) : 
-            registry.emplace<Relationship>(entity);
-            
-        // Remove from old parent if any
-        if (rel.parent != ecs::NULL_ENTITY) {
-            Relationship& oldParentRel = registry.get<Relationship>(rel.parent);
-            if (oldParentRel.firstChild == entity) oldParentRel.firstChild = rel.nextSibling;
-            if (oldParentRel.lastChild == entity) oldParentRel.lastChild = rel.prevSibling;
-            
-            if (rel.prevSibling != ecs::NULL_ENTITY) registry.get<Relationship>(rel.prevSibling).nextSibling = rel.nextSibling;
-            if (rel.nextSibling != ecs::NULL_ENTITY) registry.get<Relationship>(rel.nextSibling).prevSibling = rel.prevSibling;
+        Relationship& rel = registry_.getPool<Relationship>().has(entity) ?
+            registry_.get<Relationship>(entity) :
+            registry_.emplace<Relationship>(entity);
+
+        if (rel.parent() != ecs::NULL_ENTITY) {
+          auto &oldParentRel = registry_.get<Relationship>(rel.parent());
+          if (oldParentRel.firstChild() == entity) {
+            oldParentRel.setFirstChild(rel.nextSibling());
+          }
+          if (oldParentRel.lastChild() == entity) {
+            oldParentRel.setLastChild(rel.prevSibling());
+          }
+
+          if (rel.prevSibling() != ecs::NULL_ENTITY) {
+            registry_.get<Relationship>(rel.prevSibling()).setNextSibling(
+                rel.nextSibling());
+          }
+          if (rel.nextSibling() != ecs::NULL_ENTITY) {
+            registry_.get<Relationship>(rel.nextSibling()).setPrevSibling(
+                rel.prevSibling());
+          }
         } else {
-            auto it = std::find(roots.begin(), roots.end(), entity);
-            if (it != roots.end()) roots.erase(it);
+          auto it = std::ranges::find(roots_, entity);
+          if (it != roots_.end()) {
+            roots_.erase(it);
+          }
         }
 
-        rel.parent = parent;
+        rel.setParent(parent);
         if (parent != ecs::NULL_ENTITY) {
-            Relationship& parentRel = registry.getPool<Relationship>().has(parent) ? 
-                registry.get<Relationship>(parent) : 
-                registry.emplace<Relationship>(parent);
-            
-            rel.level = parentRel.level + 1;
-            rel.nextSibling = ecs::NULL_ENTITY;
-            rel.prevSibling = parentRel.lastChild;
+            Relationship& parentRel = registry_.getPool<Relationship>().has(parent) ?
+                registry_.get<Relationship>(parent) :
+                registry_.emplace<Relationship>(parent);
 
-            if (parentRel.firstChild == ecs::NULL_ENTITY) {
-                parentRel.firstChild = entity;
-                parentRel.lastChild = entity;
+            rel.setLevel(static_cast<uint16_t>(parentRel.level() + 1));
+            rel.setNextSibling(ecs::NULL_ENTITY);
+            rel.setPrevSibling(parentRel.lastChild());
+
+            if (parentRel.firstChild() == ecs::NULL_ENTITY) {
+                parentRel.setFirstChild(entity);
+                parentRel.setLastChild(entity);
             } else {
-                registry.get<Relationship>(parentRel.lastChild).nextSibling = entity;
-                parentRel.lastChild = entity;
+                registry_.get<Relationship>(parentRel.lastChild()).setNextSibling(entity);
+                parentRel.setLastChild(entity);
             }
         } else {
-            rel.level = 0;
-            rel.nextSibling = ecs::NULL_ENTITY;
-            rel.prevSibling = ecs::NULL_ENTITY;
-            roots.push_back(entity);
+            rel.setLevel(0);
+            rel.setNextSibling(ecs::NULL_ENTITY);
+            rel.setPrevSibling(ecs::NULL_ENTITY);
+            roots_.push_back(entity);
         }
-        hierarchyDirty = true;
+        hierarchyDirty_ = true;
 
         std::vector<ecs::Entity> stack;
         stack.push_back(entity);
         while (!stack.empty()) {
             ecs::Entity current = stack.back();
             stack.pop_back();
-            if (!registry.has<TransformDirtyTag>(current)) {
-                registry.emplace<TransformDirtyTag>(current);
+            if (!registry_.has<TransformDirtyTag>(current)) {
+                registry_.emplace<TransformDirtyTag>(current);
             }
-            if (!registry.has<BoundsDirtyTag>(current)) {
-                registry.emplace<BoundsDirtyTag>(current);
+            if (!registry_.has<BoundsDirtyTag>(current)) {
+                registry_.emplace<BoundsDirtyTag>(current);
             }
 
-            if (!registry.has<Relationship>(current)) continue;
-            ecs::Entity child = registry.get<Relationship>(current).firstChild;
+            if (!registry_.has<Relationship>(current)) {
+              continue;
+            }
+            ecs::Entity child = registry_.get<Relationship>(current).firstChild();
             while (child != ecs::NULL_ENTITY) {
                 stack.push_back(child);
-                child = registry.get<Relationship>(child).nextSibling;
+                child = registry_.get<Relationship>(child).nextSibling();
             }
         }
     }

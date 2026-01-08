@@ -1,28 +1,32 @@
 #include "pnkr/renderer/scene/Skybox.hpp"
 #include "pnkr/core/logger.hpp"
-#include "pnkr/rhi/rhi_shader.hpp" // Use the RHI shader abstraction
+#include "pnkr/renderer/AssetManager.hpp"
+#include "pnkr/rhi/rhi_shader.hpp"
+#include "pnkr/renderer/passes/RenderPassUtils.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
-#include "generated/skybox.vert.h"
+#include "pnkr/renderer/gpu_shared/SkyboxShared.h"
+#include "pnkr/renderer/environment/EnvironmentProcessor.hpp"
 
 namespace pnkr::renderer::scene
 {
     void Skybox::init(RHIRenderer& renderer, const std::vector<std::filesystem::path>& faces)
     {
         m_renderer = &renderer;
-        m_cubemapHandle = m_renderer->createCubemap(faces, false);
+        if (auto* assets = m_renderer->assets()) {
+            m_cubemapHandle = assets->createCubemap(faces, false);
+        }
 
         if (!m_cubemapHandle)
         {
-            core::Logger::error("Failed to create skybox cubemap");
+            core::Logger::Scene.error("Failed to create skybox cubemap");
             return;
         }
 
-        // 2. Create the pipeline immediately
         createSkyboxPipeline();
 
-        core::Logger::info("Skybox initialized. Handle: {}", m_cubemapHandle.id);
+        core::Logger::Scene.info("Skybox initialized. Handle: {}", util::u32(m_cubemapHandle.index));
     }
 
     void Skybox::init(RHIRenderer& renderer, TextureHandle cubemap)
@@ -32,103 +36,133 @@ namespace pnkr::renderer::scene
 
         if (!m_cubemapHandle)
         {
-            core::Logger::error("Failed to initialize skybox cubemap");
+            core::Logger::Scene.error("Failed to initialize skybox cubemap");
             return;
         }
 
         createSkyboxPipeline();
 
-        core::Logger::info("Skybox initialized from cubemap. Handle: {}", m_cubemapHandle.id);
+        core::Logger::Scene.info("Skybox initialized from cubemap. Handle: {}", util::u32(m_cubemapHandle.index));
+    }
+
+    void Skybox::initFromEquirectangular(RHIRenderer& renderer, const std::filesystem::path& path)
+    {
+        m_renderer = &renderer;
+
+        TexturePtr equiTex;
+        if (auto* assets = m_renderer->assets()) {
+            equiTex = assets->loadTexture(path, false);
+        }
+
+        if (!equiTex.isValid()) {
+            core::Logger::Scene.error("Failed to load equirectangular texture: {}", path.string());
+            return;
+        }
+
+        EnvironmentProcessor processor(m_renderer);
+        m_cubemapHandle = processor.convertEquirectangularToCubemap(equiTex.handle());
+
+        if (!m_cubemapHandle) {
+            core::Logger::Scene.error("Failed to convert equirectangular to cubemap: {}", path.string());
+            return;
+        }
+
+        createSkyboxPipeline();
+
+        core::Logger::Scene.info("Skybox initialized from equirectangular HDR. Handle: {}", util::u32(m_cubemapHandle.index));
     }
 
     void Skybox::destroy()
     {
-        // In a real engine, you'd release the TextureHandle and PipelineHandle
-        // back to the renderer here.
         m_cubemapHandle = INVALID_TEXTURE_HANDLE;
-        m_pipeline = INVALID_PIPELINE_HANDLE;
+        m_pipeline = {};
     }
 
     void Skybox::createSkyboxPipeline()
     {
-        // 1. Load Shaders using the RHI Shader abstraction
-        // This handles reflection automatically
-        auto vertShader = rhi::Shader::load(rhi::ShaderStage::Vertex, "shaders/skybox.vert.spv");
-        auto fragShader = rhi::Shader::load(rhi::ShaderStage::Fragment, "shaders/skybox.frag.spv");
-
-        if (!vertShader || !fragShader)
+        using namespace passes::utils;
+        auto shaders = loadGraphicsShaders("shaders/skybox.vert.spv", "shaders/skybox.frag.spv", "Skybox");
+        if (!shaders.success)
         {
-            core::Logger::error("Failed to load skybox shaders");
             return;
         }
 
-        // 2. Configure Pipeline
-        // We use the RHI Pipeline Builder helper to make this clean
         rhi::RHIPipelineBuilder builder;
 
-        builder.setShaders(vertShader.get(), fragShader.get(), nullptr)
-               .setTopology(rhi::PrimitiveTopology::TriangleList)
-               .setPolygonMode(rhi::PolygonMode::Fill)
-               // Cull Front because we are inside the cube
-               .setCullMode(rhi::CullMode::Front, false)
-               // Depth: Lequal so it draws at the far plane (z=1.0)
-               .enableDepthTest(false, rhi::CompareOp::LessOrEqual)
-               .setNoBlend()
-               .setColorFormat(m_renderer->getDrawColorFormat());
-        // Note: If using dynamic rendering, depth format is also needed
-        // Depending on RHI implementation, might need .setDepthFormat(...)
+        builder
+            .setShaders(shaders.vertex.get(), shaders.fragment.get(), nullptr)
+            .setTopology(rhi::PrimitiveTopology::TriangleList)
+            .setPolygonMode(rhi::PolygonMode::Fill)
+            .setCullMode(rhi::CullMode::None, false)
+            .setMultisampling(m_msaaSamples, m_msaaSamples > 1, 0.0F)
+            .enableDepthTest(true, rhi::CompareOp::LessOrEqual)
+            .setNoBlend()
+            .setColorFormat(rhi::Format::B10G11R11_UFLOAT_PACK32);
 
-        // 3. Build
-        // The builder automatically merges the Bindless Layout from the shader reflection
-        // provided your shaders utilize the bindless sets (set=1).
         auto desc = builder.buildGraphics();
 
-        // Ensure depth format is set explicitly if the builder didn't do it
         desc.depthFormat = m_renderer->getDrawDepthFormat();
 
         m_pipeline = m_renderer->createGraphicsPipeline(desc);
     }
 
-    void Skybox::draw(rhi::RHICommandBuffer* cmd, const Camera& camera)
+    void Skybox::draw(rhi::RHICommandList* cmd, const Camera& camera)
     {
         if (!m_cubemapHandle || !m_pipeline || (m_renderer == nullptr))
         {
+            static bool warnedOnce = false;
+            if (!warnedOnce) {
+                if (!m_cubemapHandle) core::Logger::Render.warn("Skybox::draw: m_cubemapHandle invalid");
+                if (!m_pipeline) core::Logger::Render.warn("Skybox::draw: m_pipeline invalid");
+                warnedOnce = true;
+            }
             return;
         }
 
-        // 1. Get underlying RHI objects
         rhi::RHIPipeline* rhiPipe = m_renderer->getPipeline(m_pipeline);
         if (rhiPipe == nullptr)
         {
+            static bool pipeWarnedOnce = false;
+            if (!pipeWarnedOnce) {
+                core::Logger::Render.warn("Skybox::draw: Failed to retrieve pipeline");
+                pipeWarnedOnce = true;
+            }
             return;
         }
 
-        // 2. Bind Pipeline
         cmd->bindPipeline(rhiPipe);
 
-        // 3. Bind Bindless Global Set (Set 1)
+        gpu::SkyboxPushConstants pc{};
+        pc.invViewProj = glm::inverse(camera.proj() * glm::mat4(glm::mat3(camera.view())));
+        pc.textureIndex = static_cast<uint32_t>(m_renderer->getTextureBindlessIndex(m_cubemapHandle));
+        pc.samplerIndex = static_cast<uint32_t>(m_renderer->getBindlessSamplerIndex(rhi::SamplerAddressMode::ClampToEdge));
+        pc.flipY = m_flipY ? 1 : 0;
+        pc.rotation = glm::radians(m_rotation);
+
+        cmd->pushConstants(rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment, pc);
+
         if (m_renderer->isBindlessEnabled())
         {
-            // Retrieve the bindless descriptor set from the device
             rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
-
-            cmd->bindDescriptorSet(rhiPipe, 1, bindlessSet);
+            cmd->bindDescriptorSet(1, bindlessSet);
         }
 
-        // 4. Push Constants
-        ShaderGen::skybox_vert::SkyboxPushConstants pc{};
-        pc.view = glm::mat4(glm::mat3(camera.view())); // Remove translation
-        pc.proj = camera.proj();
-        pc.textureIndex = m_renderer->getTextureBindlessIndex(m_cubemapHandle);
-        pc.samplerIndex = m_renderer->getBindlessSamplerIndex(rhi::SamplerAddressMode::ClampToEdge);
-
-        cmd->pushConstants(rhiPipe,
-                           rhi::ShaderStage::Vertex | rhi::ShaderStage::Fragment,
-                           0,
-                           sizeof(pc),
-                           &pc);
-
-        // 5. Draw
         cmd->draw(3, 1, 0, 0);
     }
-} // namespace pnkr::renderer::scene
+
+    void Skybox::resize(uint32_t msaaSamples)
+    {
+        if (m_msaaSamples != msaaSamples)
+        {
+            m_msaaSamples = msaaSamples;
+            if (m_renderer != nullptr) {
+              createSkyboxPipeline();
+            }
+        }
+    }
+
+    bool Skybox::isValid() const
+    {
+        return m_cubemapHandle.isValid() && m_pipeline.isValid();
+    }
+}

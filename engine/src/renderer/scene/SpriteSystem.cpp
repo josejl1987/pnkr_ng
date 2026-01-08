@@ -1,6 +1,7 @@
 #include "pnkr/renderer/scene/SpriteSystem.hpp"
 
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/SpriteRenderer.hpp"
@@ -12,20 +13,20 @@ namespace pnkr::renderer::scene
 {
     namespace
     {
-        constexpr uint32_t kSpriteIndexBits = 24;
-        constexpr uint32_t kSpriteGenBits = 32 - kSpriteIndexBits;
-        constexpr uint32_t kSpriteIndexMask = (1u << kSpriteIndexBits) - 1u;
-        constexpr uint32_t kSpriteGenMask = (1u << kSpriteGenBits) - 1u;
+    constexpr uint32_t K_SPRITE_INDEX_BITS = 24;
+    constexpr uint32_t K_SPRITE_GEN_BITS = 32 - K_SPRITE_INDEX_BITS;
+    constexpr uint32_t K_SPRITE_INDEX_MASK = (1U << K_SPRITE_INDEX_BITS) - 1U;
+    constexpr uint32_t K_SPRITE_GEN_MASK = (1U << K_SPRITE_GEN_BITS) - 1U;
 
-        uint32_t packSpriteId(uint32_t index, uint32_t generation)
-        {
-            return (generation << kSpriteIndexBits) | (index & kSpriteIndexMask);
-        }
+    uint32_t packSpriteId(uint32_t index, uint32_t generation) {
+      return (generation << K_SPRITE_INDEX_BITS) |
+             (index & K_SPRITE_INDEX_MASK);
+    }
 
         void unpackSpriteId(SpriteID id, uint32_t& outIndex, uint32_t& outGen)
         {
-            outIndex = id & kSpriteIndexMask;
-            outGen = (id >> kSpriteIndexBits) & kSpriteGenMask;
+          outIndex = id & K_SPRITE_INDEX_MASK;
+          outGen = (id >> K_SPRITE_INDEX_BITS) & K_SPRITE_GEN_MASK;
         }
     }
 
@@ -45,10 +46,9 @@ namespace pnkr::renderer::scene
             index = m_freeList.back();
             m_freeList.pop_back();
             auto& slot = m_slots[index];
-            slot.generation = (slot.generation + 1u) & kSpriteGenMask;
-            if (slot.generation == 0u)
-            {
-                slot.generation = 1u;
+            slot.generation = (slot.generation + 1U) & K_SPRITE_GEN_MASK;
+            if (slot.generation == 0U) {
+              slot.generation = 1U;
             }
             slot.sprite = initial;
             slot.sprite.alive = true;
@@ -60,9 +60,9 @@ namespace pnkr::renderer::scene
         slot.sprite = initial;
         slot.sprite.alive = true;
         slot.alive = true;
-        slot.generation = 1u;
+        slot.generation = 1U;
         m_slots.push_back(slot);
-        index = static_cast<uint32_t>(m_slots.size() - 1u);
+        index = util::u32(m_slots.size() - 1U);
         return packSpriteId(index, slot.generation);
     }
 
@@ -131,7 +131,7 @@ namespace pnkr::renderer::scene
         std::vector<uint32_t> toFree;
         toFree.reserve(m_slots.size());
 
-        const uint32_t whiteTexIndex = m_renderer.getTextureBindlessIndex(m_renderer.getWhiteTexture());
+        const rhi::TextureBindlessHandle whiteTexIndex = m_renderer.getTextureBindlessIndex(m_renderer.getWhiteTexture());
 
         for (uint32_t index = 0; index < m_slots.size(); ++index)
         {
@@ -158,8 +158,8 @@ namespace pnkr::renderer::scene
                 continue;
             }
 
-            // Resolve sampler unless explicitly set by the caller
-            if (sprite.samplerIndex == 0xFFFFFFFFu)
+            if (!sprite.samplerIndex.isValid())
+
             {
                 const rhi::Filter f = (sprite.filter == SpriteFilter::Nearest)
                                           ? rhi::Filter::Nearest
@@ -169,7 +169,7 @@ namespace pnkr::renderer::scene
 
             if (sprite.clip && !sprite.clip->frames.empty())
             {
-                const uint32_t frameCount = static_cast<uint32_t>(sprite.clip->frames.size());
+                const uint32_t frameCount = util::u32(sprite.clip->frames.size());
                 if (sprite.clipPlaying)
                 {
                     sprite.clipTime += dt;
@@ -178,14 +178,14 @@ namespace pnkr::renderer::scene
                 uint32_t frame = static_cast<uint32_t>(std::floor(sprite.clipTime * sprite.clip->fps));
                 if (sprite.clip->loop)
                 {
-                    frame = frameCount > 0 ? (frame % frameCount) : 0u;
+                  frame = frameCount > 0 ? (frame % frameCount) : 0U;
                 }
                 else
                 {
                     if (frame >= frameCount)
                     {
-                        frame = frameCount - 1u;
-                        sprite.clipPlaying = false;
+                      frame = frameCount - 1U;
+                      sprite.clipPlaying = false;
                     }
                 }
 
@@ -197,10 +197,10 @@ namespace pnkr::renderer::scene
                 }
                 else
                 {
-                    sprite.textureBindlessIndex = 0xFFFFFFFFu;
+                    sprite.textureBindlessIndex = rhi::TextureBindlessHandle::Invalid;
                 }
 
-                if (sprite.textureBindlessIndex == 0xFFFFFFFFu)
+                if (!sprite.textureBindlessIndex.isValid())
                 {
                     sprite.textureBindlessIndex = whiteTexIndex;
                 }
@@ -222,11 +222,13 @@ namespace pnkr::renderer::scene
                 {
                     sprite.textureBindlessIndex = whiteTexIndex;
                 }
+
                 else
                 {
-                    uint32_t texIndex = m_renderer.getTextureBindlessIndex(sprite.texture);
-                    sprite.textureBindlessIndex = texIndex != 0xFFFFFFFFu ? texIndex : whiteTexIndex;
+                    rhi::TextureBindlessHandle texIndex = m_renderer.getTextureBindlessIndex(sprite.texture);
+                    sprite.textureBindlessIndex = texIndex.isValid() ? texIndex : whiteTexIndex;
                 }
+
                 sprite.uvMin = {0.0F, 0.0F};
                 sprite.uvMax = {1.0F, 1.0F};
             }
@@ -238,7 +240,7 @@ namespace pnkr::renderer::scene
         }
     }
 
-    void SpriteSystem::render(rhi::RHICommandBuffer* cmd,
+    void SpriteSystem::render(rhi::RHICommandList* cmd,
                               const Camera& camera,
                               uint32_t viewportW,
                               uint32_t viewportH,
@@ -246,7 +248,7 @@ namespace pnkr::renderer::scene
     {
         if (!m_renderer.isBindlessEnabled())
         {
-            core::Logger::error("SpriteSystem: bindless is disabled; sprites require bindless enabled.");
+            core::Logger::Scene.error("SpriteSystem: bindless is disabled; sprites require bindless enabled.");
             return;
         }
 
@@ -300,9 +302,9 @@ namespace pnkr::renderer::scene
         bool anyInvalid = false;
         for (size_t i = 0; i < frames.size(); ++i)
         {
-            uint32_t index = m_renderer.getTextureBindlessIndex(frames[i]);
+            rhi::TextureBindlessHandle index = m_renderer.getTextureBindlessIndex(frames[i]);
             clip->frameBindlessIndex[i] = index;
-            if (index == 0xFFFFFFFFu)
+            if (!index.isValid())
             {
                 anyInvalid = true;
             }
@@ -310,9 +312,9 @@ namespace pnkr::renderer::scene
 
         if (anyInvalid)
         {
-            core::Logger::error("SpriteSystem: one or more flipbook frames have invalid bindless indices.");
+            core::Logger::Scene.error("SpriteSystem: one or more flipbook frames have invalid bindless indices.");
         }
 
         return clip;
     }
-} // namespace pnkr::renderer::scene
+}
