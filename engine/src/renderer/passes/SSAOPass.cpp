@@ -34,7 +34,7 @@ namespace pnkr::renderer
         noiseDesc.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
         noiseDesc.debugName = "SSAORotation";
         m_rotationTexture = m_renderer->createTexture("SSAORotation", noiseDesc);
-        m_renderer->getTexture(m_rotationTexture.handle())->uploadData(std::span<const std::byte>(reinterpret_cast<const std::byte*>(ssaoNoise.data()), ssaoNoise.size() * sizeof(glm::vec4)));
+        m_renderer->getTexture(m_rotationTexture.handle())->uploadData(std::span(reinterpret_cast<const std::byte*>(ssaoNoise.data()), ssaoNoise.size() * sizeof(glm::vec4)));
 
         rhi::RHIPipelineBuilder builder;
         auto sResolve = rhi::Shader::load(rhi::ShaderStage::Compute, "shaders/ssao_depth_resolve.spv");

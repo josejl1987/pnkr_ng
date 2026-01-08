@@ -234,9 +234,9 @@ namespace pnkr::renderer
         for (uint32_t i = 0; i < flightCount; ++i)
         {
             m_texAdaptedLum[i] = m_renderer->createTexture("HDR_AdaptedLum", desc);
-            m_renderer->getTexture(m_texAdaptedLum[i])->uploadData(std::span<const std::byte>(reinterpret_cast<const std::byte*>(initialData), 2));
+            m_renderer->getTexture(m_texAdaptedLum[i])->uploadData(std::span(reinterpret_cast<const std::byte*>(initialData), 2));
             m_texMeteredLum[i] = m_renderer->createTexture("HDR_MeteredLum", desc);
-            m_renderer->getTexture(m_texMeteredLum[i])->uploadData(std::span<const std::byte>(reinterpret_cast<const std::byte*>(initialData), 2));
+            m_renderer->getTexture(m_texMeteredLum[i])->uploadData(std::span(reinterpret_cast<const std::byte*>(initialData), 2));
         }
     }
 

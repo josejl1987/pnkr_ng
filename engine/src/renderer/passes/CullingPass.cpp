@@ -33,7 +33,7 @@ void CullingPass::init(RHIRenderer *renderer, uint32_t ,
       m_renderer->device()->immediateSubmit([&](rhi::RHICommandList *cmd) {
         const uint32_t zero = 0U;
         (void)cmd;
-        z->uploadData(std::span<const std::byte>(
+        z->uploadData(std::span(
             reinterpret_cast<const std::byte *>(&zero), sizeof(zero)));
       });
     }
@@ -159,7 +159,7 @@ void CullingPass::prepare(const RenderPassContext &ctx) {
         gpuBounds[i].min = glm::vec4(b.m_min, 0.0F);
         gpuBounds[i].max = glm::vec4(b.m_max, 0.0F);
       }
-      bBuf->uploadData(std::span<const std::byte>(
+      bBuf->uploadData(std::span(
           reinterpret_cast<const std::byte *>(gpuBounds.data()), bytes));
     }
   };
@@ -196,7 +196,7 @@ void CullingPass::prepare(const RenderPassContext &ctx) {
             auto* cBuf = m_renderer->getBuffer(buf.handle());
             if (cBuf && bytes > 0)
             {
-              cBuf->uploadData(std::span<const std::byte>(
+              cBuf->uploadData(std::span(
                   reinterpret_cast<const std::byte *>(&gpuData), bytes));
             }
           };
