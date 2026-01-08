@@ -6,6 +6,8 @@ target_sources(pnkr_engine
   PRIVATE
     # Main renderer files
     AssetManager.cpp
+    TextureCache.cpp
+    FallbackTextureFactory.cpp
     AsyncLoader.cpp
     AsyncLoaderStagingManager.cpp
     BRDFLutGenerator.cpp
