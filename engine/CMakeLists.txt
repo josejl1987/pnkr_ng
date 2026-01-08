@@ -1,161 +1,18 @@
 # ============================================================================
 # PNKR Engine Static Library
 # ============================================================================
-add_library(pnkr_engine STATIC
-        src/renderer/ktx_utils.cpp
-        src/core/implementations.cpp
-        include/pnkr/renderer/vulkan/vma.cpp
-        include/pnkr/renderer/geometry/Vertex.h
-        include/pnkr/renderer/geometry/VertexInputDescription.h
-        include/pnkr/renderer/geometry/GeometryUtils.hpp
-        src/renderer/geometry/GeometryUtils.cpp
-        include/pnkr/renderer/pipeline/Pipeline.h
-        include/pnkr/core/Handle.h
-        include/pnkr/renderer/scene/camera.hpp
-        src/renderer/scene.cpp
-        src/renderer/scene/Model.cpp
-        src/renderer/scene/SceneGraph.cpp
-        src/renderer/scene/ModelDOD.cpp
-        src/renderer/scene/AnimationSystem.cpp
-        src/renderer/scene/GLTFUnified.cpp
-        src/renderer/scene/GLTFUnifiedDOD.cpp
-        src/renderer/scene/Bounds.cpp
-        src/renderer/scene/SpriteSystem.cpp
-        src/renderer/scene/SpriteRenderer.cpp
-        include/pnkr/core/Timer.h
-        include/pnkr/renderer/scene/Model.hpp
-        include/pnkr/renderer/scene/SceneGraph.hpp
-        include/pnkr/renderer/scene/ModelDOD.hpp
-        include/pnkr/renderer/scene/GLTFUnified.hpp
-        include/pnkr/renderer/scene/GLTFUnifiedDOD.hpp
-        include/pnkr/renderer/scene/Bounds.hpp
-        include/pnkr/renderer/scene/Node.hpp
-        include/pnkr/renderer/scene/RHIScene.hpp
-        include/pnkr/renderer/scene/Skybox.hpp
-        include/pnkr/renderer/scene/Sprite.hpp
-        include/pnkr/renderer/scene/SpriteSystem.hpp
-        include/pnkr/renderer/scene/SpriteRenderer.hpp
-        include/pnkr/renderer/material/Material.hpp
-        include/pnkr/renderer/ktx_utils.hpp
-        include/pnkr/ui/imgui_layer.hpp
-        src/renderer/ui/imgui_layer.cpp
-        src/rhi/vulkan/vulkan_buffer.cpp
-        src/rhi/vulkan/vulkan_command_buffer.cpp
-        src/rhi/vulkan/vulkan_texture.cpp
-        src/rhi/vulkan/vulkan_device.cpp
-        src/rhi/vulkan/vulkan_descriptor.cpp
-        src/rhi/vulkan/vulkan_swapchain.cpp
-        src/rhi/vulkan/vulkan_utils.cpp
-        src/rhi/vulkan/vulkan_pipeline.cpp
-        src/rhi/vulkan/vulkan_sampler.cpp
-        src/rhi/vulkan/rhi_factory.cpp
-        include/pnkr/renderer/rhi_renderer.hpp
-        src/renderer/rhi_renderer.cpp
-        include/pnkr/rhi/rhi_pipeline_builder.hpp
-        src/rhi/rhi_pipeline_builder.cpp
-        include/pnkr/rhi/rhi_shader.hpp
-        src/rhi/rhi_shader.cpp
-        include/pnkr/renderer/scene/RHIScene.hpp
-        src/renderer/scene/RHIScene.cpp
-        include/pnkr/renderer/scene/VtxData.hpp
-        src/renderer/scene/VtxData.cpp
-        include/pnkr/renderer/scene/Skybox.hpp
-        src/renderer/scene/Skybox.cpp
-        src/renderer/scene/InfiniteGrid.cpp
 
-        src/debug/RenderDoc.cpp
-        include/pnkr/debug/RenderDoc.hpp
-        src/core/RecentFiles.cpp
-        include/pnkr/core/RecentFiles.hpp
-        src/platform/FileDialog.cpp
-        include/pnkr/platform/FileDialog.hpp
-        include/pnkr/renderer/geometry/GeometryUtils.hpp
-        include/pnkr/app/Application.hpp
-        src/renderer/IndirectRenderer.cpp
-        include/pnkr/renderer/IndirectRenderer.hpp
+# PNKR Engine Static Library
+# ============================================================================
 
-        include/pnkr/renderer/debug/LineCanvas3D.hpp
-        src/renderer/debug/LineCanvas3D.cpp
-        include/pnkr/renderer/debug/DebugLayer.hpp
-        src/renderer/debug/DebugLayer.cpp
-
-        # FullScreenPass
-        include/pnkr/renderer/utils/FullScreenPass.hpp
-        src/renderer/utils/FullScreenPass.cpp
-
-        src/renderer/debug/shaders/line_canvas.vert
-        src/renderer/debug/shaders/line_canvas.frag)
-
-target_sources(pnkr_engine
-  PRIVATE
-    src/core/logger.cpp
-    src/platform/window.cpp
-
-
-        PUBLIC
-    FILE_SET headers
-    TYPE HEADERS
-    FILES
-      include/pnkr/engine.hpp
-      include/pnkr/core/logger.hpp
-      include/pnkr/core/profiler.hpp
-      include/pnkr/core/common.hpp
-      include/pnkr/platform/window.hpp
-      include/pnkr/rhi/rhi_descriptor.hpp
-      include/pnkr/rhi/rhi_swapchain.hpp
-      include/pnkr/rhi/vulkan/vulkan_swapchain.hpp
-      include/pnkr/rhi/vulkan/vulkan_descriptor.hpp
-        include/pnkr/renderer/scene/Model.hpp
-        include/pnkr/renderer/scene/SceneGraph.hpp
-      include/pnkr/renderer/scene/ModelDOD.hpp
-      include/pnkr/renderer/scene/Animation.hpp
-      include/pnkr/renderer/scene/AnimationSystem.hpp
-      include/pnkr/renderer/scene/Bounds.hpp
-      include/pnkr/renderer/scene/GLTFUnified.hpp
-      include/pnkr/renderer/scene/GLTFUnifiedDOD.hpp
-      include/pnkr/renderer/scene/Node.hpp
-      include/pnkr/renderer/scene/RHIScene.hpp
-      include/pnkr/renderer/scene/Skybox.hpp
-      include/pnkr/renderer/scene/Sprite.hpp
-      include/pnkr/renderer/scene/SpriteSystem.hpp
-      include/pnkr/renderer/scene/SpriteRenderer.hpp
-      include/pnkr/renderer/material/Material.hpp
-)
+# Create the library target
+add_library(pnkr_engine STATIC ""
+        src/renderer/passes/WBOITPass.cpp
+        src/renderer/passes/OITPass.cpp)
 
 # ============================================================================
-# Debug Layer Shader Compilation
+# Include Directories
 # ============================================================================
-find_program(GLSLC_EXECUTABLE glslc HINTS $ENV{VULKAN_SDK}/bin $ENV{VULKAN_SDK}/bin32)
-if(NOT GLSLC_EXECUTABLE)
-  message(STATUS "glslc not found - DebugLayer shaders will not be compiled")
-else()
-  # Set output directory for compiled shaders
-  set(DEBUG_SHADER_OUTPUT_DIR ${CMAKE_BINARY_DIR}/shaders)
-
-  # Ensure output directory exists
-  file(MAKE_DIRECTORY ${DEBUG_SHADER_OUTPUT_DIR})
-
-  # Compile debug layer shaders
-  add_custom_command(
-    OUTPUT ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.vert.spv ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.frag.spv
-    COMMAND ${GLSLC_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/debug/shaders/line_canvas.vert -o ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.vert.spv
-    COMMAND ${GLSLC_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/debug/shaders/line_canvas.frag -o ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.frag.spv
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/debug/shaders/line_canvas.vert ${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/debug/shaders/line_canvas.frag
-    COMMENT "Compiling DebugLayer shaders to SPIR-V"
-  )
-
-  # Create a custom target for shader compilation
-  add_custom_target(debug_shaders ALL DEPENDS ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.vert.spv ${DEBUG_SHADER_OUTPUT_DIR}/line_canvas.frag.spv)
-
-  # Make the engine depend on shader compilation
-  add_dependencies(pnkr_engine debug_shaders)
-endif()
-
-# ============================================================================
-# Compilation Settings
-# ============================================================================
-target_compile_features(pnkr_engine PUBLIC cxx_std_20)
-
 target_include_directories(pnkr_engine
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -166,6 +23,9 @@ target_include_directories(pnkr_engine
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# ============================================================================
+# Compile Definitions
+# ============================================================================
 target_compile_definitions(pnkr_engine
   PUBLIC
     SPDLOG_USE_STD_FORMAT=1
@@ -173,38 +33,336 @@ target_compile_definitions(pnkr_engine
     GLM_FORCE_DEPTH_ZERO_TO_ONE
     GLM_ENABLE_EXPERIMENTAL
     TRACY_ENABLE=1
-    PRIVATE
+    $<$<CONFIG:Debug>:PNKR_DEBUG=1>
+  PRIVATE
     VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
 )
 
-if(MSVC OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
-  target_compile_options(pnkr_engine PUBLIC /UFASTGLTF_ENABLE_DEPRECATED_EXT /DFASTGLTF_ENABLE_DEPRECATED_EXT=1)
+
+# ============================================================================
+# Compile Features and Options
+# ============================================================================
+target_compile_features(pnkr_engine PUBLIC cxx_std_23)
+
+if(MSVC)
+  target_compile_options(pnkr_engine PRIVATE /W4 /WX)
+  
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    # clang-cl specific optimizations
+    target_compile_options(pnkr_engine PRIVATE
+      # We use /fp:fast but re-enable infinities since the engine relies on them (e.g. GLTF volume attenuation)
+      $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:/O2 /Ob3 /arch:AVX2 /fp:fast /clang:-fno-finite-math-only /clang:-Wno-nan-infinity-disabled -flto>
+      $<$<CONFIG:Debug>:/Od /Z7>
+      /Zi
+    )
+    target_link_options(pnkr_engine PUBLIC
+      /DEBUG
+      $<$<NOT:$<CONFIG:Debug>>:/OPT:REF /OPT:ICF>
+      $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-flto>
+    )
+  else()
+    # MSVC cl.exe specific optimizations
+    target_compile_options(pnkr_engine PRIVATE
+      # Use /fp:precise for cl.exe to ensure infinity/NaN checks work correctly
+      $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:/O2 /Ob3 /GL /arch:AVX2 /fp:precise>
+      $<$<CONFIG:Debug>:/Od>
+      /Zi
+    )
+    target_link_options(pnkr_engine PUBLIC
+      /DEBUG /OPT:REF /OPT:ICF
+      $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:/LTCG>
+    )
+  endif()
 else()
-  target_compile_options(pnkr_engine PUBLIC -UFASTGLTF_ENABLE_DEPRECATED_EXT -DFASTGLTF_ENABLE_DEPRECATED_EXT=1)
+  target_compile_options(pnkr_engine PRIVATE
+    -Wall -Wextra -Wpedantic
+    -Wno-unused-parameter
+    $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-O3 -march=x86-64-v3 -mtune=native -ffast-math -flto=auto -fno-semantic-interposition>
+    $<$<CONFIG:Debug>:-g -O0>
+  )
+  target_link_options(pnkr_engine PUBLIC
+    $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-flto=auto>
+  )
 endif()
 
-# Unity build to reduce per-TU header parsing overhead
+# ============================================================================
+# Unity Build Settings
+# ============================================================================
 set_target_properties(pnkr_engine PROPERTIES
-        UNITY_BUILD OFF
-  UNITY_BUILD_BATCH_SIZE 8
+  UNITY_BUILD OFF
+  UNITY_BUILD_BATCH_SIZE 15
 )
 set_source_files_properties(src/core/implementations.cpp PROPERTIES UNITY_BUILD OFF)
+set_source_files_properties(src/assets/AssetImporter.cpp PROPERTIES UNITY_BUILD OFF)
 
-# Precompiled headers to avoid repeatedly parsing heavy includes like vulkan.hpp
+# ============================================================================
+# Precompiled Headers
+# ============================================================================
 target_precompile_headers(pnkr_engine PRIVATE
   <vector>
   <memory>
   <string>
   <stdexcept>
   <vulkan/vulkan.hpp>
+  <vk_mem_alloc.h>
+  <glm/glm.hpp>
+  <glm/gtc/matrix_transform.hpp>
+  <fastgltf/core.hpp>
+  <fastgltf/types.hpp>
   <spdlog/spdlog.h>
   <SDL3/SDL.h>
 )
 
 # ============================================================================
+# Module Subdirectories
+# ============================================================================
+add_subdirectory(src/assets)
+add_subdirectory(src/core)
+add_subdirectory(src/debug)
+add_subdirectory(src/platform)
+# ============================================================================
+# NVIDIA Aftermath Integration
+# ============================================================================
+option(PNKR_ENABLE_AFTERMATH "Enable NVIDIA Aftermath GPU crash debugging" ON)
+
+message(STATUS "[Pnkr] Checking Aftermath Configuration... Enabled=${PNKR_ENABLE_AFTERMATH}")
+
+if(PNKR_ENABLE_AFTERMATH)
+  set(AFTERMATH_SDK_PATH "${CMAKE_SOURCE_DIR}/third-party/aftermath")
+  
+  if(EXISTS "${AFTERMATH_SDK_PATH}/include/GFSDK_Aftermath.h")
+    message(STATUS "Enabling NVIDIA Aftermath support")
+    target_compile_definitions(pnkr_engine PRIVATE PNKR_AFTERMATH_ENABLED=1)
+
+    # Determine platform lib path
+    if(WIN32)
+      set(AFTERMATH_LIB_DIR "${AFTERMATH_SDK_PATH}/lib/x64")
+      set(AFTERMATH_LIB_NAME "GFSDK_Aftermath_Lib.x64.lib")
+      set(AFTERMATH_DLL_NAME "GFSDK_Aftermath_Lib.x64.dll")
+    elseif(UNIX AND NOT APPLE)
+      set(AFTERMATH_LIB_DIR "${AFTERMATH_SDK_PATH}/lib/x86_64")
+      set(AFTERMATH_LIB_NAME "libGFSDK_Aftermath_Lib.x64.so")
+    endif()
+
+    add_library(nvidia_aftermath SHARED IMPORTED GLOBAL)
+    set_target_properties(nvidia_aftermath PROPERTIES
+      IMPORTED_LOCATION "${AFTERMATH_LIB_DIR}/${AFTERMATH_LIB_NAME}" # For Linux/general
+      IMPORTED_IMPLIB   "${AFTERMATH_LIB_DIR}/${AFTERMATH_LIB_NAME}" # For Windows .lib
+      INTERFACE_INCLUDE_DIRECTORIES "${AFTERMATH_SDK_PATH}/include"
+    )
+
+    # Copy DLL to bin folder on Windows
+    if(WIN32)
+      add_custom_command(TARGET pnkr_engine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${AFTERMATH_LIB_DIR}/${AFTERMATH_DLL_NAME}"
+        "${CMAKE_BINARY_DIR}/bin/${AFTERMATH_DLL_NAME}"
+        COMMENT "Copying Aftermath DLL to bin directory"
+      )
+    endif()
+  else()
+    message(FATAL_ERROR "NVIDIA Aftermath enabled (PNKR_ENABLE_AFTERMATH=ON) but SDK not found at ${AFTERMATH_SDK_PATH}.\nPlease verify the 'third-party/aftermath' directory contains the SDK headers and libraries.")
+  endif()
+endif()
+
+add_subdirectory(src/rhi)
+add_subdirectory(src/app)
+add_subdirectory(src/renderer)
+
+# ============================================================================
+# Shader Compilation (Slang)
+# ============================================================================
+find_package(slang CONFIG REQUIRED)
+target_link_libraries(pnkr_engine PRIVATE slang::slang)
+
+file(GLOB_RECURSE SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/shaders/*.slang")
+foreach(SHADER ${SHADER_SOURCES})
+    file(RELATIVE_PATH REL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/shaders" ${SHADER})
+    configure_file(${SHADER} ${CMAKE_BINARY_DIR}/bin/assets/shaders/${REL_PATH} COPYONLY)
+endforeach()
+
+find_program(SLANGC_EXECUTABLE slangc
+  HINTS
+    "${CMAKE_SOURCE_DIR}/third-party/slang/bin"
+    "${CMAKE_SOURCE_DIR}/thirdparty/slang/bin"
+)
+
+if(SLANGC_EXECUTABLE)
+  set(SLANG_DEBUG_FLAGS "")
+  set(SLANG_OPT_FLAGS "")
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    # Debug: no optimizations, full debug info
+    list(APPEND SLANG_DEBUG_FLAGS "-g3" "-gdwarf" "-O0" "-fspv-reflect")
+  elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    # RelWithDebInfo: optimizations WITH debug info for profiling
+    list(APPEND SLANG_DEBUG_FLAGS "-g3" "-gdwarf" "-fspv-reflect")
+    list(APPEND SLANG_OPT_FLAGS "-O3" "-fvk-use-dx-position-w")
+  else()
+    # Release: aggressive optimizations, no debug info
+    list(APPEND SLANG_OPT_FLAGS "-O3" "-fvk-use-dx-position-w")
+  endif()
+
+  # Function for SPIR-V only compilation (no header generation)
+  function(add_slang_target_spirv shader_source output_name entry_point shader_stage)
+    string(MD5 DIR_HASH "${CMAKE_CURRENT_BINARY_DIR}")
+    string(REPLACE "." "_" OUTPUT_SAFE "${output_name}")
+
+    set(SRC "${CMAKE_CURRENT_SOURCE_DIR}/${shader_source}")
+    set(SPV "${CMAKE_CURRENT_BINARY_DIR}/bin/shaders/${output_name}.spv")
+
+    add_custom_command(
+      OUTPUT ${SPV}
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/bin/shaders"
+      COMMAND ${SLANGC_EXECUTABLE} ${SRC}
+              ${SLANG_DEBUG_FLAGS} ${SLANG_OPT_FLAGS}
+              -target spirv
+              -entry ${entry_point}
+              -stage ${shader_stage}
+              -matrix-layout-column-major
+              -fvk-use-scalar-layout
+              -I "${CMAKE_CURRENT_SOURCE_DIR}/include"
+              -I "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/shaders"
+              -I "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+              -o ${SPV}
+      DEPENDS ${SRC}
+              "${CMAKE_CURRENT_SOURCE_DIR}/include/pnkr/renderer/gpu_shared/SlangCppBridge.h"
+              "${CMAKE_CURRENT_SOURCE_DIR}/include/pnkr/renderer/gpu_shared/CullingShared.h"
+              "${CMAKE_CURRENT_SOURCE_DIR}/include/pnkr/renderer/gpu_shared/SkinningShared.h"
+              "${CMAKE_CURRENT_SOURCE_DIR}/include/pnkr/renderer/gpu_shared/PostProcessShared.h"
+              "${CMAKE_CURRENT_SOURCE_DIR}/include/pnkr/renderer/gpu_shared/SkyboxShared.h"
+      COMMENT "Compiling Slang shader: ${output_name}"
+    )
+
+    set(TARGET_NAME "CompileSlang_${OUTPUT_SAFE}_${DIR_HASH}")
+    add_custom_target(${TARGET_NAME} DEPENDS ${SPV})
+    set(LAST_GENERATED_TARGET ${TARGET_NAME} PARENT_SCOPE)
+  endfunction()
+
+  # LineCanvas shaders
+  add_slang_target_spirv("src/renderer/debug/shaders/linecanvas.slang" "linecanvas.vert" "vertexMain" "vertex")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/debug/shaders/linecanvas.slang" "linecanvas.frag" "fragmentMain" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  # SPIR-V only shaders
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/culling.slang" "culling" "computeMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/skinning.slang" "skinning" "computeMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/post/PostProcess.slang" "post_bright" "brightMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/post/PostProcess.slang" "post_histogram_build" "histogramBuildMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/post/PostProcess.slang" "post_histogram_reduce" "histogramReduceMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/post/PostProcess.slang" "post_bloom" "bloomMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/post/PostProcess.slang" "post_bloom_down" "bloomDownsampleMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/post/PostProcess.slang" "post_bloom_up" "bloomUpsampleMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/post/PostProcess.slang" "post_adaptation" "adaptationMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/post/PostProcess.slang" "post_tonemap" "tonemapMain" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/post/PostProcess.slang" "fullscreen_vert" "fullscreenVert" "vertex")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/skybox.slang" "skybox.vert" "skyboxMain" "vertex")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/skybox.slang" "skybox.frag" "skyboxFrag" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/grid.slang" "grid.vert" "gridMain" "vertex")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/grid.slang" "grid.frag" "gridFrag" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/sprites.slang" "sprite_billboard.vert" "vertexMain" "vertex")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/sprites.slang" "sprite_billboard.frag" "fragmentMain" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/ssao/SSAO.slang" "ssao" "ssaoMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/ssao/SSAO.slang" "ssao_depth_resolve" "depthResolveMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/ssao/SSAO.slang" "ssao_blur" "blurMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  # Environment Processing Shaders
+  add_slang_target_spirv("src/renderer/shaders/environment/brdf_lut.slang" "brdf_lut" "computeMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/environment/irradiance.slang" "irradiance" "computeMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/environment/prefilter.slang" "prefilter" "computeMain" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/environment/equirectangular_to_cubemap.slang" "equirectangular_to_cubemap" "main" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  # Main renderer shaders
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/indirect.slang" "indirect.vert" "vertexMain" "vertex")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/indirect.slang" "indirect.frag" "fragmentMain" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/indirect.slang" "indirect_oit.frag" "oitFragmentMain" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/oit_composite.slang" "oit_composite.frag" "fragmentMain" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/wboit_geometry.slang" "wboit_geometry.vert" "vertexMain" "vertex")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/wboit_geometry.slang" "wboit_geometry.frag" "fragmentMain" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/wboit_composite.slang" "wboit_composite.vert" "vertexMain" "vertex")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/wboit_composite.slang" "wboit_composite.frag" "fragmentMain" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/shadow.slang" "shadow.vert" "vertexMain" "vertex")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  add_slang_target_spirv("src/renderer/shaders/renderer/indirect/shadow.slang" "shadow.frag" "fragmentMain" "fragment")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+  # Physics Shaders
+  add_slang_target_spirv("src/renderer/shaders/physics/cloth_simulation.slang" "cloth_simulation" "main" "compute")
+  add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
+
+else()
+  message(STATUS "slangc not found - shaders will not be compiled")
+endif()
+
+# ============================================================================
 # Dependencies
 # ============================================================================
-# Prefer header-only spdlog to avoid DLL/import-lib mismatches across toolchains
+
+# Prefer header-only spdlog
 if(TARGET spdlog::spdlog_header_only)
   set(PNKR_SPDLOG_TARGET spdlog::spdlog_header_only)
   target_compile_definitions(pnkr_engine PUBLIC SPDLOG_HEADER_ONLY=1)
@@ -223,205 +381,138 @@ if(WIN32)
   target_link_libraries(pnkr_engine PUBLIC Winmm)
 endif()
 
-# GLM (this one is usually a proper CMake package)
+# GLM
 find_package(glm CONFIG REQUIRED)
 target_link_libraries(pnkr_engine PUBLIC glm::glm)
 
-# KTX (Khronos Texture)
+# KTX
 find_package(ktx CONFIG REQUIRED)
-set(PNKR_KTX_TARGET "")
-if (TARGET KTX::ktx)
+if(TARGET KTX::ktx)
   set(PNKR_KTX_TARGET KTX::ktx)
-elseif (TARGET ktx)
+elseif(TARGET ktx)
   set(PNKR_KTX_TARGET ktx)
-else ()
+else()
   message(FATAL_ERROR "KTX target not found after find_package(ktx)")
-endif ()
+endif()
 target_link_libraries(pnkr_engine PUBLIC ${PNKR_KTX_TARGET})
 
+# OpenCL (optional)
+find_package(OpenCL QUIET)
+if(OpenCL_FOUND)
+  message(STATUS "OpenCL found - enabling Basis GPU acceleration")
+  target_compile_definitions(pnkr_engine PRIVATE BASISU_SUPPORT_OPENCL=1)
+  target_link_libraries(pnkr_engine PRIVATE OpenCL::OpenCL)
+else()
+  message(STATUS "OpenCL not found - Basis encoding will be CPU-only")
+endif()
 
-# VMA (vcpkg port may not export an imported target; treat as header-only unless a target exists)
-find_package(VulkanMemoryAllocator CONFIG REQUIRED)   # provides GPUOpen::VulkanMemoryAllocator
+# VMA
+find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+target_link_libraries(pnkr_engine PUBLIC GPUOpen::VulkanMemoryAllocator)
 
-target_link_libraries(pnkr_engine
-        PUBLIC
-        GPUOpen::VulkanMemoryAllocator
-)
+# ImGui
 find_package(imgui CONFIG REQUIRED)
-
 target_link_libraries(pnkr_engine PRIVATE imgui::imgui)
-target_include_directories(pnkr_engine PUBLIC "${VMA_INCLUDE_DIR}")
-target_compile_definitions(pnkr_engine PUBLIC VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=0)
 
+# enkiTS
+find_package(enkits CONFIG QUIET)
+if(NOT enkits_FOUND)
+  find_package(enkiTS CONFIG REQUIRED)
+endif()
+
+if(TARGET enkiTS::enkiTS)
+  set(PNKR_ENKITS_TARGET enkiTS::enkiTS)
+elseif(TARGET EnkiTS::EnkiTS)
+  set(PNKR_ENKITS_TARGET EnkiTS::EnkiTS)
+elseif(TARGET EnkiTS::enkiTS)
+  set(PNKR_ENKITS_TARGET EnkiTS::enkiTS)
+elseif(TARGET enkiTS)
+  set(PNKR_ENKITS_TARGET enkiTS)
+else()
+  message(FATAL_ERROR "enkiTS target not found")
+endif()
+
+target_link_libraries(pnkr_engine PUBLIC ${PNKR_ENKITS_TARGET})
+
+# VTune ITT
+option(PNKR_ENABLE_VTUNE "Enable Intel VTune ITT instrumentation" OFF)
+if(PNKR_ENABLE_VTUNE)
+  CPMAddPackage(
+    NAME ittapi
+    GITHUB_REPOSITORY intel/ittapi
+    GIT_TAG v3.26.4
+  )
+  if(TARGET ittapi::ittnotify)
+    target_link_libraries(pnkr_engine PUBLIC ittapi::ittnotify)
+    target_compile_definitions(pnkr_engine PUBLIC PNKR_ENABLE_VTUNE=1)
+  endif()
+endif()
+
+# Tracy
 set(TRACY_ENABLE ON CACHE BOOL "Enable Tracy Profiler")
-
 if(TRACY_ENABLE)
   CPMAddPackage(
-          NAME tracy
-          GITHUB_REPOSITORY wolfpld/tracy
-          GIT_TAG v0.13.1
-          OPTIONS
-          "TRACY_ENABLE ON"
-          "TRACY_ON_DEMAND ON"      # Starts profiling only when server connects
-          "TRACY_NO_BROADCAST OFF"
-          "TRACY_NO_SYSTEM_VULKAN OFF" # Rely on the Vulkan SDK found by CMake
+    NAME tracy
+    GITHUB_REPOSITORY wolfpld/tracy
+    GIT_TAG v0.13.1
+    OPTIONS
+      "TRACY_ENABLE ON"
+      "TRACY_ON_DEMAND ON"
+      "TRACY_NO_BROADCAST OFF"
+      "TRACY_NO_SYSTEM_VULKAN OFF"
   )
 endif()
 
 find_package(tracy CONFIG REQUIRED)
-target_link_libraries(pnkr_engine
-  PUBLIC
-        Tracy::TracyClient
-)
+target_link_libraries(pnkr_engine PUBLIC Tracy::TracyClient)
 
+# SPIRV-Cross
 find_package(spirv_cross_core CONFIG REQUIRED)
 find_package(spirv_cross_glsl CONFIG REQUIRED)
 find_package(spirv_cross_cpp CONFIG REQUIRED)
 find_package(spirv_cross_hlsl CONFIG REQUIRED)
+
+# Other dependencies
 find_package(fastgltf CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
+find_package(mikktspace CONFIG REQUIRED)
+find_package(nfd CONFIG REQUIRED)
 
 target_link_libraries(pnkr_engine
-        PUBLIC
-        spirv-cross-core
-        spirv-cross-glsl
-        spirv-cross-cpp
-        spirv-cross-hlsl
-        fastgltf::fastgltf
-        meshoptimizer::meshoptimizer
-        cpptrace::cpptrace
+  PUBLIC
+    spirv-cross-core
+    spirv-cross-glsl
+    spirv-cross-cpp
+    spirv-cross-hlsl
+    fastgltf::fastgltf
+    meshoptimizer::meshoptimizer
+    meshoptimizer::meshoptimizer
+    meshoptimizer::meshoptimizer
+    mikktspace::mikktspace
+    cpptrace::cpptrace
+    nfd::nfd
 )
 
 # ============================================================================
-# Compiler Warnings (Per-target)
+# Copy Shaders to Output Directory
 # ============================================================================
-if(MSVC)
-  target_compile_options(pnkr_engine PRIVATE /W4 /WX)
-else()
-  target_compile_options(pnkr_engine PRIVATE
-    -Wall -Wextra -Wpedantic
-    -Wno-unused-parameter  # SDL3 headers trigger this
+if(SLANGC_EXECUTABLE)
+  add_custom_command(TARGET pnkr_engine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/shaders"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_BINARY_DIR}/bin/shaders"
+      "${CMAKE_BINARY_DIR}/bin/shaders"
+    COMMENT "Copying engine SPIR-V shaders to runtime output directory"
   )
 endif()
 
 # ============================================================================
-# Optimization & Debug Symbols
-# ============================================================================
-if(MSVC)
-  target_compile_options(pnkr_engine PRIVATE
-    $<$<CONFIG:Release>:/O2>
-    $<$<CONFIG:Debug>:/Od>
-          /Zi # Generate PDBs
-  )
-  target_link_options(pnkr_engine PUBLIC /DEBUG /OPT:REF /OPT:ICF)
-else()
-  target_compile_options(pnkr_engine PRIVATE
-    $<$<CONFIG:Release>:-O3>
-    $<$<CONFIG:Debug>:-g -O0>
-          -g # Ensure symbols are included
-  )
-endif()
-
-# ============================================================================
-# Install Configuration (for Stage 1+)
+# Install Configuration
 # ============================================================================
 install(TARGETS pnkr_engine
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin
 )
+
 install(DIRECTORY include/ DESTINATION include)
-
-
-# --- Shaders ---
-# Uses ShaderTools.cmake to compile and generate C++ structs
-add_shader_target("shaders/skybox.vert")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/skybox.frag")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-
-add_shader_target("shaders/grid/grid.vert")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/grid/grid.frag")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/sprite_billboard.vert")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/sprite_billboard.frag")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/renderer/indirect/indirect.vert")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/renderer/indirect/indirect.frag")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/renderer/indirect/shadow.vert")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/renderer/indirect/shadow.frag")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/renderer/indirect/skinning.comp")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/renderer/indirect/culling.comp")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/fullscreen.vert")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/ssao/depth_resolve.comp")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/ssao/ssao.comp")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/ssao/blur.comp")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/ssao/composition.frag")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/post/bright_pass.comp")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/post/adaptation.comp")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/post/bloom.comp")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-add_shader_target("shaders/post/tonemap.frag")
-add_dependencies(pnkr_engine ${LAST_GENERATED_TARGET})
-
-# Include generated headers
-
-# Rebuild if shader headers change
-set_source_files_properties( src/renderer/scene/Skybox.cpp PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/skybox.vert.h"
-)
-
-set_source_files_properties( src/renderer/scene/InfiniteGrid.cpp PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/grid.vert.h"
-)
-
-set_source_files_properties( src/renderer/scene/SpriteRenderer.cpp PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/sprite_billboard.vert.h"
-)
-
-set_source_files_properties( src/renderer/IndirectRenderer.cpp PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/indirect.vert.h;${CMAKE_CURRENT_BINARY_DIR}/generated/indirect.frag.h;${CMAKE_CURRENT_BINARY_DIR}/generated/skinning.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/culling.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/depth_resolve.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/ssao.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/blur.comp.h;${CMAKE_CURRENT_BINARY_DIR}/generated/composition.frag.h;${CMAKE_CURRENT_BINARY_DIR}/generated/adaptation.comp.h"
-)
-
-add_custom_command(TARGET pnkr_engine POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/shaders"
-  COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_CURRENT_BINARY_DIR}/shaders"
-    "${CMAKE_BINARY_DIR}/bin/shaders"
-  COMMENT "Copying engine SPIR-V shaders to runtime output directory"
-)

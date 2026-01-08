@@ -3,15 +3,22 @@
   "version-string": "0.0.1",
   "dependencies": [
     "glm",
+    "concurrentqueue",
     "vulkan-memory-allocator",
     "vulkan-headers",
     "stb",
     "fastgltf",
+    "doctest",
     "ktx",
+    "opencl",
     "meshoptimizer",
+    "mikktspace",
     "spdlog",
+    "nlohmann-json",
     "imguizmo",
     "cpptrace",
+    "enkits",
+    "shader-slang",
     "nativefiledialog-extended",
     {
       "name": "spirv-cross"
