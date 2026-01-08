@@ -46,13 +46,13 @@ namespace pnkr::renderer
             std::array sources = {
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/indirect/indirect.slang",
+                        "/shaders/renderer/indirect/indirect.slang",
                     .entryPoint = "vertexMain",
                     .stage = rhi::ShaderStage::Vertex,
                     .dependencies = {}},
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/indirect/indirect.slang",
+                        "/shaders/renderer/indirect/indirect.slang",
                     .entryPoint = "oitFragmentMain",
                     .stage = rhi::ShaderStage::Fragment,
                     .dependencies = {}}};
@@ -84,14 +84,13 @@ namespace pnkr::renderer
             std::array sources = {
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                        "/shaders/renderer/post/PostProcess.slang",
                     .entryPoint = "fullscreenVert",
                     .stage = rhi::ShaderStage::Vertex,
                     .dependencies = {}},
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/indirect/"
-                        "oit_composite.slang",
+                        "/shaders/renderer/indirect/oit_composite.slang",
                     .entryPoint = "fragmentMain",
                     .stage = rhi::ShaderStage::Fragment,
                     .dependencies = {}}};

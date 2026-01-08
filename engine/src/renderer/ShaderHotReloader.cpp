@@ -4,38 +4,19 @@
 #include "pnkr/core/logger.hpp"
 #include <algorithm>
 
+#include "pnkr/filesystem/VFS.hpp"
+
 namespace pnkr::renderer {
 
 void ShaderHotReloader::init(RHIRenderer* renderer) {
     m_renderer = renderer;
     ShaderCompiler::initialize();
     
-    auto projectRoot = discoverProjectRoot();
-    if (!projectRoot.empty()) {
-        ShaderCompiler::setProjectRoot(projectRoot);
+    if (!filesystem::VFS::exists("/shaders")) {
+        core::Logger::Render.warn("ShaderHotReloader: /shaders not mounted!");
     }
     
     core::Logger::Render.info("Shader hot-reloader initialized");
-}
-
-std::filesystem::path ShaderHotReloader::discoverProjectRoot() {
-    std::filesystem::path current = std::filesystem::current_path();
-    
-    for (int depth = 0; depth < 10; ++depth) {
-        if (std::filesystem::exists(current / "CMakeLists.txt") &&
-            std::filesystem::exists(current / "engine")) {
-            return current;
-        }
-        
-        auto parent = current.parent_path();
-        if (parent == current) {
-            break;
-        }
-        current = parent;
-    }
-    
-    core::Logger::Render.warn("ShaderHotReloader: Could not discover project root. Hot reload may not work for source shaders.");
-    return {};
 }
 
 void ShaderHotReloader::shutdown() {
@@ -166,18 +147,33 @@ PipelinePtr ShaderHotReloader::createComputePipeline(
 }
 
 void ShaderHotReloader::registerDependencies(const ShaderSourceInfo& source, PipelineHandle handle) {
-    std::string mainPath = source.path.string();
-    auto& mainWatch = m_watchedFiles[mainPath];
+    auto resolveIfVfs = [](const std::filesystem::path& p) -> std::filesystem::path {
+        std::string s = p.string();
+        std::replace(s.begin(), s.end(), '\\', '/');
+        if (!s.empty() && s[0] == '/') {
+            auto resolved = filesystem::VFS::resolve(s);
+            if (!resolved.empty()) return resolved;
+        }
+        return p;
+    };
+
+    std::filesystem::path resolvedMain = resolveIfVfs(source.path);
+    std::string watchKey = resolvedMain.string();
+    auto& mainWatch = m_watchedFiles[watchKey];
     mainWatch.dependentPipelines.insert(handle);
 
     std::error_code ec;
-    mainWatch.lastModified = std::filesystem::last_write_time(mainPath, ec);
+    mainWatch.lastModified = std::filesystem::last_write_time(resolvedMain, ec);
+    if (ec) {
+        core::Logger::Render.warn("ShaderHotReloader: Failed to get timestamp for {}: {}", resolvedMain.string(), ec.message());
+    }
 
     for (const auto& dep : source.dependencies) {
-        std::string depPath = dep.string();
-        auto& depWatch = m_watchedFiles[depPath];
+        std::filesystem::path resolvedDep = resolveIfVfs(dep);
+        std::string depKey = resolvedDep.string();
+        auto& depWatch = m_watchedFiles[depKey];
         depWatch.dependentPipelines.insert(handle);
-        depWatch.lastModified = std::filesystem::last_write_time(depPath, ec);
+        depWatch.lastModified = std::filesystem::last_write_time(resolvedDep, ec);
     }
 }
 

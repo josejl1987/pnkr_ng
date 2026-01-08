@@ -1,6 +1,7 @@
 #include "pnkr/app/Application.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/cvar.hpp"
+#include "pnkr/filesystem/VFS.hpp"
 #include <SDL3/SDL.h>
 #include <fstream>
 #include <sstream>
@@ -191,6 +192,36 @@ namespace pnkr::app {
                             PNKR_VERSION_MINOR, PNKR_VERSION_PATCH);
 
             core::TaskSystem::init();
+
+            std::filesystem::path currentPath = std::filesystem::current_path();
+            std::filesystem::path sourceShaders = currentPath / "engine/src/renderer/shaders";
+            std::filesystem::path sourceAssets = currentPath / "samples/rhiIndirectGLTF/assets";
+            std::filesystem::path sourceInclude = currentPath / "engine/include";
+
+            for (int depth = 0; depth < 5; ++depth) {
+                if (std::filesystem::exists(currentPath / "engine/src/renderer/shaders")) {
+                    sourceShaders = currentPath / "engine/src/renderer/shaders";
+                    sourceAssets = currentPath / "samples/rhiIndirectGLTF/assets";
+                    sourceInclude = currentPath / "engine/include";
+                    break;
+                }
+                if (currentPath.has_parent_path())
+                    currentPath = currentPath.parent_path();
+                else
+                    break;
+            }
+
+            if (std::filesystem::exists(sourceShaders)) {
+                pnkr::Log::info("VFS: Detected Source Tree at {}", currentPath.string());
+                pnkr::filesystem::VFS::mount("/shaders", sourceShaders);
+                pnkr::filesystem::VFS::mount("/assets", sourceAssets);
+                pnkr::filesystem::VFS::mount("/include", sourceInclude);
+            } else {
+                pnkr::Log::info("VFS: Running in Standalone Mode");
+                pnkr::filesystem::VFS::mount("/shaders", m_baseDir / "assets/shaders");
+                pnkr::filesystem::VFS::mount("/assets", m_baseDir / "assets");
+                pnkr::filesystem::VFS::mount("/include", m_baseDir / "include");
+            }
 
             loadConfig();
 

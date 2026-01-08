@@ -42,7 +42,7 @@ namespace pnkr::renderer
             builder.setComputeShader(sResolve.get()).setName("DepthResolve").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/ssao/SSAO.slang",
+                .path = "/shaders/renderer/ssao/SSAO.slang",
                 .entryPoint = "depthResolveMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};
@@ -56,7 +56,7 @@ namespace pnkr::renderer
             builder.setComputeShader(sGen.get()).setName("SSAOGen").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/ssao/SSAO.slang",
+                .path = "/shaders/renderer/ssao/SSAO.slang",
                 .entryPoint = "ssaoMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};
@@ -70,7 +70,7 @@ namespace pnkr::renderer
             builder.setComputeShader(sBlur.get()).setName("SSAOBlur").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/ssao/SSAO.slang",
+                .path = "/shaders/renderer/ssao/SSAO.slang",
                 .entryPoint = "blurMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};

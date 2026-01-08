@@ -1,5 +1,6 @@
 #include "pnkr/renderer/ShaderCompiler.hpp"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/filesystem/VFS.hpp"
 #include <slang.h>
 #include <cstring>
 
@@ -49,18 +50,14 @@ CompileResult ShaderCompiler::compile(
     spAddSearchPath(request, "assets/shaders");
     spAddSearchPath(request, "include");
     
-    if (!s_projectRoot.empty()) {
-        spAddSearchPath(request, s_projectRoot.string().c_str());
-        
-        auto engineInclude = s_projectRoot / "engine" / "include";
-        if (std::filesystem::exists(engineInclude)) {
-            spAddSearchPath(request, engineInclude.string().c_str());
-        }
-        
-        auto engineShaders = s_projectRoot / "engine" / "src" / "renderer" / "shaders";
-        if (std::filesystem::exists(engineShaders)) {
-            spAddSearchPath(request, engineShaders.string().c_str());
-        }
+    auto vfsShaders = filesystem::VFS::resolve("/shaders");
+    if (!vfsShaders.empty()) {
+        spAddSearchPath(request, vfsShaders.string().c_str());
+    }
+    
+    auto vfsInclude = filesystem::VFS::resolve("/include");
+    if (!vfsInclude.empty()) {
+        spAddSearchPath(request, vfsInclude.string().c_str());
     }
     
     for (const auto& path : searchPaths) {
@@ -83,10 +80,13 @@ CompileResult ShaderCompiler::compile(
     int translationUnitIndex = spAddTranslationUnit(request, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
     
     std::filesystem::path resolvedPath = sourcePath;
-    if (sourcePath.is_relative() && !s_projectRoot.empty()) {
-        auto candidate = s_projectRoot / sourcePath;
-        if (std::filesystem::exists(candidate)) {
-            resolvedPath = candidate;
+    
+    std::string pathStr = sourcePath.string();
+    std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
+    if (pathStr.length() > 0 && pathStr[0] == '/') {
+        auto p = filesystem::VFS::resolve(pathStr);
+        if (!p.empty()) {
+            resolvedPath = p;
         }
     }
     

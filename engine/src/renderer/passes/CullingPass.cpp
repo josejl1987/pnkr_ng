@@ -46,7 +46,7 @@ void CullingPass::init(RHIRenderer *renderer, uint32_t ,
       builder.setComputeShader(sCull.get()).setName("GPU_Culling").buildCompute();
   if (m_hotReloader != nullptr) {
     ShaderSourceInfo source{
-        .path = "engine/src/renderer/shaders/renderer/indirect/culling.slang",
+        .path = "/shaders/renderer/indirect/culling.slang",
         .entryPoint = "computeMain",
         .stage = rhi::ShaderStage::Compute,
         .dependencies = {}};

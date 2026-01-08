@@ -50,13 +50,13 @@ namespace pnkr::renderer
       };
       std::array indirectSources = {
           ShaderSourceInfo{
-              .path = "engine/src/renderer/shaders/renderer/indirect/indirect.slang",
+              .path = "/shaders/renderer/indirect/indirect.slang",
               .entryPoint = "vertexMain",
               .stage = rhi::ShaderStage::Vertex,
               .dependencies = {}
           },
           ShaderSourceInfo{
-              .path = "engine/src/renderer/shaders/renderer/indirect/indirect.slang",
+              .path = "/shaders/renderer/indirect/indirect.slang",
               .entryPoint = "fragmentMain",
               .stage = rhi::ShaderStage::Fragment,
               .dependencies = {}
@@ -131,13 +131,13 @@ namespace pnkr::renderer
           
           std::array skyboxSources = {
               ShaderSourceInfo{
-                  .path = "engine/src/renderer/shaders/renderer/skybox.slang",
+                  .path = "/shaders/renderer/skybox.slang",
                   .entryPoint = "skyboxMain",
                   .stage = rhi::ShaderStage::Vertex,
                   .dependencies = {}
               },
               ShaderSourceInfo{
-                  .path = "engine/src/renderer/shaders/renderer/skybox.slang",
+                  .path = "/shaders/renderer/skybox.slang",
                   .entryPoint = "skyboxFrag",
                   .stage = rhi::ShaderStage::Fragment,
                   .dependencies = {}

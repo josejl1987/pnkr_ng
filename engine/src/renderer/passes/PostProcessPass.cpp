@@ -26,7 +26,7 @@ namespace pnkr::renderer
             postBuilder.setComputeShader(sBright.get()).setName("HDR_BrightPass").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .path = "/shaders/renderer/post/PostProcess.slang",
                 .entryPoint = "brightMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};
@@ -40,7 +40,7 @@ namespace pnkr::renderer
             postBuilder.setComputeShader(sHist.get()).setName("HDR_HistogramBuild").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .path = "/shaders/renderer/post/PostProcess.slang",
                 .entryPoint = "histogramBuildMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};
@@ -54,7 +54,7 @@ namespace pnkr::renderer
             postBuilder.setComputeShader(sHistReduce.get()).setName("HDR_HistogramReduce").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .path = "/shaders/renderer/post/PostProcess.slang",
                 .entryPoint = "histogramReduceMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};
@@ -69,7 +69,7 @@ namespace pnkr::renderer
             postBuilder.setComputeShader(sAdapt.get()).setName("HDR_Adaptation").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .path = "/shaders/renderer/post/PostProcess.slang",
                 .entryPoint = "adaptationMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};
@@ -83,7 +83,7 @@ namespace pnkr::renderer
             postBuilder.setComputeShader(sBloom.get()).setName("HDR_Bloom").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .path = "/shaders/renderer/post/PostProcess.slang",
                 .entryPoint = "bloomMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};
@@ -97,7 +97,7 @@ namespace pnkr::renderer
             postBuilder.setComputeShader(sDown.get()).setName("HDR_BloomDown").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .path = "/shaders/renderer/post/PostProcess.slang",
                 .entryPoint = "bloomDownsampleMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};
@@ -111,7 +111,7 @@ namespace pnkr::renderer
             postBuilder.setComputeShader(sUp.get()).setName("HDR_BloomUp").buildCompute();
         if (m_hotReloader != nullptr) {
             ShaderSourceInfo source{
-                .path = "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                .path = "/shaders/renderer/post/PostProcess.slang",
                 .entryPoint = "bloomUpsampleMain",
                 .stage = rhi::ShaderStage::Compute,
                 .dependencies = {}};
@@ -137,13 +137,13 @@ namespace pnkr::renderer
             std::array sources = {
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                        "/shaders/renderer/post/PostProcess.slang",
                     .entryPoint = "fullscreenVert",
                     .stage = rhi::ShaderStage::Vertex,
                     .dependencies = {}},
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/post/PostProcess.slang",
+                        "/shaders/renderer/post/PostProcess.slang",
                     .entryPoint = "tonemapMain",
                     .stage = rhi::ShaderStage::Fragment,
                     .dependencies = {}}};

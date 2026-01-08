@@ -72,7 +72,7 @@ namespace pnkr::renderer
       if (m_hotReloader != nullptr) {
         std::array sources = {
             ShaderSourceInfo{
-                .path = "engine/src/renderer/shaders/renderer/indirect/shadow.slang",
+                .path = "/shaders/renderer/indirect/shadow.slang",
                 .entryPoint = "vertexMain",
                 .stage = rhi::ShaderStage::Vertex,
                 .dependencies = {}
@@ -92,7 +92,7 @@ namespace pnkr::renderer
       if (m_hotReloader != nullptr) {
         std::array sources = {
             ShaderSourceInfo{
-                .path = "engine/src/renderer/shaders/renderer/indirect/shadow.slang",
+                .path = "/shaders/renderer/indirect/shadow.slang",
                 .entryPoint = "vertexMain",
                 .stage = rhi::ShaderStage::Vertex,
                 .dependencies = {}

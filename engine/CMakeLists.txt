@@ -119,6 +119,7 @@ target_precompile_headers(pnkr_engine PRIVATE
 add_subdirectory(src/assets)
 add_subdirectory(src/core)
 add_subdirectory(src/debug)
+add_subdirectory(src/filesystem)
 add_subdirectory(src/platform)
 # ============================================================================
 # NVIDIA Aftermath Integration

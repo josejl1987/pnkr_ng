@@ -49,14 +49,14 @@ namespace pnkr::renderer
             std::array sources = {
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/indirect/"
+                        "/shaders/renderer/indirect/"
                         "wboit_geometry.slang",
                     .entryPoint = "vertexMain",
                     .stage = rhi::ShaderStage::Vertex,
                     .dependencies = {}},
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/indirect/"
+                        "/shaders/renderer/indirect/"
                         "wboit_geometry.slang",
                     .entryPoint = "fragmentMain",
                     .stage = rhi::ShaderStage::Fragment,
@@ -88,14 +88,14 @@ namespace pnkr::renderer
             std::array sources = {
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/indirect/"
+                        "/shaders/renderer/indirect/"
                         "wboit_composite.slang",
                     .entryPoint = "vertexMain",
                     .stage = rhi::ShaderStage::Vertex,
                     .dependencies = {}},
                 ShaderSourceInfo{
                     .path =
-                        "engine/src/renderer/shaders/renderer/indirect/"
+                        "/shaders/renderer/indirect/"
                         "wboit_composite.slang",
                     .entryPoint = "fragmentMain",
                     .stage = rhi::ShaderStage::Fragment,
