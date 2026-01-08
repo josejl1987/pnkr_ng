@@ -3,6 +3,7 @@
 #include "rhi/vulkan/vulkan_command_buffer.hpp"
 #include <array>
 #include <cstddef>
+#include "vulkan_cast.hpp"
 
 using namespace pnkr::renderer;
 
@@ -349,7 +350,7 @@ void* VulkanGPUTimeQueriesManager::getQueryPoolHandle(uint32_t frameIndex) {
 
 void VulkanGPUTimeQueriesManager::resetQueryPool(RHICommandList* cmd, uint32_t frameIndex) {
     uint32_t index = frameIndex % kMaxFrames;
-    auto *vkCmd = dynamic_cast<VulkanRHICommandBuffer *>(cmd);
+    auto *vkCmd = rhi_cast<VulkanRHICommandBuffer>(cmd);
     vkCmd->commandBuffer().resetQueryPool(mFramePools[index].timestampQueryPool, 0, mQueriesPerFrame * 2);
     if (mPipelineStatsSupported && mFramePools[index].pipelineStatsQueryPool) {
       vkCmd->commandBuffer().resetQueryPool(
@@ -372,7 +373,7 @@ void VulkanGPUTimeQueriesManager::beginPipelineStatisticsQuery(RHICommandList* c
     if (!mFramePools[index].pipelineStatsQueryPool) {
         return;
     }
-    auto *vkCmd = dynamic_cast<VulkanRHICommandBuffer *>(cmd);
+    auto *vkCmd = rhi_cast<VulkanRHICommandBuffer>(cmd);
     vkCmd->commandBuffer().beginQuery(mFramePools[index].pipelineStatsQueryPool, 0, {});
 }
 
@@ -385,7 +386,7 @@ void VulkanGPUTimeQueriesManager::endPipelineStatisticsQuery(RHICommandList* cmd
     if (!mFramePools[index].pipelineStatsQueryPool) {
         return;
     }
-    auto *vkCmd = dynamic_cast<VulkanRHICommandBuffer *>(cmd);
+    auto *vkCmd = rhi_cast<VulkanRHICommandBuffer>(cmd);
     vkCmd->commandBuffer().endQuery(mFramePools[index].pipelineStatsQueryPool, 0);
 }
 

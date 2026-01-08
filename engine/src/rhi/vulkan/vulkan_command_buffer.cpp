@@ -977,8 +977,8 @@ namespace pnkr::renderer::rhi::vulkan
         resolveRegion.extent = VulkanUtils::toVkExtent3D(region.extent);
 
         m_commandBuffer.resolveImage(
-            vkSrc->image(), VulkanUtils::toVkImageLayout(srcLayout),
-            vkDst->image(), VulkanUtils::toVkImageLayout(dstLayout),
+            vk::Image(vkSrc->imageHandle()), VulkanUtils::toVkImageLayout(srcLayout),
+            vk::Image(vkDst->imageHandle()), VulkanUtils::toVkImageLayout(dstLayout),
             1, &resolveRegion);
     }
 

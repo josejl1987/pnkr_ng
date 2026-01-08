@@ -39,31 +39,16 @@ namespace pnkr::renderer
 
         core::Logger::Render.info("Creating RHI Renderer (Modular)");
 
-        rhi::DeviceDescriptor deviceDesc{};
-        deviceDesc.enableValidation = config.m_enableValidation;
-        deviceDesc.enableBindless = config.m_enableBindless;
-        deviceDesc.requiredExtensions = {
-            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-            VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
-        };
-
-        if (config.m_enableBindless)
-        {
-            deviceDesc.requiredExtensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
-        }
-
-        m_deviceContext = std::make_unique<RHIDeviceContext>(rhi::RHIBackend::Vulkan, deviceDesc);
-        auto* device = m_deviceContext->device();
+        m_renderDevice = std::make_unique<RenderDevice>(window, config);
+        auto* device = m_renderDevice->device();
 
         m_bindlessSupported = device->physicalDevice().capabilities().bindlessTextures;
         m_useBindless = m_bindlessSupported && config.m_enableBindless;
 
-        m_swapchainManager = std::make_unique<RHISwapchainManager>(device, m_window, rhi::Format::B8G8R8A8_UNORM);
-        auto* swapchain = m_swapchainManager->swapchain();
-        m_renderContext = std::make_unique<RenderContext>(m_deviceContext.get(), swapchain);
+        m_renderContext = std::make_unique<RenderContext>(m_renderDevice->context(), m_renderDevice->swapchain());
 
-        const uint32_t framesInFlight = std::max(1U, swapchain->framesInFlight());
-        m_deviceContext->initCommandBuffers(framesInFlight);
+        const uint32_t framesInFlight = std::max(1U, m_renderDevice->swapchain()->framesInFlight());
+        m_renderDevice->initCommandBuffers(framesInFlight);
         m_resourceManager = std::make_unique<RHIResourceManager>(device, framesInFlight);
         m_pipelineCache = std::make_unique<RHIPipelineCache>(device);
 
@@ -164,9 +149,9 @@ namespace pnkr::renderer
 
     RHIRenderer::~RHIRenderer()
     {
-        if (m_deviceContext)
+        if (m_renderDevice)
         {
-            m_deviceContext->waitIdle();
+            m_renderDevice->waitIdle();
         }
 
         m_systemMeshes.shutdown(*this);
@@ -195,9 +180,6 @@ namespace pnkr::renderer
         m_mirrorSamplerNearest.reset();
 
         m_depthTarget.reset();
-        m_swapchainManager.reset();
-
-        m_deviceContext.reset();
 
         core::Logger::Render.info("RHI Renderer destroyed");
     }
@@ -339,8 +321,8 @@ namespace pnkr::renderer
         rhi::RenderingInfo renderingInfo{};
         renderingInfo.renderArea = rhi::Rect2D{
             .x = 0, .y = 0,
-            .width = m_swapchainManager->extent().width,
-            .height = m_swapchainManager->extent().height
+            .width = m_renderDevice->extent().width,
+            .height = m_renderDevice->extent().height
         };
 
         rhi::RenderingAttachment colorAttachment{};
@@ -368,8 +350,8 @@ namespace pnkr::renderer
         rhi::Viewport viewport{};
         viewport.x = 0.0F;
         viewport.y = 0.0F;
-        viewport.width = toFloat(m_swapchainManager->extent().width);
-        viewport.height = toFloat(m_swapchainManager->extent().height);
+        viewport.width = toFloat(m_renderDevice->extent().width);
+        viewport.height = toFloat(m_renderDevice->extent().height);
         viewport.minDepth = 0.0F;
         viewport.maxDepth = 1.0F;
         context.commandBuffer->setViewport(viewport);
@@ -377,8 +359,8 @@ namespace pnkr::renderer
         rhi::Rect2D scissor{};
         scissor.x = 0;
         scissor.y = 0;
-        scissor.width = m_swapchainManager->extent().width;
-        scissor.height = m_swapchainManager->extent().height;
+        scissor.width = m_renderDevice->extent().width;
+        scissor.height = m_renderDevice->extent().height;
         context.commandBuffer->setScissor(scissor);
 
         {
@@ -490,10 +472,10 @@ namespace pnkr::renderer
         }
 
         device()->waitIdle();
-        m_swapchainManager->recreate(u32(width), u32(height));
+        m_renderDevice->resize(u32(width), u32(height));
         if (m_renderContext)
         {
-            m_renderContext->setSwapchain(m_swapchainManager->swapchain());
+            m_renderContext->setSwapchain(m_renderDevice->swapchain());
         }
         createRenderTargets();
     }
@@ -837,9 +819,9 @@ void RHIRenderer::destroyPersistentStagingBuffer()
         if (sc != nullptr) {
           device()->waitIdle();
           sc->setVsync(enabled);
-          m_swapchainManager->recreate(m_window.width(), m_window.height());
+          m_renderDevice->resize(static_cast<uint32_t>(m_window.width()), static_cast<uint32_t>(m_window.height()));
           if (m_renderContext) {
-            m_renderContext->setSwapchain(m_swapchainManager->swapchain());
+            m_renderContext->setSwapchain(m_renderDevice->swapchain());
           }
         }
     }

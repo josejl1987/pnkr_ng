@@ -14,6 +14,7 @@
 #include <vulkan/vulkan.hpp>
 #include <SDL3/SDL_vulkan.h>
 #include <cpptrace/cpptrace.hpp>
+#include "rhi/vulkan/vulkan_cast.hpp"
 
 namespace pnkr::renderer::rhi
 {
@@ -315,7 +316,7 @@ std::unique_ptr<RHIDevice> RHIFactory::createDevice(
                 return nullptr;
             }
 
-            auto* vkPhysicalDevice = dynamic_cast<vulkan::VulkanRHIPhysicalDevice*>(physicalDevice.get());
+            auto* vkPhysicalDevice = vulkan::rhi_cast<vulkan::VulkanRHIPhysicalDevice>(physicalDevice.get());
             if (vkPhysicalDevice == nullptr) {
                 core::Logger::RHI.error("createDevice: physicalDevice type mismatch");
                 return nullptr;
@@ -386,7 +387,7 @@ std::unique_ptr<RHISwapchain> RHIFactory::createSwapchain(
         return nullptr;
     }
 
-    if (auto* vkDevice = dynamic_cast<vulkan::VulkanRHIDevice*>(device))
+    if (auto* vkDevice = vulkan::rhi_cast<vulkan::VulkanRHIDevice>(device))
     {
         try
         {

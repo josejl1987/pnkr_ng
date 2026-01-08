@@ -354,7 +354,7 @@ namespace pnkr::renderer::rhi::vulkan
         if (m_tracyContext == nullptr) {
           auto cmd = m_device->createCommandList();
 
-          auto *vkCmd = dynamic_cast<VulkanRHICommandBuffer *>(cmd.get());
+          auto *vkCmd = rhi_cast<VulkanRHICommandBuffer>(cmd.get());
           m_tracyContext = PNKR_PROFILE_GPU_CONTEXT(
               m_device->vkPhysicalDevice(), m_device->device(),
               m_device->graphicsQueue(), vkCmd->commandBuffer());

@@ -97,6 +97,29 @@ namespace pnkr::renderer::rhi::vulkan
         m_capabilities.rayTracing = false;
         m_capabilities.meshShading = false;
 
+        // Strict Hardware Capability Check for Bindless Features
+        {
+            auto checkFeature = [](vk::Bool32 feature, const char* name) {
+                if (!feature) {
+                    core::Logger::RHI.error("Required Vulkan feature missing: {}", name);
+                    return false;
+                }
+                return true;
+            };
+
+            bool supported = true;
+            supported &= checkFeature(indexingFeatures.descriptorBindingPartiallyBound, "descriptorBindingPartiallyBound");
+            supported &= checkFeature(indexingFeatures.runtimeDescriptorArray, "runtimeDescriptorArray");
+            supported &= checkFeature(indexingFeatures.descriptorBindingSampledImageUpdateAfterBind, "descriptorBindingSampledImageUpdateAfterBind");
+            supported &= checkFeature(indexingFeatures.descriptorBindingStorageImageUpdateAfterBind, "descriptorBindingStorageImageUpdateAfterBind");
+            supported &= checkFeature(indexingFeatures.descriptorBindingStorageBufferUpdateAfterBind, "descriptorBindingStorageBufferUpdateAfterBind");
+            supported &= checkFeature(indexingFeatures.shaderSampledImageArrayNonUniformIndexing, "shaderSampledImageArrayNonUniformIndexing");
+
+            if (!supported) {
+                throw std::runtime_error("GPU does not support required bindless features (Descriptor Indexing). PNKR Engine require these features to run.");
+            }
+        }
+
         auto colorSamples = props.limits.framebufferColorSampleCounts;
         auto depthSamples = props.limits.framebufferDepthSampleCounts;
 
@@ -263,6 +286,7 @@ namespace pnkr::renderer::rhi::vulkan
                 features13.dynamicRendering = VK_TRUE;
                 features13.synchronization2 = VK_TRUE;
                 features13.maintenance4 = VK_TRUE;
+                features13.shaderDemoteToHelperInvocation = VK_TRUE;
 
                 vk::PhysicalDeviceVulkan11Features features11{};
                 features11.shaderDrawParameters = VK_TRUE;
@@ -808,7 +832,7 @@ namespace pnkr::renderer::rhi::vulkan
       }
 
         PNKR_LOG_SCOPE(std::format("RHI::CreateTextureView[{}]", name ? name : "Unnamed"));
-        auto* vkParent = dynamic_cast<VulkanRHITexture*>(parent);
+        auto* vkParent = rhi_cast<VulkanRHITexture>(parent);
         if (vkParent == nullptr) {
           return nullptr;
         }
@@ -865,7 +889,7 @@ namespace pnkr::renderer::rhi::vulkan
     std::unique_ptr<RHICommandBuffer> VulkanRHIDevice::createCommandBuffer(RHICommandPool* pool)
     {
       return std::make_unique<VulkanRHICommandBuffer>(
-          this, dynamic_cast<VulkanRHICommandPool *>(pool));
+this, rhi_cast<VulkanRHICommandPool>(pool));
     }
 
     std::unique_ptr<RHICommandPool> VulkanRHIDevice::createCommandPool(const CommandPoolDescriptor& desc)
@@ -975,7 +999,7 @@ namespace pnkr::renderer::rhi::vulkan
     std::unique_ptr<RHIDescriptorSet> VulkanRHIDevice::allocateDescriptorSet(
         RHIDescriptorSetLayout* layout)
     {
-        auto* vkLayout = dynamic_cast<VulkanRHIDescriptorSetLayout*>(layout);
+        auto* vkLayout = rhi_cast<VulkanRHIDescriptorSetLayout>(layout);
 
         vk::DescriptorSetAllocateInfo allocInfo{};
         allocInfo.descriptorPool = m_descriptorPool;
@@ -1058,7 +1082,7 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         if (swapchain != nullptr) {
-          auto *vkSwapchain = dynamic_cast<VulkanRHISwapchain *>(swapchain);
+          auto *vkSwapchain = rhi_cast<VulkanRHISwapchain>(swapchain);
           if (vkSwapchain != nullptr) {
 
             waitSems.push_back(vkSwapchain->getCurrentAcquireSemaphore());
@@ -1207,7 +1231,7 @@ namespace pnkr::renderer::rhi::vulkan
         const TextureSubresource& subresource)
     {
         uint64_t dataSize = outData.size_bytes();
-        auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+        auto* vkTex = rhi_cast<VulkanRHITexture>(texture);
 
         auto stagingBuffer = createBuffer("TextureDownloadStaging",{
             .size = dataSize,
@@ -1218,9 +1242,9 @@ namespace pnkr::renderer::rhi::vulkan
 
         immediateSubmit([&](RHICommandList* cmd)
         {
-            auto* vkCmd = dynamic_cast<VulkanRHICommandBuffer*>(cmd);
+            auto* vkCmd = rhi_cast<VulkanRHICommandBuffer>(cmd);
 
-            vkTex->transitionLayout(vk::ImageLayout::eTransferSrcOptimal, vkCmd->commandBuffer());
+            vkTex->transitionLayout(static_cast<VkImageLayout>(vk::ImageLayout::eTransferSrcOptimal), vkCmd->commandBuffer());
 
             vk::BufferImageCopy copyRegion{};
             copyRegion.bufferOffset = 0;
@@ -1251,11 +1275,11 @@ namespace pnkr::renderer::rhi::vulkan
                 1U, copyRegion.imageExtent.height >> subresource.mipLevel);
 
             vkCmd->commandBuffer().copyImageToBuffer(
-                vkTex->image(), vk::ImageLayout::eTransferSrcOptimal,
-                dynamic_cast<VulkanRHIBuffer *>(stagingBuffer.get())->buffer(),
+                vk::Image(vkTex->imageHandle()), vk::ImageLayout::eTransferSrcOptimal,
+                rhi_cast<VulkanRHIBuffer>(stagingBuffer.get())->buffer(),
                 copyRegion);
 
-            vkTex->transitionLayout(vk::ImageLayout::eShaderReadOnlyOptimal, vkCmd->commandBuffer());
+            vkTex->transitionLayout(static_cast<VkImageLayout>(vk::ImageLayout::eShaderReadOnlyOptimal), vkCmd->commandBuffer());
         });
 
         void* mappedData = stagingBuffer->map();
@@ -1347,9 +1371,9 @@ namespace pnkr::renderer::rhi::vulkan
 
             m_stagingBuffer->uploadData(data, m_currentOffset);
 
-            auto *vkTex = dynamic_cast<VulkanRHITexture *>(texture);
+            auto *vkTex = rhi_cast<VulkanRHITexture>(texture);
 
-            vkTex->transitionLayout(vk::ImageLayout::eTransferDstOptimal, m_cmd);
+            vkTex->transitionLayout(static_cast<VkImageLayout>(vk::ImageLayout::eTransferDstOptimal), m_cmd);
 
             vk::BufferImageCopy region{};
             region.bufferOffset = m_currentOffset;
@@ -1366,12 +1390,12 @@ namespace pnkr::renderer::rhi::vulkan
                 std::max(1U, region.imageExtent.depth >> subresource.mipLevel);
 
             m_cmd.copyBufferToImage(
-                dynamic_cast<VulkanRHIBuffer *>(m_stagingBuffer.get())
+                rhi_cast<VulkanRHIBuffer>(m_stagingBuffer.get())
                     ->buffer(),
-                vkTex->image(), vk::ImageLayout::eTransferDstOptimal, 1,
+                vk::Image(vkTex->imageHandle()), vk::ImageLayout::eTransferDstOptimal, 1,
                 &region);
 
-            vkTex->transitionLayout(vk::ImageLayout::eShaderReadOnlyOptimal, m_cmd);
+            vkTex->transitionLayout(static_cast<VkImageLayout>(vk::ImageLayout::eShaderReadOnlyOptimal), m_cmd);
 
             m_currentOffset = (m_currentOffset + size + 15) & ~15;
         }
@@ -1385,14 +1409,14 @@ namespace pnkr::renderer::rhi::vulkan
 
             m_stagingBuffer->uploadData(data, m_currentOffset);
 
-            auto *vkBuf = dynamic_cast<VulkanRHIBuffer *>(buffer);
+            auto *vkBuf = rhi_cast<VulkanRHIBuffer>(buffer);
             vk::BufferCopy region{};
             region.srcOffset = m_currentOffset;
             region.dstOffset = offset;
             region.size = size;
 
             m_cmd.copyBuffer(
-                dynamic_cast<VulkanRHIBuffer *>(m_stagingBuffer.get())
+                rhi_cast<VulkanRHIBuffer>(m_stagingBuffer.get())
                     ->buffer(),
                 vkBuf->buffer(), 1, &region);
 

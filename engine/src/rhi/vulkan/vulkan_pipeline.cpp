@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cpptrace/cpptrace.hpp>
 #include <unordered_map>
+#include "vulkan_cast.hpp"
 
 using namespace pnkr::util;
 
@@ -285,7 +286,7 @@ namespace pnkr::renderer::rhi::vulkan
         const VulkanRHIDescriptorSetLayout* vkBindlessLayoutObj = nullptr;
         const DescriptorSetLayout* bindlessDescPtr = nullptr;
         if (hasBindless) {
-            vkBindlessLayoutObj = dynamic_cast<VulkanRHIDescriptorSetLayout*>(m_device->getBindlessDescriptorSetLayout());
+            vkBindlessLayoutObj = rhi_cast<VulkanRHIDescriptorSetLayout>(m_device->getBindlessDescriptorSetLayout());
             bindlessDescPtr = &vkBindlessLayoutObj->description();
         }
 

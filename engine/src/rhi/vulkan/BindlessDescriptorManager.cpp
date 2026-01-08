@@ -6,6 +6,7 @@
 #include "rhi/vulkan/vulkan_buffer.hpp"
 #include "rhi/vulkan/vulkan_sampler.hpp"
 #include "rhi/vulkan/vulkan_descriptor.hpp"
+#include "vulkan_cast.hpp"
 
 namespace pnkr::renderer::rhi::vulkan
 {
@@ -163,7 +164,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         std::array<vk::DescriptorPoolSize, 4> poolSizes{};
         poolSizes[0].type = vk::DescriptorType::eSampledImage;
-        poolSizes[0].descriptorCount = maxSampledImages * 6;
+        poolSizes[0].descriptorCount = maxSampledImages * 5;
         poolSizes[1].type = vk::DescriptorType::eSampler;
         poolSizes[1].descriptorCount = maxSamplers * 2;
         poolSizes[2].type = vk::DescriptorType::eStorageBuffer;
@@ -197,7 +198,7 @@ namespace pnkr::renderer::rhi::vulkan
     {
         if (sampler != nullptr && imageHandle.isValid())
         {
-            auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
+            auto* vkSamp = rhi_cast<VulkanRHISampler>(sampler);
             vk::DescriptorImageInfo imageInfo{};
             imageInfo.sampler = vkSamp->sampler();
 
@@ -219,11 +220,11 @@ namespace pnkr::renderer::rhi::vulkan
         return;
       }
 
-        auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+        auto* vkTex = rhi_cast<VulkanRHITexture>(texture);
 
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        imageInfo.imageView = vkTex->imageView();
+        imageInfo.imageView = vk::ImageView(vkTex->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -288,7 +289,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     TextureBindlessHandle BindlessDescriptorManager::registerTexture2D(RHITexture* texture)
     {
-        auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+        auto* vkTex = rhi_cast<VulkanRHITexture>(texture);
         uint32_t index = m_textureManager.allocate();
         if (index == kInvalidBindlessIndex) {
           return TextureBindlessHandle::Invalid;
@@ -296,7 +297,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        imageInfo.imageView = vkTex->imageView();
+        imageInfo.imageView = vk::ImageView(vkTex->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -320,7 +321,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     TextureBindlessHandle BindlessDescriptorManager::registerCubemapImage(RHITexture* texture)
     {
-        auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+        auto* vkTex = rhi_cast<VulkanRHITexture>(texture);
         uint32_t index = m_cubemapManager.allocate();
         if (index == kInvalidBindlessIndex) {
           return TextureBindlessHandle::Invalid;
@@ -328,7 +329,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        imageInfo.imageView = vkTex->imageView();
+        imageInfo.imageView = vk::ImageView(vkTex->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -352,7 +353,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     SamplerBindlessHandle BindlessDescriptorManager::registerSampler(RHISampler* sampler)
     {
-        auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
+        auto* vkSamp = rhi_cast<VulkanRHISampler>(sampler);
         uint32_t index = m_samplerManager.allocate();
         if (index == kInvalidBindlessIndex) {
           return SamplerBindlessHandle::Invalid;
@@ -380,7 +381,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     SamplerBindlessHandle BindlessDescriptorManager::registerShadowSampler(RHISampler* sampler)
     {
-        auto* vkSamp = dynamic_cast<VulkanRHISampler*>(sampler);
+        auto* vkSamp = rhi_cast<VulkanRHISampler>(sampler);
         uint32_t index = m_shadowSamplerManager.allocate();
         if (index == kInvalidBindlessIndex) {
           return SamplerBindlessHandle::Invalid;
@@ -408,7 +409,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     BufferBindlessHandle BindlessDescriptorManager::registerBuffer(RHIBuffer* buffer)
     {
-        auto* vkBuf = dynamic_cast<VulkanRHIBuffer*>(buffer);
+        auto* vkBuf = rhi_cast<VulkanRHIBuffer>(buffer);
         uint32_t index = m_bufferManager.allocate();
         if (index == kInvalidBindlessIndex) {
           return BufferBindlessHandle::Invalid;
@@ -439,7 +440,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     TextureBindlessHandle BindlessDescriptorManager::registerStorageImage(RHITexture* texture)
     {
-        auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+        auto* vkTex = rhi_cast<VulkanRHITexture>(texture);
         uint32_t index = m_storageImageManager.allocate();
         if (index == kInvalidBindlessIndex) {
           return TextureBindlessHandle::Invalid;
@@ -447,7 +448,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eGeneral;
-        imageInfo.imageView = vkTex->imageView();
+        imageInfo.imageView = vk::ImageView(vkTex->imageViewHandle());
         imageInfo.sampler = nullptr;
 
         vk::WriteDescriptorSet write{};
@@ -472,7 +473,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     TextureBindlessHandle BindlessDescriptorManager::registerShadowTexture2D(RHITexture* texture)
     {
-        auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+        auto* vkTex = rhi_cast<VulkanRHITexture>(texture);
         uint32_t index = m_shadowTextureManager.allocate();
         if (index == kInvalidBindlessIndex) {
           return TextureBindlessHandle::Invalid;
@@ -480,7 +481,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        imageInfo.imageView = vkTex->imageView();
+        imageInfo.imageView = vk::ImageView(vkTex->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -504,7 +505,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     TextureBindlessHandle BindlessDescriptorManager::registerMSTexture2D(RHITexture* texture)
     {
-        auto* vkTex = dynamic_cast<VulkanRHITexture*>(texture);
+        auto* vkTex = rhi_cast<VulkanRHITexture>(texture);
         uint32_t index = m_msaaTextureManager.allocate();
         if (index == kInvalidBindlessIndex) {
           return TextureBindlessHandle::Invalid;
@@ -512,7 +513,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        imageInfo.imageView = vkTex->imageView();
+        imageInfo.imageView = vk::ImageView(vkTex->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -554,7 +555,7 @@ namespace pnkr::renderer::rhi::vulkan
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
         imageInfo.imageView =
-            dynamic_cast<VulkanRHITexture *>(m_dummyTexture.get())->imageView();
+            vk::ImageView(rhi_cast<VulkanRHITexture>(m_dummyTexture.get())->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -576,7 +577,7 @@ namespace pnkr::renderer::rhi::vulkan
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
         imageInfo.imageView =
-            dynamic_cast<VulkanRHITexture *>(m_dummyCube.get())->imageView();
+            vk::ImageView(rhi_cast<VulkanRHITexture>(m_dummyCube.get())->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -597,7 +598,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.sampler =
-            dynamic_cast<VulkanRHISampler *>(m_dummySampler.get())->sampler();
+            rhi_cast<VulkanRHISampler>(m_dummySampler.get())->sampler();
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -618,7 +619,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.sampler =
-            dynamic_cast<VulkanRHISampler *>(m_dummySampler.get())->sampler();
+            rhi_cast<VulkanRHISampler>(m_dummySampler.get())->sampler();
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -640,8 +641,8 @@ namespace pnkr::renderer::rhi::vulkan
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eGeneral;
         imageInfo.imageView =
-            dynamic_cast<VulkanRHITexture *>(m_dummyStorageImage.get())
-                ->imageView();
+            vk::ImageView(rhi_cast<VulkanRHITexture>(m_dummyStorageImage.get())
+                ->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -662,7 +663,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         vk::DescriptorBufferInfo bufferInfo{};
         bufferInfo.buffer =
-            dynamic_cast<VulkanRHIBuffer *>(m_dummyBuffer.get())->buffer();
+            rhi_cast<VulkanRHIBuffer>(m_dummyBuffer.get())->buffer();
         bufferInfo.offset = 0;
         bufferInfo.range = VK_WHOLE_SIZE;
 
@@ -686,7 +687,7 @@ namespace pnkr::renderer::rhi::vulkan
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
         imageInfo.imageView =
-            dynamic_cast<VulkanRHITexture *>(m_dummyTexture.get())->imageView();
+            vk::ImageView(rhi_cast<VulkanRHITexture>(m_dummyTexture.get())->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;
@@ -708,7 +709,7 @@ namespace pnkr::renderer::rhi::vulkan
         vk::DescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
         imageInfo.imageView =
-            dynamic_cast<VulkanRHITexture *>(m_dummyTexture.get())->imageView();
+            vk::ImageView(rhi_cast<VulkanRHITexture>(m_dummyTexture.get())->imageViewHandle());
 
         vk::WriteDescriptorSet write{};
         write.dstSet = m_bindlessSet;

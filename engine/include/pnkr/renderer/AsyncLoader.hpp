@@ -150,7 +150,9 @@ namespace pnkr::renderer
         static constexpr uint32_t kInFlight = 2;
         struct InFlightBatch {
             std::vector<UploadRequest> jobs;
-            TemporaryStagingBuffer* tempStaging = nullptr;
+            std::vector<TemporaryStagingBuffer*> tempStaging;
+            std::vector<std::pair<uint64_t, uint64_t>> ringBufferRanges;
+            uint64_t batchId = 0;
         };
         std::array<InFlightBatch, kInFlight> m_inFlightBatches;
 

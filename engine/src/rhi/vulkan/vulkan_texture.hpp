@@ -1,20 +1,29 @@
 #pragma once
 
 #include "pnkr/rhi/rhi_texture.hpp"
-#include <vulkan/vulkan.hpp>
-#include <vk_mem_alloc.h>
 #include <map>
 #include <memory>
 #include <span>
 #include <cstddef>
+#include <cstdint>
 
 #include "VulkanRHIResourceBase.hpp"
+
+// Forward declarations to avoid including vulkan.hpp
+struct VkImage_T; typedef struct VkImage_T* VkImage;
+struct VkImageView_T; typedef struct VkImageView_T* VkImageView;
+struct VkCommandBuffer_T; typedef struct VkCommandBuffer_T* VkCommandBuffer;
+struct VmaAllocation_T; typedef struct VmaAllocation_T* VmaAllocation;
+
+// Using uint32_t for Enum types to avoid including definitions
+// These MUST match VkImageLayout
+using VkImageLayout_T = uint32_t; 
 
 namespace pnkr::renderer::rhi::vulkan
 {
     class VulkanRHIDevice;
 
-    class VulkanRHITexture : public VulkanRHIResourceBase<vk::Image, RHITexture>
+    class VulkanRHITexture : public VulkanRHIResourceBase<VkImage, RHITexture>
     {
     public:
         VulkanRHITexture(VulkanRHIDevice* device, const TextureDescriptor& desc);
@@ -42,27 +51,31 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t baseArrayLayer() const override { return m_baseArrayLayer; }
 
         void* nativeView() const override {
-            return static_cast<VkImageView>(m_imageView);
+            return (void*)(m_imageView);
         }
         void* nativeView(uint32_t mipLevel, uint32_t arrayLayer) const override;
         void updateAccessibleMipRange(uint32_t baseMip, uint32_t mipCount) override;
         void setParent(std::shared_ptr<RHITexture> parent) override { m_parent = std::move(parent); }
 
-        vk::Image image() const { return m_handle; }
-        vk::ImageView imageView() const { return m_imageView; }
+        // Opaque Accessors
+        VkImage imageHandle() const { return m_handle; }
+        VkImageView imageViewHandle() const { return m_imageView; }
         VmaAllocation allocation() const { return m_allocation; }
-        vk::ImageLayout currentLayout() const { return m_currentLayout; }
-        void setCurrentLayout(vk::ImageLayout layout) { m_currentLayout = layout; }
+        
+        // Layout management (using uint32_t / raw enum value)
+        VkImageLayout_T currentLayout() const { return m_currentLayout; }
+        void setCurrentLayout(VkImageLayout_T layout) { m_currentLayout = layout; }
 
+        // Raw handle operators
         operator VkImage() const { return m_handle; }
-        operator vk::ImageView() const { return m_imageView; }
         operator VkImageView() const { return m_imageView; }
 
-        void transitionLayout(vk::ImageLayout newLayout, vk::CommandBuffer cmd);
+        // Methods using raw Vulkan types
+        void transitionLayout(VkImageLayout_T newLayout, VkCommandBuffer cmd);
 
     private:
-        vk::ImageView m_imageView;
-        VmaAllocation m_allocation{};
+        VkImageView m_imageView = nullptr;
+        VmaAllocation m_allocation = nullptr;
 
         Extent3D m_extent;
         Format m_format;
@@ -74,9 +87,10 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t m_baseMipLevel = 0;
         uint32_t m_baseArrayLayer = 0;
 
-        vk::ImageLayout m_currentLayout = vk::ImageLayout::eUndefined;
+        // Initialize to undefined (0 usually, assuming VK_IMAGE_LAYOUT_UNDEFINED = 0)
+        VkImageLayout_T m_currentLayout = 0; 
 
-        mutable std::map<uint64_t, vk::ImageView> m_subresourceViews;
+        mutable std::map<uint64_t, VkImageView> m_subresourceViews;
         std::shared_ptr<RHITexture> m_parent;
 
         void createImage(const TextureDescriptor& desc);

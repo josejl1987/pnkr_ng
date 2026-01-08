@@ -1,6 +1,6 @@
 #pragma once
 
-#include <vulkan/vulkan.hpp>
+// #include <vulkan/vulkan.hpp> removed for header hygiene
 #include <string>
 
 namespace pnkr::renderer::rhi::vulkan

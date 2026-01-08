@@ -1,4 +1,6 @@
 #include "rhi/vulkan/vulkan_texture.hpp"
+#include <vulkan/vulkan.hpp>
+#include <vk_mem_alloc.h>
 
 #include "rhi/vulkan/vulkan_device.hpp"
 #include "rhi/vulkan/vulkan_utils.hpp"
@@ -35,7 +37,7 @@ VulkanRHITexture::VulkanRHITexture(VulkanRHIDevice *device,
       m_baseMipLevel(parent->baseMipLevel() + desc.mipLevel),
       m_baseArrayLayer(parent->baseArrayLayer() + desc.arrayLayer),
       m_currentLayout(parent->currentLayout()) {
-  m_handle = parent->image();
+  m_handle = parent->imageHandle();
   m_type = TextureType::Texture2D;
   if (parent != nullptr) {
     std::string viewName = parent->debugName();
@@ -69,7 +71,7 @@ VulkanRHITexture::VulkanRHITexture(VulkanRHIDevice *device,
       auto subresourceViews = std::move(m_subresourceViews);
       auto imageView = m_imageView;
       auto image = m_handle;
-      auto *allocation = m_allocation;
+      auto allocation = m_allocation;
       bool ownsImage = m_ownsImage;
 
       device->enqueueDeletion([=,
@@ -92,19 +94,19 @@ VulkanRHITexture::VulkanRHITexture(VulkanRHIDevice *device,
         }
 
         for (auto &[key, view] : views) {
-          device->untrackObject(u64(static_cast<VkImageView>(view)));
-          device->device().destroyImageView(view);
+          device->untrackObject(u64(view));
+          device->device().destroyImageView(static_cast<vk::ImageView>(view));
         }
         views.clear();
 
         if (imageView) {
-          device->untrackObject(u64(static_cast<VkImageView>(imageView)));
-          device->device().destroyImageView(imageView);
+          device->untrackObject(u64(imageView));
+          device->device().destroyImageView(static_cast<vk::ImageView>(imageView));
         }
 
         if (ownsImage && image) {
-          device->untrackObject(u64(static_cast<VkImage>(image)));
-          vmaDestroyImage(device->allocator(), image, allocation);
+          device->untrackObject(u64(image));
+          vmaDestroyImage(device->allocator(), static_cast<VkImage>(image), allocation);
         }
       });
     }
@@ -173,17 +175,17 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
 
         if (!desc.debugName.empty())
         {
-            VulkanUtils::setDebugName(m_device->device(), vk::ObjectType::eImage, u64((VkImage)m_handle), desc.debugName);
+            VulkanUtils::setDebugName(m_device->device(), vk::ObjectType::eImage, u64(m_handle), desc.debugName);
         }
         m_device->trackObject(vk::ObjectType::eImage,
-                              u64(static_cast<VkImage>(m_handle)),
+                              u64(m_handle),
                               desc.debugName);
     }
 
     void VulkanRHITexture::createImageView(const TextureDescriptor& desc)
     {
         auto viewInfoBuilder = VkBuilder<vk::ImageViewCreateInfo>{}
-            .set(&vk::ImageViewCreateInfo::image, m_handle)
+            .set(&vk::ImageViewCreateInfo::image, vk::Image(m_handle))
             .set(&vk::ImageViewCreateInfo::format, VulkanUtils::toVkFormat(desc.format));
 
         switch (desc.type)
@@ -216,20 +218,20 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
         vk::Format vkFormat = VulkanUtils::toVkFormat(desc.format);
         viewInfo.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
 
-        m_imageView = m_device->device().createImageView(viewInfo);
+        m_imageView = static_cast<VkImageView>(m_device->device().createImageView(viewInfo));
         std::string viewName = desc.debugName;
         if (!viewName.empty()) {
             viewName += "/view";
         }
         m_device->trackObject(vk::ObjectType::eImageView,
-                              u64(static_cast<VkImageView>(m_imageView)),
+                              u64(m_imageView),
                               viewName);
     }
 
     void VulkanRHITexture::createImageView(const TextureViewDescriptor& desc)
     {
         vk::ImageViewCreateInfo viewInfo = VkBuilder<vk::ImageViewCreateInfo>{}
-            .set(&vk::ImageViewCreateInfo::image, m_handle)
+            .set(&vk::ImageViewCreateInfo::image, vk::Image(m_handle))
             .set(&vk::ImageViewCreateInfo::viewType, desc.layerCount > 1 ? vk::ImageViewType::e2DArray : vk::ImageViewType::e2D)
             .set(&vk::ImageViewCreateInfo::format, VulkanUtils::toVkFormat(m_format))
             .build();
@@ -247,13 +249,13 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
         vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
         viewInfo.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
 
-        m_imageView = m_device->device().createImageView(viewInfo);
+        m_imageView = static_cast<VkImageView>(m_device->device().createImageView(viewInfo));
         std::string viewName = debugName();
         if (!viewName.empty()) {
             viewName += "/view";
         }
         m_device->trackObject(vk::ObjectType::eImageView,
-                              u64(static_cast<VkImageView>(m_imageView)),
+                              u64(m_imageView),
                               viewName);
     }
 
@@ -277,14 +279,18 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
         upload->flush();
     }
 
-    void VulkanRHITexture::transitionLayout(vk::ImageLayout newLayout, vk::CommandBuffer cmd)
+    void VulkanRHITexture::transitionLayout(VkImageLayout_T newLayoutRaw, VkCommandBuffer cmdRaw)
     {
+        vk::CommandBuffer cmd = vk::CommandBuffer(cmdRaw);
+        vk::ImageLayout newLayout = static_cast<vk::ImageLayout>(newLayoutRaw);
+        vk::ImageLayout currentLayout = static_cast<vk::ImageLayout>(m_currentLayout);
+        
         vk::ImageMemoryBarrier2 barrier = VkBuilder<vk::ImageMemoryBarrier2>{}
-            .set(&vk::ImageMemoryBarrier2::oldLayout, m_currentLayout)
+            .set(&vk::ImageMemoryBarrier2::oldLayout, currentLayout)
             .set(&vk::ImageMemoryBarrier2::newLayout, newLayout)
             .set(&vk::ImageMemoryBarrier2::srcQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
             .set(&vk::ImageMemoryBarrier2::dstQueueFamilyIndex, VK_QUEUE_FAMILY_IGNORED)
-            .set(&vk::ImageMemoryBarrier2::image, m_handle)
+            .set(&vk::ImageMemoryBarrier2::image, vk::Image(m_handle))
             .build();
 
         vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
@@ -295,7 +301,7 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = m_arrayLayers;
 
-        auto [srcStage, srcAccess] = VulkanUtils::getLayoutStageAccess(m_currentLayout);
+        auto [srcStage, srcAccess] = VulkanUtils::getLayoutStageAccess(currentLayout);
         auto [dstStage, dstAccess] = VulkanUtils::getLayoutStageAccess(newLayout);
 
         barrier.srcAccessMask = srcAccess;
@@ -309,7 +315,7 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
 
         cmd.pipelineBarrier2(depInfo);
 
-        m_currentLayout = newLayout;
+        m_currentLayout = newLayoutRaw;
     }
 
     void VulkanRHITexture::generateMipmaps()
@@ -335,7 +341,7 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
             std::array<vk::ImageMemoryBarrier2, 2> barriers{};
 
             barriers[0] = VkBuilder<vk::ImageMemoryBarrier2>{}
-                .set(&vk::ImageMemoryBarrier2::image, m_handle)
+                .set(&vk::ImageMemoryBarrier2::image, vk::Image(m_handle))
                 .set(&vk::ImageMemoryBarrier2::oldLayout, vk::ImageLayout::eTransferDstOptimal)
                 .set(&vk::ImageMemoryBarrier2::newLayout, vk::ImageLayout::eTransferSrcOptimal)
                 .set(&vk::ImageMemoryBarrier2::srcAccessMask, vk::AccessFlagBits2::eTransferWrite)
@@ -348,7 +354,7 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
             barriers[0].subresourceRange = { vk::ImageAspectFlagBits::eColor, i - 1, 1, 0, m_arrayLayers };
 
             barriers[1] = VkBuilder<vk::ImageMemoryBarrier2>{}
-                .set(&vk::ImageMemoryBarrier2::image, m_handle)
+                .set(&vk::ImageMemoryBarrier2::image, vk::Image(m_handle))
                 .set(&vk::ImageMemoryBarrier2::oldLayout, (i == 1) ? vk::ImageLayout::eTransferDstOptimal : vk::ImageLayout::eUndefined)
                 .set(&vk::ImageMemoryBarrier2::newLayout, vk::ImageLayout::eTransferDstOptimal)
                 .set(&vk::ImageMemoryBarrier2::srcAccessMask, vk::AccessFlagBits2::eNone)
@@ -385,8 +391,8 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
             blit.dstSubresource.layerCount = m_arrayLayers;
 
             cmd.blitImage(
-                m_handle, vk::ImageLayout::eTransferSrcOptimal,
-                m_handle, vk::ImageLayout::eTransferDstOptimal,
+                vk::Image(m_handle), vk::ImageLayout::eTransferSrcOptimal,
+                vk::Image(m_handle), vk::ImageLayout::eTransferDstOptimal,
                 1, &blit,
                 vk::Filter::eLinear
             );
@@ -399,7 +405,7 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
 
         if (m_mipLevels > 1) {
             vk::ImageMemoryBarrier2 bSrc = VkBuilder<vk::ImageMemoryBarrier2>{}
-                .set(&vk::ImageMemoryBarrier2::image, m_handle)
+                .set(&vk::ImageMemoryBarrier2::image, vk::Image(m_handle))
                 .set(&vk::ImageMemoryBarrier2::oldLayout, vk::ImageLayout::eTransferSrcOptimal)
                 .set(&vk::ImageMemoryBarrier2::newLayout, vk::ImageLayout::eShaderReadOnlyOptimal)
                 .set(&vk::ImageMemoryBarrier2::srcAccessMask, vk::AccessFlagBits2::eTransferRead)
@@ -415,7 +421,7 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
 
         {
             vk::ImageMemoryBarrier2 bLast = VkBuilder<vk::ImageMemoryBarrier2>{}
-                .set(&vk::ImageMemoryBarrier2::image, m_handle)
+                .set(&vk::ImageMemoryBarrier2::image, vk::Image(m_handle))
                 .set(&vk::ImageMemoryBarrier2::oldLayout, vk::ImageLayout::eTransferDstOptimal)
                 .set(&vk::ImageMemoryBarrier2::newLayout, vk::ImageLayout::eShaderReadOnlyOptimal)
                 .set(&vk::ImageMemoryBarrier2::srcAccessMask, vk::AccessFlagBits2::eTransferWrite)
@@ -434,7 +440,7 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
         depInfo.pImageMemoryBarriers = finalBarriers.data();
         cmd.pipelineBarrier2(depInfo);
 
-        m_currentLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        m_currentLayout = static_cast<VkImageLayout_T>(vk::ImageLayout::eShaderReadOnlyOptimal);
     }
 
     void* VulkanRHITexture::nativeView(uint32_t mipLevel, uint32_t arrayLayer) const
@@ -447,7 +453,7 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
         }
 
         vk::ImageViewCreateInfo viewInfo = VkBuilder<vk::ImageViewCreateInfo>{}
-            .set(&vk::ImageViewCreateInfo::image, m_handle)
+            .set(&vk::ImageViewCreateInfo::image, vk::Image(m_handle))
             .set(&vk::ImageViewCreateInfo::viewType, vk::ImageViewType::e2D)
             .set(&vk::ImageViewCreateInfo::format, VulkanUtils::toVkFormat(m_format))
             .build();
@@ -465,13 +471,13 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
         vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
         viewInfo.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
 
-        vk::ImageView view = m_device->device().createImageView(viewInfo);
+        VkImageView view = static_cast<VkImageView>(m_device->device().createImageView(viewInfo));
         m_subresourceViews[key] = view;
         m_device->trackObject(vk::ObjectType::eImageView,
-                              u64(static_cast<VkImageView>(view)),
+                              u64(view),
                               debugName());
 
-        return static_cast<VkImageView>(view);
+        return view;
     }
 
     void VulkanRHITexture::updateAccessibleMipRange(uint32_t baseMip, uint32_t mipCount)
@@ -481,13 +487,13 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
           auto *device = m_device;
           auto oldView = m_imageView;
           device->enqueueDeletion([device, oldView]() {
-            device->untrackObject(u64(static_cast<VkImageView>(oldView)));
-            device->device().destroyImageView(oldView);
+            device->untrackObject(u64(oldView));
+            device->device().destroyImageView(static_cast<vk::ImageView>(oldView));
           });
         }
 
         auto viewInfoBuilder = VkBuilder<vk::ImageViewCreateInfo>{}
-            .set(&vk::ImageViewCreateInfo::image, m_handle)
+            .set(&vk::ImageViewCreateInfo::image, vk::Image(m_handle))
             .set(&vk::ImageViewCreateInfo::format, VulkanUtils::toVkFormat(m_format));
 
         switch (m_type)
@@ -527,14 +533,13 @@ void VulkanRHITexture::createImage(const TextureDescriptor& desc)
         vk::Format vkFormat = VulkanUtils::toVkFormat(m_format);
         viewInfo.subresourceRange.aspectMask = VulkanUtils::getImageAspectMask(vkFormat);
 
-        m_imageView = m_device->device().createImageView(viewInfo);
+        m_imageView = static_cast<VkImageView>(m_device->device().createImageView(viewInfo));
         std::string viewName = debugName();
         if (!viewName.empty()) {
             viewName += "/view";
         }
         m_device->trackObject(vk::ObjectType::eImageView,
-                              u64(static_cast<VkImageView>(m_imageView)),
+                              u64(m_imageView),
                               viewName);
     }
 }
-

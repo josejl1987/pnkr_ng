@@ -28,6 +28,7 @@
 #include "RHISwapchainManager.hpp"
 #include "RHIPipelineCache.hpp"
 #include "RenderContext.hpp"
+#include "RenderDevice.hpp"
 
 namespace pnkr::renderer
 {
@@ -140,8 +141,9 @@ namespace pnkr::renderer
         rhi::Format getSwapchainColorFormat() const;
 
         [[nodiscard]] uint32_t getFrameIndex() const { return m_frameIndex; }
-        rhi::RHIDevice* device() const { return m_deviceContext->device(); }
-        rhi::RHISwapchain* getSwapchain() const { return m_swapchainManager->swapchain(); }
+        rhi::RHIDevice* device() const { return m_renderDevice->device(); }
+        rhi::RHISwapchain* getSwapchain() const { return m_renderDevice->swapchain(); }
+        RenderDevice* renderDevice() const { return m_renderDevice.get(); }
         rhi::RHITexture* getBackbuffer() const { return m_backbuffer; }
         rhi::RHITexture* getBackbufferTexture() const { return m_backbuffer; }
         rhi::RHITexture* getDepthTexture() const { return m_depthTarget.get(); }
@@ -176,9 +178,8 @@ namespace pnkr::renderer
 
         platform::Window& m_window;
 
-        std::unique_ptr<RHIDeviceContext> m_deviceContext;
+        std::unique_ptr<RenderDevice> m_renderDevice;
         std::unique_ptr<RHIResourceManager> m_resourceManager;
-        std::unique_ptr<RHISwapchainManager> m_swapchainManager;
         std::unique_ptr<RHIPipelineCache> m_pipelineCache;
         std::unique_ptr<RenderContext> m_renderContext;
 
