@@ -14,9 +14,9 @@ namespace pnkr::renderer
 {
     namespace
     {
-        constexpr uint64_t K_MAX_UPLOAD_BYTES_PER_FRAME =
+        constexpr uint64_t kMaxUploadBytesPerFrame =
             static_cast<const uint64_t>(512 * 1024 * 1024);
-        constexpr uint32_t K_MAX_UPLOAD_JOBS_PER_FRAME = 5;
+        constexpr uint32_t kMaxUploadJobsPerFrame = 5;
     }
 
     void
@@ -44,12 +44,11 @@ namespace pnkr::renderer
     {
         m_stagingManager = std::make_unique<AsyncLoaderStagingManager>(m_renderer);
 
-        // Validate staging manager initialized successfully
         if (!m_stagingManager->isInitialized()) {
             core::Logger::Asset.error(
                 "AsyncLoader: Staging manager initialization failed. "
                 "Async texture loading will be disabled.");
-            return;  // Don't set m_initialized = true
+            return;
         }
 
         rhi::CommandPoolDescriptor poolDesc{};
@@ -86,7 +85,11 @@ namespace pnkr::renderer
       }
 
         m_running = false;
-        m_transferCv.notify_all();
+        {
+            std::lock_guard<std::mutex> lock(m_transferMutex);
+            m_transferCv.notify_all();
+        }
+        
         if (m_transferThread.joinable()) {
             m_transferThread.join();
         }
@@ -119,10 +122,11 @@ namespace pnkr::renderer
                 KTXUtils::destroy(req.textureData);
             }
             b.jobs.clear();
-            if (b.tempStaging != nullptr) {
-              m_stagingManager->releaseTemporaryBuffer(b.tempStaging);
-              b.tempStaging = nullptr;
+            for (auto* staging : b.tempStaging) {
+                 m_stagingManager->releaseTemporaryBuffer(staging);
             }
+            b.tempStaging.clear();
+            b.ringBufferRanges.clear();
         }
 
         processDeletionQueue();
@@ -136,11 +140,10 @@ namespace pnkr::renderer
 
         static std::atomic<uint32_t> warningCount{0};
         if (!m_initialized) {
-            if (warningCount.fetch_add(1) < 5) {  // Log first 5 times only
+            if (warningCount.fetch_add(1) < 5) {
                 core::Logger::Asset.error(
                     "AsyncLoader::requestTexture called but loader not initialized. "
-                    "Texture '{}' will not be loaded. Check previous error logs for "
-                    "initialization failures.", path);
+                    "Texture '{}' will not be loaded.", path);
             }
           return;
         }
@@ -193,13 +196,11 @@ namespace pnkr::renderer
 
         if (req.priority == LoadPriority::Immediate || req.priority == LoadPriority::High) {
             core::Logger::Asset.debug("AsyncLoader: Enqueue Creation HighPriority '{}' ({} bytes)", req.path, uploadReq.totalSize);
-
             m_creationQueue.enqueue(std::move(uploadReq));
         } else {
             core::Logger::Asset.debug("AsyncLoader: Enqueue Creation '{}' ({} bytes)", req.path, uploadReq.totalSize);
             m_creationQueue.enqueue(std::move(uploadReq));
         }
-
     }
 
     bool AsyncLoader::fitInRingBuffer(uint64_t size) {
@@ -290,10 +291,10 @@ namespace pnkr::renderer
                         core::Logger::Asset.error("[AsyncLoader] Failed to create texture resource for {}", req.req.path);
                         KTXUtils::destroy(req.textureData);
                     }
-                } else {
                 }
             }
             if (enqueuedAny) {
+                 std::lock_guard<std::mutex> lock(m_transferMutex);
                  m_transferCv.notify_one();
             }
         }
@@ -310,10 +311,6 @@ namespace pnkr::renderer
 
                 if (req.intermediateTexture.isValid()) {
                     m_renderer->replaceTexture(req.req.targetHandle, req.intermediateTexture);
-                }
-
-                if (req.needsMipmapGeneration && req.intermediateTexture.isValid()) {
-
                 }
 
                 KTXUtils::destroy(req.textureData);
@@ -355,11 +352,11 @@ namespace pnkr::renderer
 
               auto &batchJobs = m_inFlightBatches[slot].jobs;
 
-              if (m_inFlightBatches[slot].tempStaging != nullptr) {
-                releaseTemporaryStagingBuffer(
-                    m_inFlightBatches[slot].tempStaging);
-                m_inFlightBatches[slot].tempStaging = nullptr;
+              for (auto* staging : m_inFlightBatches[slot].tempStaging) {
+                  m_stagingManager->releaseTemporaryBuffer(staging);
               }
+              m_inFlightBatches[slot].tempStaging.clear();
+              m_inFlightBatches[slot].ringBufferRanges.clear();
 
                 std::vector<UploadRequest> requeuedRequests;
 
@@ -416,8 +413,16 @@ namespace pnkr::renderer
             }
 
             if (!reqOpt) {
-                reqOpt = m_highPriorityQueue.wait_dequeue_timed(std::chrono::milliseconds(1));
+                std::unique_lock<std::mutex> lock(m_transferMutex);
+                m_transferCv.wait(lock, [this] {
+                    return !m_running ||
+                           m_highPriorityQueue.size_approx() > 0 ||
+                           m_uploadQueue.size_approx() > 0;
+                });
+                
+                if (!m_running) break;
 
+                reqOpt = m_highPriorityQueue.try_dequeue();
                 if (!reqOpt) {
                      reqOpt = m_uploadQueue.try_dequeue();
                      if (reqOpt) {
@@ -435,16 +440,6 @@ namespace pnkr::renderer
 
              cmd->begin();
 
-             const uint64_t slotSize = m_stagingManager->ringBufferSize() / kInFlight;
-             const uint64_t startOffset = slotSize * slotToUse;
-             const uint64_t endOffset = startOffset + slotSize;
-
-            uint64_t currentOffset = startOffset;
-
-            constexpr uint64_t kEndPadding = 4096;
-
-            TemporaryStagingBuffer* tempStaging = nullptr;
-
             uint64_t bytesThisBatch = 0;
              uint32_t jobsThisBatch = 0;
             auto workStart = std::chrono::steady_clock::now();
@@ -452,11 +447,6 @@ namespace pnkr::renderer
             bool firstRequest = true;
 
             while (true) {
-              if (currentOffset + kEndPadding >= endOffset &&
-                  (tempStaging == nullptr)) {
-                break;
-              }
-
                 std::optional<UploadRequest> currentReqOpt;
 
                 if (firstRequest) {
@@ -483,35 +473,32 @@ namespace pnkr::renderer
                     continue;
                 }
 
-                if ((tempStaging == nullptr) &&
-                    !fitInRingBuffer(req.totalSize)) {
-                  tempStaging = m_stagingManager->allocateTemporaryBuffer(req.totalSize);
-
-                  if (tempStaging != nullptr) {
-                    currentOffset = 0;
-                  } else {
+                auto allocation = m_stagingManager->reserve(req.totalSize, 0); 
+                if (allocation.systemPtr == nullptr) {
                     core::Logger::Asset.warn(
-                        "AsyncLoader: Failed to allocate temp buffer for '{}' "
-                        "({} bytes), falling back to RingBuffer. This may "
-                        "cause stalling for other assets.",
+                        "AsyncLoader: Deferred '{}' ({} bytes) due to staging full.",
                         req.req.path, req.totalSize);
-                  }
+                    
+                     if (req.req.priority == LoadPriority::Immediate || req.req.priority == LoadPriority::High) {
+                        m_highPriorityQueue.enqueue(std::move(req));
+                    } else {
+                        m_uploadQueueSize.fetch_add(1, std::memory_order_relaxed);
+                        m_uploadQueue.enqueue(std::move(req));
+                    }
+                    break;
+                }
+                
+                if (allocation.isTemporary) {
+                    m_inFlightBatches[slotToUse].tempStaging.push_back(allocation.tempHandle);
+                } else {
+                    m_inFlightBatches[slotToUse].ringBufferRanges.push_back({allocation.offset, req.totalSize});
                 }
 
-                uint8_t *stagingBase = (tempStaging != nullptr)
-                                           ? tempStaging->mapped
-                                           : m_stagingManager->ringBufferMapped();
-                rhi::RHIBuffer *activeBuffer = (tempStaging != nullptr)
-                                                   ? tempStaging->buffer
-                                                   : m_stagingManager->ringBuffer();
-                uint64_t stagingCapacity =
-                    (tempStaging != nullptr) ? tempStaging->size : endOffset;
-
-                uint64_t *offsetRef =
-                    (tempStaging != nullptr) ? &currentOffset : &currentOffset;
-                uint64_t preJobOffset = currentOffset;
-
-                bool madeProgress = processJob(req, cmd, activeBuffer, std::span<uint8_t>(stagingBase, stagingCapacity), *offsetRef);
+                uint8_t* basePtr = allocation.isTemporary ? allocation.systemPtr : m_stagingManager->ringBufferMapped();
+                uint64_t baseCapacity = allocation.isTemporary ? allocation.tempHandle->size : m_stagingManager->ringBufferSize();
+                uint64_t currentOffset = allocation.offset; 
+                
+                bool madeProgress = processJob(req, cmd, allocation.buffer, std::span<uint8_t>(basePtr, baseCapacity), currentOffset);
 
                 if (!madeProgress) {
                     if (req.req.priority == LoadPriority::Immediate || req.req.priority == LoadPriority::High) {
@@ -523,20 +510,26 @@ namespace pnkr::renderer
                     break;
                 }
 
-                bytesThisBatch += (currentOffset - preJobOffset);
+                bytesThisBatch += req.totalSize; 
                  jobsThisBatch++;
 
-                m_metrics.bytesUploadedTotal.fetch_add(currentOffset - preJobOffset, std::memory_order_relaxed);
-                m_metrics.bytesThisFrame.fetch_add(currentOffset - preJobOffset, std::memory_order_relaxed);
+                m_metrics.bytesUploadedTotal.fetch_add(req.totalSize, std::memory_order_relaxed);
+                m_metrics.bytesThisFrame.fetch_add(req.totalSize, std::memory_order_relaxed);
 
                  m_inFlightBatches[slotToUse].jobs.push_back(std::move(req));
 
-                 if (bytesThisBatch >= K_MAX_UPLOAD_BYTES_PER_FRAME ||
-                     jobsThisBatch >= K_MAX_UPLOAD_JOBS_PER_FRAME) {
+                 if (bytesThisBatch >= kMaxUploadBytesPerFrame ||
+                     jobsThisBatch >= kMaxUploadJobsPerFrame) {
                    break;
                  }
              }
 
+             if (m_inFlightBatches[slotToUse].jobs.empty()) {
+                 cmd->end();
+                 m_slotBusy[slotToUse] = false;
+                 continue;
+             }
+             
                 bool graphicsWorkNeeded = false;
                 auto* graphicsCmd = m_graphicsCmd[slotToUse].get();
 
@@ -591,9 +584,12 @@ namespace pnkr::renderer
                 auto workEnd = std::chrono::steady_clock::now();
                 m_metrics.transferActiveNs.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(workEnd - workStart).count(), std::memory_order_relaxed);
                 m_metrics.batchesSubmitted.fetch_add(1, std::memory_order_relaxed);
-                m_inFlightBatches[slotToUse].tempStaging = tempStaging;
 
                 m_renderer->device()->submitCommands(cmd, m_transferFence[slotToUse].get());
+                
+                for (const auto& range : m_inFlightBatches[slotToUse].ringBufferRanges) {
+                    m_stagingManager->markPages(range.first, range.second, 0); 
+                }
 
                 if (graphicsWorkNeeded) {
                     if (differentFamilies && !acquireBarriers.empty()) {
@@ -658,8 +654,7 @@ namespace pnkr::renderer
         }
 
         const uint64_t stagingCapacity = stagingBuffer.size();
-        const std::string& texPath = req.req.path;
-
+        
         std::vector<rhi::BufferTextureCopyRegion> copyRegions;
         copyRegions.reserve(32);
 
@@ -693,13 +688,9 @@ namespace pnkr::renderer
                                                 effectiveMipLevels));
 
               if (!done) {
-                core::Logger::Asset.error(
-                    "[AsyncLoader] Stall: Buffer full. Deferring: '{}' "
-                    "(capacity={}, offset={})",
-                    texPath, stagingCapacity, alignedStart);
                 if (!collectedAnyRegion &&
                     stagingOffset == initialStagingOffset) {
-                  return false;
+                  return false; 
                 }
                 break;
               }
@@ -771,8 +762,6 @@ namespace pnkr::renderer
             req.state.currentRow += plan.m_rowsCopied;
 
             if (plan.m_isMipFinished) {
-              // const uint32_t sourceLevel = req.state.baseMip + req.state.currentLevel;
-              // const uint32_t height = std::max(1U, req.textureData.extent.height >> sourceLevel);
               if (req.state.direction == UploadDirection::LowToHighRes) {
                 const auto currentMip = static_cast<uint32_t>(req.state.currentLevel);
                 const uint32_t levelCount =
@@ -780,10 +769,6 @@ namespace pnkr::renderer
                 if (currentMip > 0) {
                   rhiTex->updateAccessibleMipRange(currentMip, levelCount);
                 }
-              }
-              if (req.isRawImage) {
-                core::Logger::Asset.info(
-                    "AsyncLoader: Mip finished. Advancing state.");
               }
               
               TextureStreamer::advanceRequestState(req.state, req.textureData);
@@ -830,7 +815,7 @@ namespace pnkr::renderer
 
             if (auto *vkTex =
                     dynamic_cast<rhi::vulkan::VulkanRHITexture *>(rhiTex)) {
-              vkTex->setCurrentLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+              vkTex->setCurrentLayout(static_cast<VkImageLayout_T>(vk::ImageLayout::eShaderReadOnlyOptimal));
             }
 
             req.layoutFinalized = true;

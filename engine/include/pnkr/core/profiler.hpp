@@ -46,7 +46,7 @@
 
 #if defined(TRACY_ENABLE)
 
-    #define PNKR_PROFILE_FRAME(name) FrameMarkNamed(name)
+    #define PNKR_PROFILE_FRAME(name) FrameMarkNamed(name); PNKR_VTUNE_FRAME_END()
     #define PNKR_PROFILE_FRAME_MARK() FrameMark; PNKR_VTUNE_FRAME_END()
     #define PNKR_PROFILE_FRAME_BEGIN() PNKR_VTUNE_FRAME_BEGIN()
     #define PNKR_PROFILE_FRAME_END()   PNKR_VTUNE_FRAME_END()
@@ -71,7 +71,7 @@
 
 #else
 
-    #define PNKR_PROFILE_FRAME(name)
+    #define PNKR_PROFILE_FRAME(name) PNKR_VTUNE_FRAME_END()
     #define PNKR_PROFILE_FRAME_MARK() PNKR_VTUNE_FRAME_END()
     #define PNKR_PROFILE_FRAME_BEGIN() PNKR_VTUNE_FRAME_BEGIN()
     #define PNKR_PROFILE_FRAME_END()   PNKR_VTUNE_FRAME_END()
