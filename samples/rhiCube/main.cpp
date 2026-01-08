@@ -1,11 +1,12 @@
-#include "generated/cube.vert.h"
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <fstream>
 #include <vector>
 
-// Assuming these exist in your common folder as per your snippet
+struct PushConstants {
+    glm::mat4 model;
+    glm::mat4 viewProj;
+};
+
 #include "pnkr/renderer/geometry/GeometryUtils.hpp"
 #include "pnkr/app/Application.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
@@ -27,22 +28,16 @@ public:
 
     void onInit() override
     {
-        // 1. Init Renderer
         m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
 
-        // 2. Setup Camera
-        m_camera.lookAt({0.0F, 2.0F, 4.0F}, {0.F, 0.F, 0.F}, {0.F, 1.F, 0.F});
-        float aspect = (float)m_window.width() / (float)m_window.height();
-        m_camera.setPerspective(glm::radians(60.0F), aspect, 0.1F, 100.0F);
+        m_camera.setPerspective(glm::radians(45.0f), (float)m_config.width / m_config.height, 0.1f, 1000.0f);
+        m_camera.lookAt({2.0f, 2.0f, 2.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
 
-        // 3. Create Geometry
-        auto cubeData = renderer::geometry::GeometryUtils::getCube();
+        auto cubeData = renderer::geometry::GeometryUtils::getCube(1.0f);
         m_cubeMesh = m_renderer->createMesh(cubeData.vertices, cubeData.indices, false);
 
-        // 4. Create Pipeline
         createPipeline();
 
-        // 5. Set Record Callback
         m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx)
         {
             this->recordFrame(ctx);
@@ -51,17 +46,17 @@ public:
 
     void createPipeline()
     {
-        // Define Vertex Input manually for RHI
+
         std::vector<renderer::rhi::VertexInputBinding> bindings = {
             { .binding=0, .stride=sizeof(renderer::Vertex), .inputRate=renderer::rhi::VertexInputRate::Vertex }
         };
 
         std::vector<renderer::rhi::VertexInputAttribute> attribs = {
-            {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_position), .semantic=renderer::rhi::VertexSemantic::Position},
-            {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_color), .semantic=renderer::rhi::VertexSemantic::Color},
-            {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_normal), .semantic=renderer::rhi::VertexSemantic::Normal},
-            {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT,    .offset=offsetof(renderer::Vertex, m_texCoord0), .semantic=renderer::rhi::VertexSemantic::TexCoord0},
-            {.location=4, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT,    .offset=offsetof(renderer::Vertex, m_texCoord1), .semantic=renderer::rhi::VertexSemantic::TexCoord1}
+            {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, position), .semantic=renderer::rhi::VertexSemantic::Position},
+            {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, color), .semantic=renderer::rhi::VertexSemantic::Color},
+            {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, normal), .semantic=renderer::rhi::VertexSemantic::Normal},
+            {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT,    .offset=offsetof(renderer::Vertex, uv0), .semantic=renderer::rhi::VertexSemantic::TexCoord0},
+            {.location=4, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT,    .offset=offsetof(renderer::Vertex, uv1), .semantic=renderer::rhi::VertexSemantic::TexCoord1}
         };
 
         auto vs = renderer::rhi::Shader::load(
@@ -74,7 +69,6 @@ public:
             getShaderPath("cube.frag.spv")
         );
 
-        // Builder merges reflection data automatically
         auto desc = renderer::rhi::RHIPipelineBuilder()
             .setName("CubePipeline")
             .setShaders(vs.get(), fs.get(), nullptr)
@@ -94,29 +88,25 @@ public:
         static float timeVal = 0.0F;
         timeVal += ctx.deltaTime;
 
-        // 1. Calculate Transform
         renderer::scene::Transform xform;
         xform.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0F, 1.0F, 0.0F});
 
-        // 2. Prepare Data
-        ShaderGen::cube_vert::cube_vert_PushConstants pc{};
+        PushConstants pc{};
         pc.model = xform.mat4();
         pc.viewProj = m_camera.viewProj();
 
-        // 3. Bind Pipeline
-        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
+        ctx.commandBuffer->bindPipeline(m_renderer->getPipeline(m_pipeline));
 
-        // 4. Push Constants
-        m_renderer->pushConstants(
-            ctx.commandBuffer,
-            m_pipeline,
-            renderer::rhi::ShaderStage::Vertex,
-            pc
-        );
+        ctx.commandBuffer->pushConstants(renderer::rhi::ShaderStage::Vertex, pc);
 
-        // 5. Draw
-        m_renderer->bindMesh(ctx.commandBuffer, m_cubeMesh);
-        m_renderer->drawMesh(ctx.commandBuffer, m_cubeMesh);
+        auto meshView = m_renderer->getMeshView(m_cubeMesh);
+        if (!meshView) return;
+        if (!meshView->vertexPulling)
+        {
+            ctx.commandBuffer->bindVertexBuffer(0, meshView->vertexBuffer, 0);
+        }
+        ctx.commandBuffer->bindIndexBuffer(meshView->indexBuffer, 0, false);
+        ctx.commandBuffer->drawIndexed(meshView->indexCount, 1, 0, 0, 0);
     }
 
     void onRenderFrame(float deltaTime) override
@@ -144,7 +134,6 @@ private:
     MeshHandle m_cubeMesh;
     PipelineHandle m_pipeline;
 
-    // Helper to load SPIR-V
     static std::vector<uint32_t> loadSpirv(const std::string& filename)
     {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);

@@ -37,15 +37,13 @@ public:
     {
         m_sprites = std::make_unique<renderer::scene::SpriteSystem>(*m_renderer);
 
-        // Load flipbook textures
-        m_flipbookFrames.push_back(m_renderer->loadTexture(baseDir() / "assets" / "explosion_256_f00.png", true));
-        m_flipbookFrames.push_back(m_renderer->loadTexture(baseDir() / "assets" / "explosion_256_f01.png", true));
-        m_flipbookFrames.push_back(m_renderer->loadTexture(baseDir() / "assets" / "explosion_256_f02.png", true));
-        m_flipbookFrames.push_back(m_renderer->loadTexture(baseDir() / "assets" / "explosion_256_f03.png", true));
+        m_flipbookFrames.push_back(m_renderer->assets()->loadTexture(baseDir() / "assets" / "explosion_256_f00.png", true));
+        m_flipbookFrames.push_back(m_renderer->assets()->loadTexture(baseDir() / "assets" / "explosion_256_f01.png", true));
+        m_flipbookFrames.push_back(m_renderer->assets()->loadTexture(baseDir() / "assets" / "explosion_256_f02.png", true));
+        m_flipbookFrames.push_back(m_renderer->assets()->loadTexture(baseDir() / "assets" / "explosion_256_f03.png", true));
 
         TextureHandle staticTex = m_flipbookFrames.front();
 
-        // Static billboard at origin
         renderer::scene::Sprite billboard{};
         billboard.space = renderer::scene::SpriteSpace::WorldBillboard;
         billboard.position = {0.0f, 0.0f, 0.0f};
@@ -53,7 +51,6 @@ public:
         billboard.texture = staticTex;
         m_sprites->createSprite(billboard);
 
-        // Flipbook billboard
         auto clip = m_sprites->createFlipbookClip(m_flipbookFrames, 10.0f, true);
         renderer::scene::Sprite flip{};
         flip.space = renderer::scene::SpriteSpace::WorldBillboard;
@@ -62,7 +59,6 @@ public:
         flip.clip = clip;
         m_sprites->createSprite(flip);
 
-        // Screen-space sprite
         renderer::scene::Sprite screen{};
         screen.space = renderer::scene::SpriteSpace::Screen;
         screen.position = {50.0f, 50.0f, 0.0f};
@@ -71,12 +67,10 @@ public:
         screen.texture = staticTex;
         m_sprites->createSprite(screen);
 
-        // Blend mode showcase
         renderer::scene::Sprite alpha = screen;
         alpha.position = {300.0f, 200.0f, 0.0f};
         alpha.color = {1.0f, 1.0f, 1.0f, 0.8f};
         alpha.blend = renderer::scene::SpriteBlendMode::Alpha;
-      //  m_sprites->createSprite(alpha);
 
         renderer::scene::Sprite additive = alpha;
         additive.position = {340.0f, 220.0f, 0.0f};
@@ -88,9 +82,7 @@ public:
         premul.position = {380.0f, 240.0f, 0.0f};
         premul.color = {1.0f, 0.6f, 0.3f, 0.7f};
         premul.blend = renderer::scene::SpriteBlendMode::Premultiplied;
-       // m_sprites->createSprite(premul);
 
-        // Stress test batch
         constexpr uint32_t kStressCount = 1;
         for (uint32_t i = 0; i < kStressCount; ++i)
         {
@@ -102,7 +94,7 @@ public:
             s.texture = staticTex;
             s.color = {0.8f, 0.9f, 1.0f, 0.8f};
             s.blend = renderer::scene::SpriteBlendMode::Alpha;
-         //   m_sprites->createSprite(s);
+
         }
 
         m_totalSprites = kStressCount + 6;
@@ -128,7 +120,7 @@ public:
 
     void onRecord(const renderer::RHIFrameContext& ctx) override
     {
-        // Debug hack: force wait to avoid sync hazards in RHIRenderer
+
         m_renderer->device()->waitIdle();
 
         if (m_sprites)

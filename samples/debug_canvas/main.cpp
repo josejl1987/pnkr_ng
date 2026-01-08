@@ -1,157 +1,101 @@
 #include "pnkr/app/Application.hpp"
-#include "pnkr/renderer/debug/DebugLayer.hpp"
-#include "pnkr/renderer/scene/RHIScene.hpp"
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
-#include "pnkr/core/common.hpp"
 #include "pnkr/renderer/debug/LineCanvas3D.hpp"
+#include "pnkr/renderer/scene/Camera.hpp"
+#include "pnkr/renderer/scene/CameraController.hpp"
+#include "pnkr/core/logger.hpp"
+#include <imgui.h>
 
 using namespace pnkr;
-
 
 class DebugCanvasSample : public app::Application
 {
 public:
     DebugCanvasSample() : Application({
-        .title = "PNKR DebugLayer Sample",
-        .width = 1280,
-        .height = 720
+        .title = "Debug Canvas Sample", .width = 1280, .height = 720, .createRenderer = true
     })
     {
     }
 
-protected:
-    std::unique_ptr<renderer::debug::LineCanvas3D> m_debugLines;
+    std::unique_ptr<renderer::debug::LineCanvas3D> m_canvas;
+    renderer::scene::Camera m_camera;
+    renderer::scene::CameraController m_cameraController;
+
+    glm::vec3 m_cameraPosUI{0.0f};
+    glm::vec3 m_cameraTargetUI{0.0f, 0.0f, -1.0f};
 
     void onInit() override
     {
-        m_debugLayer.initialize(m_renderer.get());
+        m_canvas = std::make_unique<renderer::debug::LineCanvas3D>();
+        m_canvas->initialize(m_renderer.get());
 
-        m_debugLayer.setDepthTestEnabled(true);
+        m_cameraController.setLookAt({0.0f, 5.0f, 10.0f}, {0.0f, 0.0f, 0.0f});
+        m_cameraController.applyToCamera(m_camera);
+        m_camera.setPerspective(45.0f, (float)m_config.width / m_config.height, 0.1f, 1000.0f);
 
-        // Initialize scene
-        m_scene = std::make_unique<renderer::scene::RHIScene>(*m_renderer);
+        m_cameraPosUI = m_cameraController.position();
+        m_cameraTargetUI = m_cameraPosUI + m_cameraController.front();
 
-        // Set up camera controller (uses built-in FPS controls)
-        auto& cameraController = m_scene->cameraController();
-        cameraController.setPosition(glm::vec3(0.0F, 5.0F, 15.0F));
-
-        // Set up camera
-        auto& camera = m_scene->camera();
-        camera.setPerspective(glm::radians(45.0F),
-                              util::toFloat(m_config.width) / m_config.height,
-                              0.1F, 1000.0F);
-
-        m_debugLines = std::make_unique<renderer::debug::LineCanvas3D>();
-        m_debugLines->initialize(m_renderer.get());
-        // Set scene reference for debug layer (optional)
-        m_debugLayer.setScene(m_scene.get());
-
-        // Start rotation timer
-        m_rotation = 0.0F;
+        pnkr::core::Logger::info("Debug Canvas Sample Initialized. Controls: WASD + Right Mouse.");
     }
 
     void onUpdate(float dt) override
     {
-        // Update rotation
-        m_rotation += dt * 0.5F;
+        m_cameraController.update(m_input, dt);
+        m_cameraController.applyToCamera(m_camera);
+    }
 
-        // Update scene with input (camera controller handles input)
-        auto& cameraController = m_scene->cameraController();
-        cameraController.update(m_input, dt);
-
-        // Apply camera controller to camera
-        cameraController.applyToCamera(m_scene->camera());
-
-        // Debug layer doesn't need update anymore - it's cleared each frame
-
-        // Generate debug drawings for this frame
-        generateDebugDrawing();
+    void onEvent(const SDL_Event& event) override
+    {
+        (void)event;
     }
 
     void onRecord(const renderer::RHIFrameContext& ctx) override
     {
-        // Render the scene first
-        m_scene->render(ctx.commandBuffer);
+        m_canvas->beginFrame();
 
-        // Then render debug layer on top with scene's view-projection matrix
-        glm::mat4 viewProj = m_scene->camera().viewProj();
-        m_debugLayer.render(ctx, viewProj);
+        m_canvas->plane({0, 0, 0}, {20, 0, 0}, {0, 0, 20}, 20, 20, {0.3f, 0.3f, 0.3f});
+
+        m_canvas->line({0, 0, 0}, {2, 0, 0}, {1, 0, 0});
+        m_canvas->line({0, 0, 0}, {0, 2, 0}, {0, 1, 0});
+        m_canvas->line({0, 0, 0}, {0, 0, 2}, {0, 0, 1});
+
+        m_canvas->box({-3, 0.5f, -3}, {-1, 2.5f, -1}, {1, 1, 0});
+        m_canvas->circle({3, 0.0f, 0}, 1.5f, {0, 1, 0}, 64);
+        m_canvas->sphere({0, 3, 0}, 1.0f, {1, 0, 1}, 32);
+
+        glm::mat4 view = glm::lookAt(glm::vec3(5, 5, 5), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+        glm::mat4 proj = glm::perspective(glm::radians(45.0f), 1.0f, 0.5f, 5.0f);
+        m_canvas->frustum(proj * view, {1, 1, 1});
+
+        m_canvas->endFrame();
+        m_canvas->render(ctx, m_camera.viewProj());
     }
 
-    void generateDebugDrawing()
+    void onImGui() override
     {
-        // Note: Camera controls - WASD to move, Right Mouse to look around, Shift to speed up, Q/E for up/down
-        // Note: DebugLayer now handles clearing internally after render() to prevent race conditions
+        ImGui::Begin("Camera");
+        ImGui::Text("WASD + Right Mouse to move");
+        ImGui::Separator();
 
-        //         // Draw coordinate axes at origin
-        //         m_debugLayer.line(glm::vec3(0, 0, 0), glm::vec3(5, 0, 0), glm::vec3(1, 0, 0)); // X - Red
-        //         m_debugLayer.line(glm::vec3(0, 0, 0), glm::vec3(0, 5, 0), glm::vec3(0, 1, 0)); // Y - Green
-        //         m_debugLayer.line(glm::vec3(0, 0, 0), glm::vec3(0, 0, 5), glm::vec3(0, 0, 1)); // Z - Blue
-        //
-        //         // Draw a rotating box
-        //         auto boxTransform = glm::mat4(1.0F);
-        //         boxTransform = glm::rotate(boxTransform, m_rotation, glm::vec3(0, 1, 0));
-        //         boxTransform = glm::rotate(boxTransform, m_rotation * 0.7F, glm::vec3(1, 0, 0));
-        //         m_debugLayer.box(boxTransform, glm::vec3(2.0F), glm::vec3(1, 1, 0));
-        //
-        //         // Draw a sphere
-        //         m_debugLayer.sphere(glm::vec3(4, 0, 0), 1.0F, glm::vec3(0, 1, 1), 16);
-        //
-        //         // Draw a circle in YZ plane (normal points along X-axis)
-        //         m_debugLayer.circle(glm::vec3(-4, 0, 0), 1.5F, glm::vec3(1, 0, 0), glm::vec3(1, 0, 1), 32);
-        //
-        //         // Draw a plane grid (slightly offset to prevent z-fighting)
-        //         m_debugLayer.plane(glm::vec3(0, -2.99F, 0),  // Small offset to prevent z-fighting
-        //                           glm::vec3(20, 0, 0),
-        //                           glm::vec3(0, 0, 20),
-        //                           20, 20,
-        //                           glm::vec3(0.3F, 0.3F, 0.3F));
-        //
-        //         // Draw multiple boxes in a grid pattern
-        //         for (int x = -2; x <= 2; ++x)
-        //         {
-        //             for (int z = -2; z <= 2; ++z)
-        //             {
-        //                 if (x == 0 && z == 0) { continue; // Skip center
-        // }
-        //
-        //                 glm::vec3 pos(x * 3.0F, 2.0F, z * 3.0F);
-        //                 glm::mat4 transform = glm::translate(glm::mat4(1.0F), pos);
-        //                 transform = glm::rotate(transform, m_rotation + static_cast<float>(x + z),
-        //                                        glm::vec3(0, 1, 0));
-        //                 transform = glm::scale(transform, glm::vec3(0.5F));
-        //
-        //                 glm::vec3 color = glm::vec3(
-        //                     util::toFloat(x + 2) / 4.0F,
-        //                     util::toFloat(z + 2) / 4.0F,
-        //                     0.5F
-        //                 );
-        //
-        //                 m_debugLayer.box(transform, glm::vec3(1.0F), color);
-        //             }
-        //         }
-
-        // Draw a frustum (visualize a camera)
-        glm::mat4 frustumView = glm::lookAt(glm::vec3(-8, 5, 8), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-        glm::mat4 frustumProj = glm::perspective(glm::radians(60.0F), 1.0F, 0.1F, 20.0F);
-        m_debugLayer.frustum(frustumView, frustumProj, glm::vec3(1, 0, 0));
-
-        // Draw a wireframe frame around the scene
-        glm::vec3 boundsMin = glm::vec3(-8, -3, -8);
-        glm::vec3 boundsMax = glm::vec3(8, 5, 8);
-        m_debugLayer.box(boundsMin, boundsMax, glm::vec3(0.5F));
+        ImGui::InputFloat3("Position", &m_cameraPosUI.x);
+        ImGui::InputFloat3("Target", &m_cameraTargetUI.x);
+        if (ImGui::Button("Use Current"))
+        {
+            m_cameraPosUI = m_cameraController.position();
+            m_cameraTargetUI = m_cameraPosUI + m_cameraController.front();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Apply"))
+        {
+            m_cameraController.setLookAt(m_cameraPosUI, m_cameraTargetUI);
+            m_cameraController.applyToCamera(m_camera);
+        }
+        ImGui::End();
     }
-
-private:
-    renderer::debug::DebugLayer m_debugLayer;
-    std::unique_ptr<renderer::scene::RHIScene> m_scene;
-    float m_rotation{};
 };
 
-int main()
+int main(int, char**)
 {
-    DebugCanvasSample sample;
-    return sample.run();
+    DebugCanvasSample app;
+    return app.run();
 }

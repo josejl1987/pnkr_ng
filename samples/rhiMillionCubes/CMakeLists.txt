@@ -27,11 +27,6 @@ add_dependencies(pnkr_million_cubes ${LAST_GENERATED_TARGET})
 # Include generated headers
 target_include_directories(pnkr_million_cubes PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
-# Rebuild if shader headers change
-set_source_files_properties(main.cpp PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/million_cubes.vert.h;${CMAKE_CURRENT_BINARY_DIR}/generated/million_cubes.frag.h"
-)
-
 # --- Copy Assets ---
 add_custom_command(TARGET pnkr_million_cubes POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_million_cubes>/shaders"

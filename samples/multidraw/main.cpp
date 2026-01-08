@@ -60,18 +60,30 @@ public:
         renderer::scene::Transform cubeXf;
         cubeXf.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0f, 1.0f, 0.0f});
 
+        ctx.m_cmd->bindPipeline(m_renderer.getPipeline(m_cubePipe));
         PushConstants pc{cubeXf.mat4(), m_camera.viewProj()};
-        m_renderer.pushConstants(ctx.m_cmd, m_cubePipe, vk::ShaderStageFlagBits::eVertex, pc);
-        m_renderer.bindPipeline(ctx.m_cmd, m_cubePipe);
-        m_renderer.bindMesh(ctx.m_cmd, m_cube);
-        m_renderer.drawMesh(ctx.m_cmd, m_cube);
+        ctx.m_cmd->pushConstants(renderer::rhi::ShaderStage::Vertex, pc);
+        auto cubeView = m_renderer.getMeshView(m_cube);
+        if (!cubeView) return;
+        if (!cubeView->vertexPulling)
+        {
+            ctx.m_cmd->bindVertexBuffer(0, cubeView->vertexBuffer, 0);
+        }
+        ctx.m_cmd->bindIndexBuffer(cubeView->indexBuffer, 0, false);
+        ctx.m_cmd->drawIndexed(cubeView->indexCount, 1, 0, 0, 0);
 
         renderer::scene::Transform planeXf;
         pc.m_model = planeXf.mat4();
-        m_renderer.pushConstants(ctx.m_cmd, m_planePipe, vk::ShaderStageFlagBits::eVertex, pc);
-        m_renderer.bindPipeline(ctx.m_cmd, m_planePipe);
-        m_renderer.bindMesh(ctx.m_cmd, m_plane);
-        m_renderer.drawMesh(ctx.m_cmd, m_plane);
+        ctx.m_cmd->bindPipeline(m_renderer.getPipeline(m_planePipe));
+        ctx.m_cmd->pushConstants(renderer::rhi::ShaderStage::Vertex, pc);
+        auto planeView = m_renderer.getMeshView(m_plane);
+        if (!planeView) return;
+        if (!planeView->vertexPulling)
+        {
+            ctx.m_cmd->bindVertexBuffer(0, planeView->vertexBuffer, 0);
+        }
+        ctx.m_cmd->bindIndexBuffer(planeView->indexBuffer, 0, false);
+        ctx.m_cmd->drawIndexed(planeView->indexCount, 1, 0, 0, 0);
     }
 };
 
@@ -81,5 +93,4 @@ int main(int argc, char** argv) {
     MultiDrawSample app;
     return app.run();
 }
-
 

@@ -31,10 +31,6 @@ add_dependencies(pnkr_rhi_unified_mesh ${LAST_GENERATED_TARGET})
 
 target_include_directories(pnkr_rhi_unified_mesh PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
-set_source_files_properties(main.cpp PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/unified.vert.h;${CMAKE_CURRENT_BINARY_DIR}/generated/unified.geom.h;${CMAKE_CURRENT_BINARY_DIR}/generated/unified.frag.h"
-)
-
 # Copy logic
 add_custom_command(TARGET pnkr_rhi_unified_mesh POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_unified_mesh>/shaders"

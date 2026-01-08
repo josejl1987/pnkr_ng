@@ -18,7 +18,7 @@ public:
     }
 
     void onRender(const renderer::RenderFrameContext& ctx) override {
-        m_renderer.bindPipeline(ctx.m_cmd, m_pipe);
+        ctx.m_cmd->bindPipeline(m_renderer.getPipeline(m_pipe));
         ctx.m_cmd.draw(3, 1, 0, 0);
     }
 };

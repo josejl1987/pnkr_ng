@@ -9,7 +9,6 @@
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/app/Application.hpp"
 
-// GLM must be included BEFORE fastgltf/glm_element_traits.hpp
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -25,12 +24,14 @@
 #include <vector>
 #include <limits>
 
-#include "generated/unified.vert.h"
-
 using namespace pnkr;
 namespace fs = std::filesystem;
 
-// Match VkDrawIndexedIndirectCommand layout
+struct PushConstants {
+    glm::mat4 model;
+    glm::mat4 viewProj;
+};
+
 struct DrawIndexedIndirectCommand {
     uint32_t indexCount;
     uint32_t instanceCount;
@@ -39,69 +40,62 @@ struct DrawIndexedIndirectCommand {
     uint32_t firstInstance;
 };
 
-// Helper to generate LODs
 void processLods(std::vector<uint32_t>& indices, const std::vector<renderer::Vertex>& vertices, std::vector<std::vector<uint32_t>>& outLods)
 {
     size_t targetIndices = indices.size();
     uint8_t lodLevel = 1;
 
     core::Logger::info("   LOD0: {} indices", indices.size());
-    outLods.push_back(indices); // LOD 0 is original
+    outLods.push_back(indices);
 
-    // Generate up to kMaxLODs (8)
-    while (targetIndices > 1024 && lodLevel < renderer::scene::kMaxLODs) {
-        targetIndices = indices.size() / 2; // Target 50% reduction per level
+            while (targetIndices > 1024 && lodLevel < renderer::scene::kMaxLODs) {
+            targetIndices = indices.size() / 2;
 
-        // 1. Simplify
-        std::vector<uint32_t> lodIndices(indices.size());
-        
-        size_t numOptIndices = meshopt_simplify(
-            lodIndices.data(),
-            indices.data(),
-            indices.size(),
-            &vertices[0].m_position.x, // Pointer to positions
-            vertices.size(),
-            sizeof(renderer::Vertex), // Stride
-            targetIndices,
-            1e-2f
-        );
+            std::vector<uint32_t> lodIndices(indices.size());
 
-        // 2. Sloppy Simplification (if standard fails to reach target)
-        if (static_cast<float>(numOptIndices) > static_cast<float>(indices.size()) * 0.9f) {
-            if (lodLevel > 1) {
-                numOptIndices = meshopt_simplifySloppy(
-                    lodIndices.data(),
-                    indices.data(),
-                    indices.size(),
-                    &vertices[0].m_position.x,
-                    vertices.size(),
-                    sizeof(renderer::Vertex),
-                    targetIndices,
-                    1e-1f
-                );
+            size_t numOptIndices = meshopt_simplify(
+                lodIndices.data(),
+                indices.data(),
+                indices.size(),
+                &vertices[0].position.x,
+                vertices.size(),
+                sizeof(renderer::Vertex),
+                targetIndices,
+                1e-2f
+            );
+
+            if (static_cast<float>(numOptIndices) > static_cast<float>(indices.size()) * 0.9f) {
+                if (lodLevel > 1) {
+                    numOptIndices = meshopt_simplifySloppy(
+                        lodIndices.data(),
+                        indices.data(),
+                        indices.size(),
+                        &vertices[0].position.x,
+                        vertices.size(),
+                        sizeof(renderer::Vertex),
+                        targetIndices,
+                        1e-1f
+                    );
+                }
             }
-        }
 
-        // Stop if we couldn't simplify significantly
         if (static_cast<float>(numOptIndices) > static_cast<float>(indices.size()) * 0.9f) break;
 
         lodIndices.resize(numOptIndices);
 
-        // 3. Optimize Vertex Cache
         meshopt_optimizeVertexCache(lodIndices.data(), lodIndices.data(), lodIndices.size(), vertices.size());
 
         core::Logger::info("   LOD{}: {} indices", lodLevel, numOptIndices);
         outLods.push_back(lodIndices);
-        
-        // Use this LOD as base for next
-        indices = lodIndices; 
+
+        indices = lodIndices;
         lodLevel++;
     }
 }
 
 class UnifiedMeshSample : public app::Application {
 public:
-    UnifiedMeshSample() 
+    UnifiedMeshSample()
         : app::Application({.title="RHI Unified Mesh (Indirect Rendering)", .width=1280, .height=720}) {}
 
     ~UnifiedMeshSample() override {
@@ -114,26 +108,23 @@ public:
     std::unique_ptr<renderer::rhi::RHIBuffer> m_globalVertexBuffer;
     std::unique_ptr<renderer::rhi::RHIBuffer> m_globalIndexBuffer;
 
-    // Indirect Command Buffer
     std::unique_ptr<renderer::rhi::RHIBuffer> m_indirectCommandBuffer;
     uint32_t m_drawCount = 0;
 
     PipelineHandle m_pipeline;
     std::unique_ptr<renderer::scene::RHIScene> m_scene;
 
-    float m_lodBias = 0.0f; 
+    float m_lodBias = 0.0f;
 
     void onInit() override {
-        // Init Scene (manages Camera, Skybox, Grid)
+
         m_scene = std::make_unique<renderer::scene::RHIScene>(*m_renderer);
         m_scene->initGrid();
         m_scene->enableGrid(true);
 
-        // Setup Camera
         m_scene->cameraController().setPosition({2.0f, 2.0f, 2.0f});
         m_scene->cameraController().applyToCamera(m_scene->camera());
-        
-        // Load Skybox
+
         std::vector<fs::path> skyboxFaces = {
             baseDir() / "assets/skybox/posx.jpg",
             baseDir() / "assets/skybox/negx.jpg",
@@ -142,18 +133,16 @@ public:
             baseDir() / "assets/skybox/posz.jpg",
             baseDir() / "assets/skybox/negz.jpg"
         };
-        // Check if first exists
+
         if (fs::exists(skyboxFaces[0])) {
             m_scene->loadSkybox(skyboxFaces);
         } else {
             core::Logger::warn("Skybox assets not found at {}", skyboxFaces[0].string());
         }
 
-        // --- Unified Mesh Loading ---
         fs::path cacheFile = baseDir() / "scene.mesh";
         fs::path sourceFile = baseDir() / "assets" / "Bistro.glb";
-        
-        // 1. Convert if cache doesn't exist
+
         if (!fs::exists(cacheFile)) {
             if (fs::exists(sourceFile)) {
                 core::Logger::info("Generating cache from {}...", sourceFile.string());
@@ -170,15 +159,14 @@ public:
             }
         }
 
-        // 2. Load the Monolithic Cache
-        if (!renderer::scene::loadUnifiedMeshData(cacheFile.string().c_str(), m_meshData)) {
+        const std::string cachePathStr = cacheFile.string();
+        if (!renderer::scene::loadUnifiedMeshData(cachePathStr.c_str(), m_meshData)) {
             throw cpptrace::runtime_error("Failed to load unified mesh data");
         }
 
-        core::Logger::info("Loaded Unified Mesh: {} meshes, {} indices, {} KB vertices", 
+        core::Logger::info("Loaded Unified Mesh: {} meshes, {} indices, {} KB vertices",
             m_meshData.m_meshes.size(), m_meshData.m_indexData.size(), m_meshData.m_vertexData.size() / 1024);
 
-        // 3. Upload to GPU
         m_globalIndexBuffer = m_renderer->device()->createBuffer({
             .size = m_meshData.m_indexData.size() * sizeof(uint32_t),
             .usage = renderer::rhi::BufferUsage::IndexBuffer,
@@ -195,7 +183,6 @@ public:
             .debugName = "Unified_VertexBuffer"
         });
 
-        // 4. Create Indirect Command Buffer
         buildIndirectCommands();
 
         createPipeline();
@@ -205,14 +192,11 @@ public:
         std::vector<DrawIndexedIndirectCommand> commands;
         commands.reserve(m_meshData.m_meshes.size());
 
-        // For this sample, we just pick LOD 0 for every mesh.
-        // A real GPU-driven renderer would compute these commands on the GPU (Cull/LOD)
         for (const auto& mesh : m_meshData.m_meshes) {
             DrawIndexedIndirectCommand cmd{};
-            
-            // Default to LOD 0
-            uint32_t lodIndex = 0; 
-            
+
+            uint32_t lodIndex = 0;
+
             cmd.indexCount = mesh.getLODIndicesCount(lodIndex);
             cmd.instanceCount = 1;
             cmd.firstIndex = mesh.indexOffset + mesh.m_lodOffset[lodIndex];
@@ -224,7 +208,6 @@ public:
 
         m_drawCount = (uint32_t)commands.size();
 
-        // Create buffer with IndirectBuffer usage
         m_indirectCommandBuffer = m_renderer->device()->createBuffer({
             .size = commands.size() * sizeof(DrawIndexedIndirectCommand),
             .usage = renderer::rhi::BufferUsage::IndirectBuffer,
@@ -232,7 +215,7 @@ public:
             .data = commands.data(),
             .debugName = "Unified_IndirectBuffer"
         });
-        
+
         core::Logger::info("Generated {} indirect draw commands", m_drawCount);
     }
 
@@ -265,8 +248,8 @@ public:
             glm::vec3 mx(std::numeric_limits<float>::lowest());
 
             for (const auto& v : verts) {
-                mn = glm::min(mn, v.m_position);
-                mx = glm::max(mx, v.m_position);
+                mn = glm::min(mn, v.position);
+                mx = glm::max(mx, v.position);
             }
 
             b.m_min = mn;
@@ -274,7 +257,6 @@ public:
             return b;
         };
 
-        // Iterate all meshes
         for (const auto& mesh : gltf.meshes) {
             for (const auto& prim : mesh.primitives) {
                 std::vector<renderer::Vertex> localVertices;
@@ -288,33 +270,33 @@ public:
 
                 fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[posIt->accessorIndex],
                     [&](glm::vec3 p, size_t i) {
-                        localVertices[i].m_position = p;
-                        localVertices[i].m_color = {1.0f, 1.0f, 1.0f};
-                        localVertices[i].m_normal = {0, 1, 0};
-                        localVertices[i].m_texCoord0 = {0, 0};
-                        localVertices[i].m_texCoord1 = {0, 0};
-                        localVertices[i].m_tangent = {0, 0, 0, 0};
+                        localVertices[i].position = p;
+                        localVertices[i].color = {1.0f, 1.0f, 1.0f};
+                        localVertices[i].normal = {0, 1, 0};
+                        localVertices[i].uv0 = {0, 0};
+                        localVertices[i].uv1 = {0, 0};
+                        localVertices[i].tangent = {0, 0, 0, 0};
                     });
 
                 if (auto* normIt = prim.findAttribute("NORMAL"); normIt != prim.attributes.end()) {
                     fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[normIt->accessorIndex],
-                        [&](glm::vec3 n, size_t i) { localVertices[i].m_normal = n; });
+                        [&](glm::vec3 n, size_t i) { localVertices[i].normal = n; });
                 }
 
                 if (auto* uvIt = prim.findAttribute("TEXCOORD_0"); uvIt != prim.attributes.end()) {
                     fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uvIt->accessorIndex],
-                        [&](glm::vec2 uv, size_t i) { localVertices[i].m_texCoord0 = uv; });
+                        [&](glm::vec2 uv, size_t i) { localVertices[i].uv0 = uv; });
                 }
 
                 if (auto* uvIt1 = prim.findAttribute("TEXCOORD_1"); uvIt1 != prim.attributes.end()) {
                     fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uvIt1->accessorIndex],
-                        [&](glm::vec2 uv, size_t i) { localVertices[i].m_texCoord1 = uv; });
+                        [&](glm::vec2 uv, size_t i) { localVertices[i].uv1 = uv; });
                 }
 
                 if (prim.indicesAccessor.has_value()) {
                     auto& acc = gltf.accessors[prim.indicesAccessor.value()];
                     localIndices.reserve(acc.count);
-                    
+
                      if (acc.componentType == fastgltf::ComponentType::UnsignedShort) {
                         fastgltf::iterateAccessor<uint16_t>(gltf, acc, [&](uint16_t v) { localIndices.push_back(v); });
                     } else if (acc.componentType == fastgltf::ComponentType::UnsignedByte) {
@@ -353,8 +335,9 @@ public:
         unified.m_vertexData.resize(allVertices.size() * sizeof(renderer::Vertex));
         std::memcpy(unified.m_vertexData.data(), allVertices.data(), unified.m_vertexData.size());
 
-        renderer::scene::saveUnifiedMeshData(outputPath.string().c_str(), unified);
-        core::Logger::info("Conversion complete. Saved to {}", outputPath.string());
+        const std::string outputPathStr = outputPath.string();
+        renderer::scene::saveUnifiedMeshData(outputPathStr.c_str(), unified);
+        core::Logger::info("Conversion complete. Saved to {}", outputPathStr);
     }
 
     void createPipeline() {
@@ -391,30 +374,25 @@ public:
     void onRecord(const renderer::RHIFrameContext& ctx) override {
         auto* cmd = ctx.commandBuffer;
 
-        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
+        ctx.commandBuffer->bindPipeline(m_renderer->getPipeline(m_pipeline));
         cmd->bindVertexBuffer(0, m_globalVertexBuffer.get(), 0);
-        cmd->bindIndexBuffer(m_globalIndexBuffer.get(), 0, false); 
+        cmd->bindIndexBuffer(m_globalIndexBuffer.get(), 0, false);
 
-        ShaderGen::unified_vert::unified_vert_PushConstants pc{};
+        PushConstants pc{};
         pc.viewProj = m_scene->camera().viewProj();
-        pc.model = glm::mat4(1.0f); // Identity for the whole batch
+        pc.model = glm::mat4(1.0f);
 
-        m_renderer->pushConstants(ctx.commandBuffer, m_pipeline, 
-                                   renderer::rhi::ShaderStage::Vertex, 
-                                   pc);
+        ctx.commandBuffer->pushConstants(renderer::rhi::ShaderStage::Vertex, pc);
 
-        // Execute Indirect Draw
         if (m_indirectCommandBuffer) {
             cmd->drawIndexedIndirect(
-                m_indirectCommandBuffer.get(), 
-                0, // offset
-                m_drawCount, 
-                sizeof(DrawIndexedIndirectCommand) // stride
+                m_indirectCommandBuffer.get(),
+                0,
+                m_drawCount,
+                sizeof(DrawIndexedIndirectCommand)
             );
         }
 
-        // 2. Draw Scene Elements (Skybox, Grid)
-        // These will draw on top/behind based on depth test
         m_scene->render(cmd);
     }
 };
@@ -422,7 +400,7 @@ public:
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    
+
     UnifiedMeshSample app;
     return app.run();
 }

@@ -24,11 +24,6 @@ add_dependencies(pnkr_rhi_cube ${LAST_GENERATED_TARGET})
 
 target_include_directories(pnkr_rhi_cube PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
-# Ensure main.cpp rebuilds if the header changes
-set_source_files_properties(main.cpp PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/cube.vert.h"
-)
-
 add_custom_command(TARGET pnkr_rhi_cube POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_cube>/shaders"
         COMMAND ${CMAKE_COMMAND} -E copy_directory

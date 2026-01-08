@@ -9,8 +9,8 @@ set_target_properties(pnkr_rhi_sprites PROPERTIES
 
 add_custom_command(TARGET pnkr_rhi_sprites POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:pnkr_rhi_sprites>/assets"
-    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/samples/rhiUnifiedGLTF/assets/TransmissionRoughnessTest/glTF/GridWithDetails.png" "$<TARGET_FILE_DIR:pnkr_rhi_sprites>/assets/frame0.png"
-    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/samples/rhiUnifiedGLTF/assets/TransmissionRoughnessTest/glTF/RoughnessGrid.png" "$<TARGET_FILE_DIR:pnkr_rhi_sprites>/assets/frame1.png"
-    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/samples/rhiUnifiedGLTF/assets/TransmissionRoughnessTest/glTF/RoughnessGrid-1.png" "$<TARGET_FILE_DIR:pnkr_rhi_sprites>/assets/frame2.png"
-    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/samples/rhiUnifiedGLTF/assets/TransmissionRoughnessTest/glTF/IOR_Labels.png" "$<TARGET_FILE_DIR:pnkr_rhi_sprites>/assets/frame3.png"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/samples/rhiSprites/assets/explosion_256_f00.png" "$<TARGET_FILE_DIR:pnkr_rhi_sprites>/assets/frame0.png"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/samples/rhiSprites/assets/explosion_256_f01.png" "$<TARGET_FILE_DIR:pnkr_rhi_sprites>/assets/frame1.png"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/samples/rhiSprites/assets/explosion_256_f02.png" "$<TARGET_FILE_DIR:pnkr_rhi_sprites>/assets/frame2.png"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/samples/rhiSprites/assets/explosion_256_f03.png" "$<TARGET_FILE_DIR:pnkr_rhi_sprites>/assets/frame3.png"
 )

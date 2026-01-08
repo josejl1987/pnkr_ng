@@ -6,7 +6,6 @@
 #include <fstream>
 #include <vector>
 
-// Include the SampleApp base
 #include "pnkr/app/Application.hpp"
 
 using namespace pnkr;
@@ -14,35 +13,29 @@ using namespace pnkr;
 class RHITriangleApp : public app::Application
 {
 public:
-    // Initialize SampleApp with createRenderer=false to use RHIRenderer instead
+
     RHITriangleApp()
         : app::Application({.title="RHI Triangle", .width=800, .height=600, .windowFlags=SDL_WINDOW_RESIZABLE, .createRenderer=false})
     {
     }
 
-
-
     void onInit() override
     {
-        // Create RHI renderer
+
         m_renderer = std::make_unique<renderer::RHIRenderer>(m_window);
 
-        // Create triangle mesh
-        // Note: pnkr::renderer::Vertex has {pos, color, normal, texCoord}
         std::vector<renderer::Vertex> vertices = {
-            {.m_position={-0.5F, -0.5F, 0.0F}, .m_color={1.0F, 0.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={0.0F, 0.0F}, .m_texCoord1={0.0F, 0.0F}, .m_tangent={0.0F, 0.0F, 0.0F, 0.0F}, .m_joints={0, 0, 0, 0}, .m_weights={1.0f, 0.0f, 0.0f, 0.0f}},
-            {.m_position={0.5F, -0.5F, 0.0F}, .m_color={0.0F, 1.0F, 0.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={1.0F, 0.0F}, .m_texCoord1={0.0F, 0.0F}, .m_tangent={0.0F, 0.0F, 0.0F, 0.0F}, .m_joints={0, 0, 0, 0}, .m_weights={1.0f, 0.0f, 0.0f, 0.0f}},
-            {.m_position={0.0F, 0.5F, 0.0F}, .m_color={0.0F, 0.0F, 1.0F}, .m_normal={0.0F, 0.0F, 1.0F}, .m_texCoord0={0.5F, 1.0F}, .m_texCoord1={0.0F, 0.0F}, .m_tangent={0.0F, 0.0F, 0.0F, 0.0F}, .m_joints={0, 0, 0, 0}, .m_weights={1.0f, 0.0f, 0.0f, 0.0f}}
+            {.position={-0.5F, -0.5F, 0.0F, 1.0F}, .color={1.0F, 0.0F, 0.0F, 1.0F}, .normal={0.0F, 0.0F, 1.0F, 0.0F}, .uv0={0.0F, 0.0F}, .uv1={0.0F, 0.0F}, .tangent={0.0F, 0.0F, 0.0F, 0.0F}, .joints={0, 0, 0, 0}, .weights={1.0f, 0.0f, 0.0f, 0.0f}},
+            {.position={0.5F, -0.5F, 0.0F, 1.0F}, .color={0.0F, 1.0F, 0.0F, 1.0F}, .normal={0.0F, 0.0F, 1.0F, 0.0F}, .uv0={1.0F, 0.0F}, .uv1={0.0F, 0.0F}, .tangent={0.0F, 0.0F, 0.0F, 0.0F}, .joints={0, 0, 0, 0}, .weights={1.0f, 0.0f, 0.0f, 0.0f}},
+            {.position={0.0F, 0.5F, 0.0F, 1.0F}, .color={0.0F, 0.0F, 1.0F, 1.0F}, .normal={0.0F, 0.0F, 1.0F, 0.0F}, .uv0={0.5F, 1.0F}, .uv1={0.0F, 0.0F}, .tangent={0.0F, 0.0F, 0.0F, 0.0F}, .joints={0, 0, 0, 0}, .weights={1.0f, 0.0f, 0.0f, 0.0f}}
         };
 
         std::vector<uint32_t> indices = {0, 1, 2};
 
         m_triangleMesh = m_renderer->createMesh(vertices, indices, false);
 
-        // Create pipeline
         createPipeline();
 
-        // Set record callback
         m_renderer->setRecordFunc([this](const renderer::RHIFrameContext& ctx)
         {
             this->recordFrame(ctx);
@@ -51,13 +44,12 @@ public:
 
     void createPipeline()
     {
-        // Load shaders
+
         std::vector<uint32_t> vertSpirv = loadSpirv(getShaderPath("triangle.vert.spv").string());
         std::vector<uint32_t> fragSpirv = loadSpirv(getShaderPath("triangle.frag.spv").string());
 
         renderer::rhi::GraphicsPipelineDescriptor desc{};
 
-        // Shaders
         desc.shaders.push_back({
             .stage=renderer::rhi::ShaderStage::Vertex,
             .spirvCode=vertSpirv,
@@ -69,40 +61,33 @@ public:
             .entryPoint="main"
         });
 
-        // Vertex input
         desc.vertexBindings.push_back({
-            .binding=0, // binding
+            .binding=0,
             .stride=sizeof(renderer::Vertex),
             .inputRate=renderer::rhi::VertexInputRate::Vertex
         });
 
-        // Use correct member names: m_color, m_texCoord
         desc.vertexAttributes = {
-            {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_position), .semantic=renderer::rhi::VertexSemantic::Position},
-            {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_color), .semantic=renderer::rhi::VertexSemantic::Color},
-            {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32_SFLOAT, .offset=offsetof(renderer::Vertex, m_normal), .semantic=renderer::rhi::VertexSemantic::Normal},
-            {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT, .offset=offsetof(renderer::Vertex, m_texCoord0), .semantic=renderer::rhi::VertexSemantic::TexCoord0}
+            {.location=0, .binding=0, .format=renderer::rhi::Format::R32G32B32A32_SFLOAT, .offset=offsetof(renderer::Vertex, position), .semantic=renderer::rhi::VertexSemantic::Position},
+            {.location=1, .binding=0, .format=renderer::rhi::Format::R32G32B32A32_SFLOAT, .offset=offsetof(renderer::Vertex, color), .semantic=renderer::rhi::VertexSemantic::Color},
+            {.location=2, .binding=0, .format=renderer::rhi::Format::R32G32B32A32_SFLOAT, .offset=offsetof(renderer::Vertex, normal), .semantic=renderer::rhi::VertexSemantic::Normal},
+            {.location=3, .binding=0, .format=renderer::rhi::Format::R32G32_SFLOAT, .offset=offsetof(renderer::Vertex, uv0), .semantic=renderer::rhi::VertexSemantic::TexCoord0}
         };
 
-        // Topology
         desc.topology = renderer::rhi::PrimitiveTopology::TriangleList;
 
-        // Rasterization
         desc.rasterization.polygonMode = renderer::rhi::PolygonMode::Fill;
         desc.rasterization.cullMode = renderer::rhi::CullMode::None;
         desc.rasterization.frontFaceCCW = true;
 
-        // Depth/stencil
         desc.depthStencil.depthTestEnable = true;
         desc.depthStencil.depthWriteEnable = true;
         desc.depthStencil.depthCompareOp = renderer::rhi::CompareOp::Less;
 
-        // Blend (no blending)
         renderer::rhi::BlendAttachment blendAttachment{};
         blendAttachment.blendEnable = false;
         desc.blend.attachments.push_back(blendAttachment);
 
-        // Render target formats
         desc.colorFormats.push_back(m_renderer->getDrawColorFormat());
         desc.depthFormat = m_renderer->getDrawDepthFormat();
 
@@ -111,12 +96,17 @@ public:
 
     void recordFrame(const renderer::RHIFrameContext& ctx)
     {
-        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
-        m_renderer->bindMesh(ctx.commandBuffer, m_triangleMesh);
-        m_renderer->drawMesh(ctx.commandBuffer, m_triangleMesh);
+        ctx.commandBuffer->bindPipeline(m_renderer->getPipeline(m_pipeline));
+        auto meshView = m_renderer->getMeshView(m_triangleMesh);
+        if (!meshView) return;
+        if (!meshView->vertexPulling)
+        {
+            ctx.commandBuffer->bindVertexBuffer(0, meshView->vertexBuffer, 0);
+        }
+        ctx.commandBuffer->bindIndexBuffer(meshView->indexBuffer, 0, false);
+        ctx.commandBuffer->drawIndexed(meshView->indexCount, 1, 0, 0, 0);
     }
 
-    // Override the custom render loop from SampleApp
     void onRenderFrame(float deltaTime) override
     {
         m_renderer->beginFrame(deltaTime);
@@ -124,9 +114,6 @@ public:
         m_renderer->endFrame();
     }
 
-    // Fix: onResize is not virtual in SampleApp, handled via SDL events usually,
-    // but we can hook into onEvent or just let the SampleApp loop handle window size.
-    // However, RHIRenderer needs explicit resize.
     void onEvent(const SDL_Event& event) override
     {
         if (event.type == SDL_EVENT_WINDOW_RESIZED)

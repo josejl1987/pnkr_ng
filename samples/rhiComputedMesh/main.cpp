@@ -1,10 +1,12 @@
 #include "pnkr/engine.hpp"
+#include "pnkr/core/common.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
 #include "pnkr/rhi/rhi_shader.hpp"
 #include "pnkr/rhi/rhi_descriptor.hpp"
+#include "pnkr/rhi/BindlessManager.hpp"
 
 #include "pnkr/app/Application.hpp"
 #include <glm/glm.hpp>
@@ -15,7 +17,6 @@
 
 using namespace pnkr;
 
-// Shared struct matching shaders/common.glsl
 struct PerFrameData {
     glm::mat4 MVP;
     uint64_t bufferAddress;
@@ -30,9 +31,8 @@ struct PerFrameData {
     float morph;
 };
 
-// Easing function for smooth morphing
 float easing(float x) {
-    return (x < 0.5f) ? (4.0f * x * x * (3.0f * x - 1.0f)) 
+    return (x < 0.5f) ? (4.0f * x * x * (3.0f * x - 1.0f))
                       : (4.0f * (x - 1.0f) * (x - 1.0f) * (3.0f * (x - 1.0f) + 1.0f) + 1.0f);
 }
 
@@ -41,26 +41,22 @@ constexpr uint32_t kNumV = 512;
 
 class ComputedMeshApp : public app::Application {
 public:
-    ComputedMeshApp() 
+    ComputedMeshApp()
         : app::Application({.title="RHI Computed Mesh", .width=1280, .height=720, .createRenderer=false}) {}
 
     renderer::scene::Camera m_camera;
-    
-    // Resources
+
     BufferHandle m_vertexBuffer;
     BufferHandle m_indexBuffer;
     std::unique_ptr<renderer::rhi::RHITexture> m_textureResource;
     uint32_t m_textureBindlessIndex;
-    
-    // Pipelines
+
     PipelineHandle m_compMeshPipeline;
     PipelineHandle m_compTexPipeline;
     PipelineHandle m_gfxPipeline;
 
-    // Descriptors
     std::unique_ptr<renderer::rhi::RHIDescriptorSet> m_texComputeSet;
 
-    // Logic
     std::deque<std::pair<uint32_t, uint32_t>> m_morphQueue = { { 5, 8 }, { 5, 8 } };
     float m_morphCoef = 0.0f;
     float m_animationSpeed = 1.0f;
@@ -79,7 +75,7 @@ public:
         initResources();
         initPipelines();
         initDescriptors();
-        initUI(); // Base class sets up record callback + ImGui
+        initUI();
 
         m_renderer->setComputeRecordFunc([this](const renderer::RHIFrameContext& ctx) {
             recordCompute(ctx);
@@ -87,7 +83,6 @@ public:
     }
 
     void initResources() {
-        // 1. Index Buffer
         std::vector<uint32_t> indices;
         indices.resize((kNumU - 1) * (kNumV - 1) * 6);
         for (uint32_t j = 0; j < kNumV - 1; j++) {
@@ -110,33 +105,31 @@ public:
             .debugName = "ComputedMesh_Indices"
         });
 
-        // 2. Vertex Buffer
         uint64_t vSize = 12 * sizeof(float) * kNumU * kNumV;
         m_vertexBuffer = m_renderer->createBuffer({
             .size = vSize,
-            .usage = renderer::rhi::BufferUsage::VertexBuffer | renderer::rhi::BufferUsage::StorageBuffer | 
+            .usage = renderer::rhi::BufferUsage::VertexBuffer | renderer::rhi::BufferUsage::StorageBuffer |
                      renderer::rhi::BufferUsage::ShaderDeviceAddress,
             .memoryUsage = renderer::rhi::MemoryUsage::GPUOnly,
             .debugName = "ComputedMesh_Vertices"
         });
 
-        // 3. Texture
         m_textureResource = m_renderer->device()->createTexture(
              renderer::rhi::Extent3D{1024, 1024, 1},
              renderer::rhi::Format::R8G8B8A8_UNORM,
              renderer::rhi::TextureUsage::Storage | renderer::rhi::TextureUsage::Sampled,
              1, 1
         );
-        auto bindlessHandle = m_renderer->device()->registerBindlessTexture(
-            m_textureResource.get(), 
-            m_renderer->device()->createSampler(renderer::rhi::Filter::Linear, renderer::rhi::Filter::Linear, renderer::rhi::SamplerAddressMode::Repeat).get()
-        );
-        m_textureBindlessIndex = bindlessHandle.index;
+        auto* bindless = m_renderer->device()->getBindlessManager();
+        auto bindlessHandle = bindless->registerTexture(
+            m_textureResource.get(),
+            m_renderer->device()->createSampler(renderer::rhi::Filter::Linear, renderer::rhi::Filter::Linear, renderer::rhi::SamplerAddressMode::Repeat).get());
+        m_textureBindlessIndex = util::u32(bindlessHandle);
     }
 
     void initPipelines() {
         renderer::rhi::ReflectionConfig reflectConfig;
-        
+
         auto csTex = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Compute, getShaderPath("texture.comp.spv"), reflectConfig);
         m_compTexPipeline = m_renderer->createComputePipeline(renderer::rhi::RHIPipelineBuilder().setComputeShader(csTex.get()).setName("CompTexture").buildCompute());
 
@@ -156,7 +149,7 @@ public:
             .setDepthFormat(m_renderer->getDrawDepthFormat())
             .setName("GfxMesh")
             .buildGraphics();
-        
+
         desc.vertexBindings = {{0, 12 * sizeof(float), renderer::rhi::VertexInputRate::Vertex}};
         desc.vertexAttributes = {
             {0, 0, renderer::rhi::Format::R32G32B32A32_SFLOAT, 0, renderer::rhi::VertexSemantic::Position},
@@ -187,7 +180,7 @@ public:
 
         float aspect = (float)m_window.width() / m_window.height();
         glm::mat4 proj = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 1000.0f);
-        proj[1][1] *= -1; 
+        proj[1][1] *= -1;
         pc.MVP = proj * m_camera.view() * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
         return pc;
     }
@@ -208,10 +201,11 @@ public:
         ImGui::Checkbox("Use colored mesh", &m_useColoredMesh);
         ImGui::SliderFloat("Speed", &m_animationSpeed, 0.0f, 2.0f);
         static const std::vector<std::pair<uint32_t, uint32_t>> PQ = {
-            {1, 1}, {2, 3}, {2, 5}, {2, 7}, {3, 4}, {2, 9}, {3, 5}, {5, 8}, {8, 9} 
+            {1, 1}, {2, 3}, {2, 5}, {2, 7}, {3, 4}, {2, 9}, {3, 5}, {5, 8}, {8, 9}
         };
         for (const auto& pair : PQ) {
-            if (ImGui::Button((std::to_string(pair.first) + ", " + std::to_string(pair.second)).c_str(), ImVec2(60, 0))) {
+            const std::string label = std::to_string(pair.first) + ", " + std::to_string(pair.second);
+            if (ImGui::Button(label.c_str(), ImVec2(60, 0))) {
                 if (pair != m_morphQueue.back()) m_morphQueue.push_back(pair);
             }
             ImGui::SameLine();
@@ -237,9 +231,9 @@ public:
             imgBarrier.newLayout = renderer::rhi::ResourceLayout::General;
             cmd->pipelineBarrier(imgBarrier.srcAccessStage, renderer::rhi::ShaderStage::Compute, {imgBarrier});
 
-            m_renderer->bindComputePipeline(cmd, m_compTexPipeline);
-            m_renderer->bindDescriptorSet(cmd, m_compTexPipeline, 0, m_texComputeSet.get());
-            m_renderer->pushConstants(cmd, m_compTexPipeline, renderer::rhi::ShaderStage::Compute, pc);
+            cmd->bindPipeline(m_renderer->getPipeline(m_compTexPipeline));
+            cmd->bindDescriptorSet(0, m_texComputeSet.get());
+            cmd->pushConstants(renderer::rhi::ShaderStage::Compute, pc);
             cmd->dispatch(1024/16, 1024/16, 1);
 
             imgBarrier.srcAccessStage = renderer::rhi::ShaderStage::Compute;
@@ -249,8 +243,8 @@ public:
             cmd->pipelineBarrier(renderer::rhi::ShaderStage::Compute, renderer::rhi::ShaderStage::Fragment, {imgBarrier});
         }
 
-        m_renderer->bindComputePipeline(cmd, m_compMeshPipeline);
-        m_renderer->pushConstants(cmd, m_compMeshPipeline, renderer::rhi::ShaderStage::Compute, pc);
+        cmd->bindPipeline(m_renderer->getPipeline(m_compMeshPipeline));
+        cmd->pushConstants(renderer::rhi::ShaderStage::Compute, pc);
         cmd->dispatch((kNumU * kNumV) / 16, 1, 1);
 
         renderer::rhi::RHIMemoryBarrier bufBarrier{};
@@ -258,7 +252,7 @@ public:
         bufBarrier.srcAccessStage = renderer::rhi::ShaderStage::Compute;
         bufBarrier.dstAccessStage = renderer::rhi::ShaderStage::Vertex;
         cmd->pipelineBarrier(renderer::rhi::ShaderStage::Compute, renderer::rhi::ShaderStage::Vertex, {bufBarrier});
-        
+
         m_firstFrame = false;
     }
 
@@ -266,12 +260,12 @@ public:
         auto* cmd = ctx.commandBuffer;
         PerFrameData pc = getPerFrameData((float)ctx.frameIndex * 0.016f);
 
-        m_renderer->bindPipeline(cmd, m_gfxPipeline);
+        cmd->bindPipeline(m_renderer->getPipeline(m_gfxPipeline));
         cmd->bindVertexBuffer(0, m_renderer->getBuffer(m_vertexBuffer), 0);
         cmd->bindIndexBuffer(m_renderer->getBuffer(m_indexBuffer), 0, false);
         renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
-        cmd->bindDescriptorSet(m_renderer->pipeline(m_gfxPipeline), 1, bindlessSet);
-        m_renderer->pushConstants(cmd, m_gfxPipeline, renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
+        cmd->bindDescriptorSet(1, bindlessSet);
+        cmd->pushConstants(renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment, pc);
         cmd->drawIndexed(m_indexCount, 1, 0, 0, 0);
     }
 

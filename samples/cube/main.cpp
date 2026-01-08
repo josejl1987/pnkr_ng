@@ -50,11 +50,17 @@ public:
         renderer::scene::Transform xform;
         xform.m_rotation = glm::angleAxis(timeVal, glm::vec3{0.0f, 1.0f, 0.0f});
 
+        ctx.m_cmd->bindPipeline(m_renderer.getPipeline(m_cubePipe));
         PushConstants pc{xform.mat4(), m_camera.viewProj()};
-        m_renderer.pushConstants(ctx.m_cmd, m_cubePipe, vk::ShaderStageFlagBits::eVertex, pc);
-        m_renderer.bindPipeline(ctx.m_cmd, m_cubePipe);
-        m_renderer.bindMesh(ctx.m_cmd, m_cubeMesh);
-        m_renderer.drawMesh(ctx.m_cmd, m_cubeMesh);
+        ctx.m_cmd->pushConstants(renderer::rhi::ShaderStage::Vertex, pc);
+        auto meshView = m_renderer.getMeshView(m_cubeMesh);
+        if (!meshView) return;
+        if (!meshView->vertexPulling)
+        {
+            ctx.m_cmd->bindVertexBuffer(0, meshView->vertexBuffer, 0);
+        }
+        ctx.m_cmd->bindIndexBuffer(meshView->indexBuffer, 0, false);
+        ctx.m_cmd->drawIndexed(meshView->indexCount, 1, 0, 0, 0);
     }
 };
 
@@ -64,5 +70,4 @@ int main(int argc, char** argv) {
     CubeSample app;
     return app.run();
 }
-
 

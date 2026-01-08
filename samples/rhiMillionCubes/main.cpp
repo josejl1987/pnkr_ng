@@ -1,4 +1,5 @@
 #include "pnkr/engine.hpp"
+#include "pnkr/core/common.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/rhi/rhi_pipeline_builder.hpp"
@@ -10,9 +11,15 @@
 #include <glm/ext.hpp>
 
 #include <variant>
-#include "generated/million_cubes.vert.h"
 
 using namespace pnkr;
+
+struct CubePerFrameData {
+    glm::mat4 viewproj;
+    uint32_t textureId;
+    uint64_t bufId;
+    float time;
+};
 
 class PnkrMillionCubes : public app::Application
 {
@@ -36,7 +43,6 @@ public:
         config.m_enableBindless = true;
         m_renderer = std::make_unique<renderer::RHIRenderer>(m_window, config);
 
-        // Create XOR pattern texture
         constexpr uint32_t texWidth = 256;
         constexpr uint32_t texHeight = 256;
         std::vector<uint32_t> pixels(texWidth * texHeight);
@@ -49,10 +55,9 @@ public:
             }
         }
 
-        m_xorTexture = m_renderer->createTexture(reinterpret_cast<const unsigned char*>(pixels.data()), texWidth,
-                                                 texHeight, 4, true);
+        m_xorTexture = m_renderer->assets()->createTexture(reinterpret_cast<const unsigned char*>(pixels.data()),
+                                                           texWidth, texHeight, 4, true);
 
-        // Generate instance data (positions and rotation angles)
         const uint32_t kNumCubes = 1024 * 1024;
         std::vector<glm::vec4> centers(kNumCubes);
         for (glm::vec4& p : centers)
@@ -61,7 +66,6 @@ public:
                           glm::linearRand(0.0f, 3.14159f));
         }
 
-        // Create instance buffer using our new descriptor-based API
         m_instanceBuffer = m_renderer->createBuffer({
             .size = sizeof(glm::vec4) * kNumCubes,
             .usage = renderer::rhi::BufferUsage::StorageBuffer | renderer::rhi::BufferUsage::ShaderDeviceAddress,
@@ -77,10 +81,8 @@ public:
 
     void createPipeline()
     {
-        // Configure reflection for bindless resources
+
         renderer::rhi::ReflectionConfig config;
-        // The default config already includes bindlessTextures with 100,000 count
-        // which matches our bindless descriptor set size
 
         auto vs = renderer::rhi::Shader::load(renderer::rhi::ShaderStage::Vertex,
                                               getShaderPath("million_cubes.vert.spv"), config);
@@ -100,16 +102,14 @@ public:
 
     void onRecord(const renderer::RHIFrameContext& ctx) override
     {
-        m_renderer->bindPipeline(ctx.commandBuffer, m_pipeline);
+        ctx.commandBuffer->bindPipeline(m_renderer->getPipeline(m_pipeline));
 
-        // Bind global bindless descriptor set
         renderer::rhi::RHIDescriptorSet* bindlessSet = m_renderer->device()->getBindlessDescriptorSet();
-        ctx.commandBuffer->bindDescriptorSet(m_renderer->pipeline(m_pipeline), 1, bindlessSet);
+        ctx.commandBuffer->bindDescriptorSet(1, bindlessSet);
 
         float aspect = (float)m_window.width() / m_window.height();
 
-        // Animated camera movement
-        float time = ctx.deltaTime; // We should accumulate this, but for now use deltaTime
+        float time = ctx.deltaTime;
         static float accumulatedTime = 0.0f;
         accumulatedTime += ctx.deltaTime;
 
@@ -119,18 +119,16 @@ public:
         glm::mat4 proj = glm::perspective(glm::radians(60.0f), aspect, 0.1f, 10000.0f);
         glm::mat4 viewProj = proj * view;
 
-        // Push constants for instanced rendering
-        ShaderGen::million_cubes_vert::CubePerFrameData data;
+        CubePerFrameData data;
         data.viewproj = viewProj,
-        data.textureId = m_renderer->getTextureBindlessIndex(m_xorTexture),
+        data.textureId = util::u32(m_renderer->getTextureBindlessIndex(m_xorTexture)),
         data.bufId = m_renderer->getBuffer(m_instanceBuffer)->getDeviceAddress(),
         data.time = accumulatedTime;
 
-        m_renderer->pushConstants(ctx.commandBuffer, m_pipeline,
-                                  renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment,
-                                  data);
+        ctx.commandBuffer->pushConstants(
+            renderer::rhi::ShaderStage::Vertex | renderer::rhi::ShaderStage::Fragment,
+            data);
 
-        // Draw 36 vertices per cube * 1 million instances
         const uint32_t kNumCubes = 1024 * 1024;
         ctx.commandBuffer->draw(36, kNumCubes);
     }
@@ -143,12 +141,10 @@ public:
         }
     }
 
-
     void onShutdown() override
     {
     }
 };
-
 
 int main(int argc, char** argv)
 {
