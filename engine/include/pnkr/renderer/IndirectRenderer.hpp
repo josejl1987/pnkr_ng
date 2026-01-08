@@ -67,6 +67,8 @@ namespace pnkr::renderer {
         FrameManager& getFrameManager() { return m_frameManager; }
 
         TextureHandle getShadowMapTexture() const { return m_resources.shadowMap; }
+        glm::mat4 getShadowView() const;
+        glm::mat4 getShadowProj() const;
         TextureHandle getSSAOTexture() const { return m_resources.ssaoOutput; }
         uint32_t getVisibleMeshCount() const { return m_visibleMeshCount; }
 

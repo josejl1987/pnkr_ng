@@ -32,6 +32,7 @@ struct IndirectDrawContext {
     TransientAllocation indirectTransparentAlloc;
 
     scene::GLTFUnifiedDODContext dodContext;
+    scene::GLTFUnifiedDODContext shadowDodContext;
 };
 
 }

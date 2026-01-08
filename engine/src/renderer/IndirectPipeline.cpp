@@ -65,8 +65,8 @@ void IndirectPipeline::setup(FrameGraph& frameGraph,
     }
 
     addClothPass(frameGraph, passCtx);
-
-    addShadowPass(frameGraph, passCtx);
+ 
+    addShadowPass(frameGraph, passCtx, drawCtx);
     addSkinningPass(frameGraph, passCtx, drawCtx);
     addGeometryPasses(frameGraph, passCtx, drawCtx);
     addPostProcessPasses(frameGraph, passCtx);
@@ -142,7 +142,8 @@ void IndirectPipeline::addSpritePass(FrameGraph& fg, const RenderPassContext& ct
         });
 }
 
-void IndirectPipeline::addShadowPass(FrameGraph& fg, const RenderPassContext& ctx)
+void IndirectPipeline::addShadowPass(FrameGraph& fg, const RenderPassContext& ctx,
+                                     const IndirectDrawContext& drawCtx)
 {
     struct ShadowData {
         FGHandle m_shadowMap;
@@ -153,11 +154,12 @@ void IndirectPipeline::addShadowPass(FrameGraph& fg, const RenderPassContext& ct
             data.m_shadowMap =
                 builder.write(ctx.fgShadowMap, FGAccess::DepthAttachmentWrite);
         },
-        [&](const ShadowData&, const FrameGraphResources&,
+        [&, drawCtx](const ShadowData&, const FrameGraphResources&,
             rhi::RHICommandList* c) {
             using namespace passes::utils;
             auto passCtxCopy = ctx;
             passCtxCopy.cmd = c;
+            passCtxCopy.dodContext = drawCtx.shadowDodContext;
             ScopedGpuMarker scope(c, "ShadowPass");
             m_deps.shadowPass->execute(passCtxCopy);
         });

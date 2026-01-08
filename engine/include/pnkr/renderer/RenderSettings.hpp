@@ -13,18 +13,34 @@ namespace pnkr::renderer
 
     struct ShadowSettings {
         bool enabled = true;
+        
+        // Light direction
         bool useSceneLightDirection = true;
         float thetaDeg = -45.0f;
         float phiDeg = -45.0f;
-        float extraXYPadding = 5.0f;
-        float extraZPadding = 5.0f;
+        
+        // Manual override mode (when true, use manual values instead of auto-calculation)
+        bool useManualFrustum = false;
+        float manualOrthoSize = 100.0f;   // Half-size of orthographic projection (units)
+        float manualNear = 0.1f;          // Near plane distance
+        float manualFar = 500.0f;         // Far plane distance
+        glm::vec3 manualCenter = glm::vec3(0.0f); // Center point for light view
+        
+        // Padding (used in both auto and manual modes)
+        float extraXYPadding = 0.0f;
+        float extraZPadding = 0.0f;
+        
+        // Bias settings
+        float biasConst = 0.0f;
+        float biasSlope = 0.0f;
+        
+        // Legacy/spot light settings
         float fov = 45.0f;
         float orthoSize = 40.0f;
         float nearPlane = 1.0f;
         float farPlane = 100.0f;
         float distFromCam = 20.0f;
-        float biasConst = 1.25f;
-        float biasSlope = 1.75f;
+        float shadowRange = 0.0f;
     };
 
     struct SSAOSettings {

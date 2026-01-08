@@ -51,7 +51,8 @@ public:
                RenderPassContext& passCtx) override;
 
 private:
-    void addShadowPass(FrameGraph& fg, const RenderPassContext& ctx);
+    void addShadowPass(FrameGraph& fg, const RenderPassContext& ctx, 
+                       const IndirectDrawContext& drawCtx);
     void addSkinningPass(FrameGraph& fg, const RenderPassContext& ctx,
                          const IndirectDrawContext& drawCtx);
     void addCullingPass(FrameGraph& fg, const RenderPassContext& ctx);

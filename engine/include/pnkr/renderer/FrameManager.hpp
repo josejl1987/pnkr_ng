@@ -89,6 +89,11 @@ namespace pnkr::renderer {
         GPUBufferSlice indirectTransmissionDoubleSidedBuffer;
         GPUBufferSlice indirectTransparentBuffer;
 
+        TransientAllocation shadowIndirectOpaqueAlloc;
+        TransientAllocation shadowIndirectOpaqueDoubleSidedAlloc;
+        GPUBufferSlice shadowIndirectOpaqueBuffer;
+        GPUBufferSlice shadowIndirectOpaqueDoubleSidedBuffer;
+
         GPUBufferSlice opaqueCompactedSlice;
         GPUBufferSlice opaqueDoubleSidedCompactedSlice;
 

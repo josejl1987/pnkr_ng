@@ -552,18 +552,28 @@ namespace pnkr::renderer
         ctx.dodContext.uploadIndirectBuffers = false;
         ctx.dodContext.systemMeshCount = static_cast<uint32_t>(SystemMeshType::Count);
         ctx.dodContext.ignoreVisibility = (m_settings.cullingMode == CullingMode::GPU);
+        
+        ctx.shadowDodContext.renderer = m_renderer;
+        ctx.shadowDodContext.model = m_model.get();
+        ctx.shadowDodContext.mergeByMaterial = false;
+        ctx.shadowDodContext.uploadTransformBuffer = false;
+        ctx.shadowDodContext.uploadIndirectBuffers = false;
+        ctx.shadowDodContext.systemMeshCount = static_cast<uint32_t>(SystemMeshType::Count);
+        ctx.shadowDodContext.ignoreVisibility = true; // Shadows should always draw everything
 
         auto& frame = m_frameManager.getCurrentFrameBuffers();
         if (frame.skinnedVertexBuffer.isValid())
         {
             ctx.dodContext.vertexBufferOverride = m_renderer->getBuffer(frame.skinnedVertexBuffer.handle())->
                                                               getDeviceAddress();
+            ctx.shadowDodContext.vertexBufferOverride = ctx.dodContext.vertexBufferOverride;
         }
 
         static core::LinearAllocator cpuTempAllocator(
-            static_cast<size_t>(8 * 1024 * 1024));
+            static_cast<size_t>(16 * 1024 * 1024)); // Increased size for dual lists
         cpuTempAllocator.reset();
         scene::GLTFUnifiedDOD::buildDrawLists(ctx.dodContext, camera.position(), cpuTempAllocator);
+        scene::GLTFUnifiedDOD::buildDrawLists(ctx.shadowDodContext, camera.position(), cpuTempAllocator);
 
         if (ctx.dodContext.transformCount > 0)
         {
@@ -587,6 +597,22 @@ namespace pnkr::renderer
     void IndirectRenderer::updateMaterial(uint32_t materialIndex)
     {
         m_materialHeap.updateMaterial(materialIndex);
+    }
+
+    glm::mat4 IndirectRenderer::getShadowView() const
+    {
+        if (m_shadowPassPtr) {
+            return m_shadowPassPtr->getLightView();
+        }
+        return glm::mat4(1.0f);
+    }
+
+    glm::mat4 IndirectRenderer::getShadowProj() const
+    {
+        if (m_shadowPassPtr) {
+            return m_shadowPassPtr->getLightProj();
+        }
+        return glm::mat4(1.0f);
     }
 
     void IndirectRenderer::setSkybox(TextureHandle skybox, bool flipY)
@@ -858,6 +884,20 @@ namespace pnkr::renderer
             });
 
             m_visibleMeshCount = visibleCount;
+
+            // Draw the combined scene AABB in purple for shadow debugging
+            if (m_settings.drawDebugBounds && debugLayer)
+            {
+                scene::BoundingBox sceneAABB;
+                cullView.each([&](ecs::Entity, const MeshRenderer& mr, const WorldBounds& wb, Visibility&) {
+                    if (mr.meshID >= 0 && wb.aabb.isValid()) {
+                        sceneAABB.combine(wb.aabb);
+                    }
+                });
+                if (sceneAABB.isValid()) {
+                    debugLayer->box(sceneAABB.m_min, sceneAABB.m_max, glm::vec3(0.8f, 0.0f, 0.8f)); // Purple
+                }
+            }
         }
         else if (m_settings.cullingMode == CullingMode::None)
         {
@@ -916,6 +956,16 @@ namespace pnkr::renderer
         frame.indirectTransparentBuffer = makeSlice(*m_renderer, frame.indirectTransparentAlloc.buffer,
                                                     frame.indirectTransparentAlloc.offset,
                                                     frame.indirectTransparentAlloc.size, 16);
+
+        frame.shadowIndirectOpaqueAlloc = uploadIndirect(ctx.shadowDodContext.indirectOpaque, ctx.shadowDodContext.opaqueCount);
+        frame.shadowIndirectOpaqueDoubleSidedAlloc = uploadIndirect(ctx.shadowDodContext.indirectOpaqueDoubleSided,
+                                                                    ctx.shadowDodContext.opaqueDoubleSidedCount);
+        
+        frame.shadowIndirectOpaqueBuffer = makeSlice(*m_renderer, frame.shadowIndirectOpaqueAlloc.buffer,
+                                                     frame.shadowIndirectOpaqueAlloc.offset, frame.shadowIndirectOpaqueAlloc.size, 16);
+        frame.shadowIndirectOpaqueDoubleSidedBuffer = makeSlice(*m_renderer, frame.shadowIndirectOpaqueDoubleSidedAlloc.buffer,
+                                                                frame.shadowIndirectOpaqueDoubleSidedAlloc.offset,
+                                                                frame.shadowIndirectOpaqueDoubleSidedAlloc.size, 16);
 
         return ctx;
     }
@@ -993,6 +1043,7 @@ namespace pnkr::renderer
             .cmd = cmd,
             .model = m_model.get(),
             .camera = activeCamera,
+            .mainCamera = &camera,
             .frameBuffers = m_frameManager.getCurrentFrameBuffers(),
             .frameManager = m_frameManager,
             .resources = m_resources,
@@ -1013,11 +1064,14 @@ namespace pnkr::renderer
             .environmentAddr = drawCtx.environmentAddr,
             .shadowDataAddr = drawCtx.shadowDataAddr,
             .instanceXformAddr = drawCtx.instanceXformAddr,
-            .dodContext = drawCtx.dodContext};
+            .dodContext = drawCtx.dodContext,
+            .shadowDodContext = drawCtx.shadowDodContext};
 
         passCtx.cullingViewProj = m_cullingViewProj;
-
+ 
         passCtx.resources.drawLists = &drawCtx.dodContext;
+        passCtx.resources.shadowIndirectOpaqueBuffer = passCtx.frameBuffers.shadowIndirectOpaqueBuffer;
+        passCtx.resources.shadowIndirectOpaqueDoubleSidedBuffer = passCtx.frameBuffers.shadowIndirectOpaqueDoubleSidedBuffer;
 
         if (m_settings.cullingMode == CullingMode::GPU)
         {

@@ -333,10 +333,7 @@ public:
 
         m_model = io::ModelUploader::upload(*m_renderer, std::move(*loaded));
 
-        {
-            auto planeData = renderer::geometry::GeometryUtils::getPlane(50.0f, 50.0f, 1);
-            m_model->addPrimitiveToScene(*m_renderer, planeData, 0, glm::mat4(1.0f), "GroundPlane");
-        }
+
         m_model->dropCpuGeometry();
 
         // Add a default light if the model has none
@@ -825,11 +822,30 @@ public:
                 {
                     ImGui::Checkbox("Show Shadow Map", &m_showShadowMap);
                     ImGui::Checkbox("Debug Light View", &settings.debugLightView);
-                    ImGui::Text("Shadow View matches Directional Light.");
-                    ImGui::Text("Shadow Bias is now controlled by 'r_shadowBias' CVAR.");
-                    ImGui::SliderFloat("Shadow Slope Bias", &settings.shadow.biasSlope, 0.0f, 10.0f);
-                    ImGui::SliderFloat("Shadow Ortho Size", &settings.shadow.orthoSize, 1.0f, 100.0f);
-                    ImGui::SliderFloat("Shadow Distance", &settings.shadow.distFromCam, 1.0f, 100.0f);
+                    
+                    ImGui::Separator();
+                    ImGui::Text("Frustum Mode:");
+                    ImGui::Checkbox("Use Manual Frustum", &settings.shadow.useManualFrustum);
+                    
+                    if (settings.shadow.useManualFrustum) {
+                        ImGui::Indent();
+                        ImGui::DragFloat3("Center", &settings.shadow.manualCenter.x, 1.0f);
+                        ImGui::DragFloat("Ortho Size", &settings.shadow.manualOrthoSize, 1.0f, 1.0f, 1000.0f);
+                        ImGui::DragFloat("Near Plane", &settings.shadow.manualNear, 0.1f, 0.01f, 100.0f);
+                        ImGui::DragFloat("Far Plane", &settings.shadow.manualFar, 1.0f, 1.0f, 2000.0f);
+                        ImGui::Unindent();
+                    }
+                    
+                    ImGui::Separator();
+                    ImGui::Text("Padding:");
+                    ImGui::SliderFloat("XY Padding", &settings.shadow.extraXYPadding, 0.0f, 50.0f);
+                    ImGui::SliderFloat("Z Padding", &settings.shadow.extraZPadding, 0.0f, 50.0f);
+                    
+                    ImGui::Separator();
+                    ImGui::Text("Bias:");
+                    ImGui::SliderFloat("Bias Constant", &settings.shadow.biasConst, 0.0f, 10.0f);
+                    ImGui::SliderFloat("Bias Slope", &settings.shadow.biasSlope, 0.0f, 10.0f);
+                    
                     ImGui::TreePop();
                 }
 
@@ -1107,11 +1123,9 @@ public:
 
                         if (static_cast<int>(currentLightIndex) == shadowCasterIdx)
                         {
-                            float s = (shadow.orthoSize > 0.01f) ? shadow.orthoSize : 40.0f;
-
-                            glm::vec3 eye = pos - dir * shadow.distFromCam;
-                            glm::mat4 view = glm::lookAt(eye, pos, glm::vec3(0, 1, 0));
-                            glm::mat4 proj = glm::orthoRH_ZO(-s, s, -s, s, shadow.nearPlane, shadow.farPlane);
+                            // Use actual shadow matrices from the shadow pass
+                            glm::mat4 view = m_indirectRenderer->getShadowView();
+                            glm::mat4 proj = m_indirectRenderer->getShadowProj();
 
                             m_debugLayer->frustum(view, proj, color);
                         }
