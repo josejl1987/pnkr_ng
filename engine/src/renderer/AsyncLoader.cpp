@@ -137,6 +137,7 @@ namespace pnkr::renderer
     void AsyncLoader::requestTexture(const std::string& path, TextureHandle handle, bool srgb, LoadPriority priority, uint32_t baseMip)
     {
         PNKR_LOG_SCOPE(std::format("AsyncLoader::Request[{}]", path));
+        PNKR_PROFILE_FUNCTION();
 
         static std::atomic<uint32_t> warningCount{0};
         if (!m_initialized) {
@@ -174,6 +175,7 @@ namespace pnkr::renderer
     void AsyncLoader::processFileRequest(const LoadRequest& req)
     {
         PNKR_LOG_SCOPE(std::format("AsyncLoader::ProcessFile[{}]", req.path));
+        PNKR_PROFILE_SCOPE("AsyncLoader::ProcessFileReq");
         UploadRequest uploadReq{};
         uploadReq.req = req;
         uploadReq.state.baseMip = req.baseMip;
@@ -346,6 +348,8 @@ namespace pnkr::renderer
               if (!m_transferFence[slot]->isSignaled()) {
                 continue;
               }
+              
+              PNKR_PROFILE_SCOPE("TransferLoop_Cleanup");
 
               (*m_transferFence[slot]).reset();
               m_slotBusy[slot] = false;
@@ -439,6 +443,8 @@ namespace pnkr::renderer
             auto loopStart = std::chrono::steady_clock::now();
 
              cmd->begin();
+             
+             PNKR_PROFILE_SCOPE("GPU_Upload");
 
             uint64_t bytesThisBatch = 0;
              uint32_t jobsThisBatch = 0;
@@ -585,13 +591,17 @@ namespace pnkr::renderer
                 m_metrics.transferActiveNs.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(workEnd - workStart).count(), std::memory_order_relaxed);
                 m_metrics.batchesSubmitted.fetch_add(1, std::memory_order_relaxed);
 
-                m_renderer->device()->submitCommands(cmd, m_transferFence[slotToUse].get());
+                {
+                    PNKR_PROFILE_SCOPE("Transfer_Submit");
+                    m_renderer->device()->submitCommands(cmd, m_transferFence[slotToUse].get());
+                }
                 
                 for (const auto& range : m_inFlightBatches[slotToUse].ringBufferRanges) {
                     m_stagingManager->markPages(range.first, range.second, 0); 
                 }
 
                 if (graphicsWorkNeeded) {
+                    PNKR_PROFILE_SCOPE("Graphics_Submission");
                     if (differentFamilies && !acquireBarriers.empty()) {
                         graphicsCmd->pipelineBarrier(rhi::ShaderStage::None, rhi::ShaderStage::Transfer, acquireBarriers);
                     }
@@ -628,6 +638,7 @@ namespace pnkr::renderer
 
     bool AsyncLoader::processJob(UploadRequest& req, rhi::RHICommandList* cmd, rhi::RHIBuffer* srcBuffer, std::span<uint8_t> stagingBuffer, uint64_t& stagingOffset)
     {
+        PNKR_PROFILE_FUNCTION();
         if (!req.layoutInitialized) {
 
             if (!req.intermediateTexture.isValid()) {
