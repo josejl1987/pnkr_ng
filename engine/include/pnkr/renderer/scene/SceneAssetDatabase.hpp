@@ -54,11 +54,11 @@ namespace pnkr::renderer::scene
         const std::vector<MaterialData>& materials() const { return m_materials; }
         std::vector<MaterialData>& materialsMutable() { return m_materials; }
 
-        const std::vector<TextureHandle>& textures() const { return m_textures; }
-        std::vector<TextureHandle>& texturesMutable() { return m_textures; }
+        const std::vector<TexturePtr>& textures() const { return m_textures; }
+        std::vector<TexturePtr>& texturesMutable() { return m_textures; }
 
-        const std::vector<TextureHandle>& pendingTextures() const { return m_pendingTextures; }
-        std::vector<TextureHandle>& pendingTexturesMutable() { return m_pendingTextures; }
+        const std::vector<TexturePtr>& pendingTextures() const { return m_pendingTextures; }
+        std::vector<TexturePtr>& pendingTexturesMutable() { return m_pendingTextures; }
 
         const std::vector<MeshDOD>& meshes() const { return m_meshes; }
         std::vector<MeshDOD>& meshesMutable() { return m_meshes; }
@@ -110,8 +110,8 @@ namespace pnkr::renderer::scene
 
     private:
         std::vector<MaterialData> m_materials;
-        std::vector<TextureHandle> m_textures;
-        std::vector<TextureHandle> m_pendingTextures;
+        std::vector<TexturePtr> m_textures;
+        std::vector<TexturePtr> m_pendingTextures;
         std::vector<MeshDOD> m_meshes;
         std::vector<BoundingBox> m_meshBounds;
         std::vector<Skin> m_skins;

@@ -29,8 +29,8 @@ namespace pnkr::renderer::scene
         ~ModelDOD() = default;
 
         const std::vector<MaterialData>& materials() const { return m_assets.materials(); }
-        const std::vector<TextureHandle>& textures() const { return m_assets.textures(); }
-        const std::vector<TextureHandle>& pendingTextures() const { return m_assets.pendingTextures(); }
+        const std::vector<TexturePtr>& textures() const { return m_assets.textures(); }
+        const std::vector<TexturePtr>& pendingTextures() const { return m_assets.pendingTextures(); }
         const std::vector<MeshDOD>& meshes() const { return m_assets.meshes(); }
         const std::vector<BoundingBox>& meshBounds() const { return m_assets.meshBounds(); }
         const std::vector<Skin>& skins() const { return m_assets.skins(); }
@@ -49,8 +49,8 @@ namespace pnkr::renderer::scene
         const AnimationState& animationState() const { return m_state.animationState(); }
 
         std::vector<MaterialData>& materialsMutable() { return m_assets.materialsMutable(); }
-        std::vector<TextureHandle>& texturesMutable() { return m_assets.texturesMutable(); }
-        std::vector<TextureHandle>& pendingTexturesMutable() { return m_assets.pendingTexturesMutable(); }
+        std::vector<TexturePtr>& texturesMutable() { return m_assets.texturesMutable(); }
+        std::vector<TexturePtr>& pendingTexturesMutable() { return m_assets.pendingTexturesMutable(); }
         std::vector<MeshDOD>& meshesMutable() { return m_assets.meshesMutable(); }
         std::vector<BoundingBox>& meshBoundsMutable() { return m_assets.meshBoundsMutable(); }
         std::vector<MaterialCPU>& materialsCPUMutable() { return m_assets.materialsCPUMutable(); }
