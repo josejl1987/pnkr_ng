@@ -25,6 +25,7 @@ target_sources(pnkr_engine
     SystemMeshes.cpp
     ShaderHotReloader.cpp
     ShaderCompiler.cpp
+    ShaderCache.cpp
 
     # Debug
     debug/DebugLayer.cpp

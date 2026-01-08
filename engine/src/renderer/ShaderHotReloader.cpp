@@ -8,6 +8,19 @@
 
 namespace pnkr::renderer {
 
+static CompileOptions getHotReloadOptions() {
+    CompileOptions options;
+#ifdef PNKR_DEBUG
+    options.debugInfo = true;
+    options.optimize = false;
+#else
+    options.debugInfo = false;
+    options.optimize = true;
+#endif
+    options.useCache = true;
+    return options;
+}
+
 void ShaderHotReloader::init(RHIRenderer* renderer) {
     m_renderer = renderer;
     ShaderCompiler::initialize();
@@ -81,7 +94,8 @@ PipelinePtr ShaderHotReloader::createGraphicsPipeline(
     for (size_t i = 0; i < sources.size(); ++i) {
         const auto& src = sources[i];
 
-        auto result = ShaderCompiler::compile(src.path, src.entryPoint, src.stage);
+        auto options = getHotReloadOptions();
+        auto result = ShaderCompiler::compile(src.path, src.entryPoint, src.stage, options);
 
         if (!result.success) {
             core::Logger::Render.error("Initial shader compilation failed for {}: {}",
@@ -116,7 +130,8 @@ PipelinePtr ShaderHotReloader::createComputePipeline(
     const rhi::ComputePipelineDescriptor& desc,
     const ShaderSourceInfo& source
 ) {
-    auto result = ShaderCompiler::compile(source.path, source.entryPoint, rhi::ShaderStage::Compute);
+    auto options = getHotReloadOptions();
+    auto result = ShaderCompiler::compile(source.path, source.entryPoint, rhi::ShaderStage::Compute, options);
 
     if (!result.success) {
         core::Logger::Render.error("Initial compute shader compilation failed: {}", result.error);
@@ -180,7 +195,8 @@ void ShaderHotReloader::registerDependencies(const ShaderSourceInfo& source, Pip
 void ShaderHotReloader::rebuildPipeline(PipelineHandle handle, const PipelineRecipe& recipe) {
     if (recipe.isCompute) {
         const auto& src = recipe.shaderSources[0];
-        auto result = ShaderCompiler::compile(src.path, src.entryPoint, rhi::ShaderStage::Compute);
+        auto options = getHotReloadOptions();
+        auto result = ShaderCompiler::compile(src.path, src.entryPoint, rhi::ShaderStage::Compute, options);
 
         if (!result.success) {
             core::Logger::Render.error("Hot-reload failed for {}: {}",
@@ -200,7 +216,8 @@ void ShaderHotReloader::rebuildPipeline(PipelineHandle handle, const PipelineRec
 
         for (size_t i = 0; i < recipe.shaderSources.size(); ++i) {
             const auto& src = recipe.shaderSources[i];
-            auto result = ShaderCompiler::compile(src.path, src.entryPoint, src.stage);
+            auto options = getHotReloadOptions();
+            auto result = ShaderCompiler::compile(src.path, src.entryPoint, src.stage, options);
 
             if (!result.success) {
                 core::Logger::Render.error("Hot-reload failed for {}: {}",

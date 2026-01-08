@@ -1,4 +1,5 @@
 #include "pnkr/renderer/ShaderCompiler.hpp"
+#include "pnkr/renderer/ShaderCache.hpp"
 #include "pnkr/core/logger.hpp"
 #include "pnkr/filesystem/VFS.hpp"
 #include <slang.h>
@@ -11,11 +12,15 @@ std::filesystem::path ShaderCompiler::s_projectRoot;
 
 void ShaderCompiler::initialize() {
     s_slangSession = spCreateSession();
+    
+    // Initialize shader cache in 'pnkr_shader_cache' directory
+    ShaderCache::initialize("pnkr_shader_cache");
 
     core::Logger::Render.info("Slang shader compiler initialized");
 }
 
 void ShaderCompiler::shutdown() {
+    ShaderCache::shutdown();
     if (s_slangSession) {
         spDestroySession(static_cast<SlangSession*>(s_slangSession));
         s_slangSession = nullptr;
@@ -31,8 +36,7 @@ CompileResult ShaderCompiler::compile(
     const std::filesystem::path& sourcePath,
     const std::string& entryPoint,
     rhi::ShaderStage stage,
-    const std::vector<std::string>& defines,
-    const std::vector<std::filesystem::path>& searchPaths
+    const CompileOptions& options
 ) {
     CompileResult result;
 
@@ -41,11 +45,56 @@ CompileResult ShaderCompiler::compile(
         return result;
     }
 
+    // Resolve path for hashing and loading
+    std::filesystem::path resolvedPath = sourcePath;
+    std::string pathStr = sourcePath.string();
+    std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
+    if (pathStr.length() > 0 && pathStr[0] == '/') {
+        auto p = filesystem::VFS::resolve(pathStr);
+        if (!p.empty()) {
+            resolvedPath = p;
+        }
+    }
+
+    // 1. Check Cache
+    ShaderCacheKey cacheKey{
+        .sourcePath = resolvedPath,
+        .entryPoint = entryPoint,
+        .stage = stage,
+        .defines = options.defines,
+        .debugInfo = options.debugInfo,
+        .optimize = options.optimize
+    };
+
+    if (options.useCache) {
+        auto cached = ShaderCache::load(cacheKey);
+        if (cached) {
+            result.success = true;
+            result.spirv = std::move(cached->spirv);
+            result.dependencies = std::move(cached->dependencies);
+            result.fromCache = true;
+            core::Logger::Render.info("Loaded shader from cache: {} [{}]", sourcePath.string(), entryPoint);
+            return result;
+        }
+    }
+
+    // 2. Compile if cache miss
     SlangCompileRequest* request = spCreateCompileRequest(static_cast<SlangSession*>(s_slangSession));
 
     int targetIndex = spAddCodeGenTarget(request, SLANG_SPIRV);
     spSetTargetProfile(request, targetIndex, spFindProfile(static_cast<SlangSession*>(s_slangSession), "spirv_1_6"));
     spSetTargetFlags(request, targetIndex, SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY);
+
+    // Set Debug Info and Optimization levels
+    if (options.debugInfo) {
+        spSetDebugInfoLevel(request, SLANG_DEBUG_INFO_LEVEL_STANDARD);
+    }
+    
+    if (options.optimize) {
+        spSetOptimizationLevel(request, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
+    } else {
+        spSetOptimizationLevel(request, SLANG_OPTIMIZATION_LEVEL_NONE);
+    }
 
     spAddSearchPath(request, "assets/shaders");
     spAddSearchPath(request, "include");
@@ -60,13 +109,13 @@ CompileResult ShaderCompiler::compile(
         spAddSearchPath(request, vfsInclude.string().c_str());
     }
     
-    for (const auto& path : searchPaths) {
+    for (const auto& path : options.searchPaths) {
         spAddSearchPath(request, path.string().c_str());
     }
 
     spSetMatrixLayoutMode(request, SLANG_MATRIX_LAYOUT_COLUMN_MAJOR);
 
-    for (const auto& define : defines) {
+    for (const auto& define : options.defines) {
         size_t eqPos = define.find('=');
         if (eqPos != std::string::npos) {
             std::string name = define.substr(0, eqPos);
@@ -78,18 +127,6 @@ CompileResult ShaderCompiler::compile(
     }
 
     int translationUnitIndex = spAddTranslationUnit(request, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
-    
-    std::filesystem::path resolvedPath = sourcePath;
-    
-    std::string pathStr = sourcePath.string();
-    std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
-    if (pathStr.length() > 0 && pathStr[0] == '/') {
-        auto p = filesystem::VFS::resolve(pathStr);
-        if (!p.empty()) {
-            resolvedPath = p;
-        }
-    }
-    
     spAddTranslationUnitSourceFile(request, translationUnitIndex, resolvedPath.string().c_str());
 
     SlangStage slangStage;
@@ -102,6 +139,7 @@ CompileResult ShaderCompiler::compile(
         case rhi::ShaderStage::Geometry: slangStage = SLANG_STAGE_GEOMETRY; break;
         default:
             result.error = "Unsupported shader stage";
+            spDestroyCompileRequest(request);
             return result;
     }
 
@@ -139,6 +177,16 @@ CompileResult ShaderCompiler::compile(
 
         core::Logger::Render.info("Compiled {} -> {} bytes SPIR-V, {} dependencies",
             sourcePath.string(), codeSize, result.dependencies.size());
+
+        // 3. Store in Cache
+        if (result.success && options.useCache) {
+            ShaderCacheEntry cacheEntry{
+                .spirv = result.spirv,
+                .dependencies = result.dependencies,
+                .sourceHash = ShaderCache::computeFileHash(resolvedPath)
+            };
+            ShaderCache::store(cacheKey, cacheEntry);
+        }
     }
 
     spDestroyCompileRequest(request);

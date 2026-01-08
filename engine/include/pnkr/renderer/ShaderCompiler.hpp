@@ -11,6 +11,15 @@ struct CompileResult {
     std::vector<uint32_t> spirv;
     std::string error;
     std::vector<std::filesystem::path> dependencies;
+    bool fromCache = false;
+};
+
+struct CompileOptions {
+    bool debugInfo = false;
+    bool optimize = true;
+    bool useCache = true;
+    std::vector<std::string> defines;
+    std::vector<std::filesystem::path> searchPaths;
 };
 
 class ShaderCompiler {
@@ -24,9 +33,22 @@ public:
         const std::filesystem::path& sourcePath,
         const std::string& entryPoint,
         rhi::ShaderStage stage,
-        const std::vector<std::string>& defines = {},
-        const std::vector<std::filesystem::path>& searchPaths = {}
+        const CompileOptions& options = {}
     );
+
+    // Backward compatibility or convenience
+    static CompileResult compile(
+        const std::filesystem::path& sourcePath,
+        const std::string& entryPoint,
+        rhi::ShaderStage stage,
+        const std::vector<std::string>& defines,
+        const std::vector<std::filesystem::path>& searchPaths = {}
+    ) {
+        return compile(sourcePath, entryPoint, stage, {
+            .defines = defines,
+            .searchPaths = searchPaths
+        });
+    }
 
 private:
     static void* s_slangSession;
