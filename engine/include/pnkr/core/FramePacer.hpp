@@ -30,36 +30,24 @@ public:
             return;
         }
 
-        using namespace std::chrono;
+        const auto targetFrameDuration = std::chrono::duration<double>(1.0 / targetFPS);
 
-        // Calculate target duration
-        const auto targetFrameDuration = duration<double>(1.0 / targetFPS);
+        m_nextFrameTime += std::chrono::duration_cast<std::chrono::steady_clock::duration>(targetFrameDuration);
 
-        // 1. Advance the schedule by exactly one frame interval
-        m_nextFrameTime += duration_cast<steady_clock::duration>(targetFrameDuration);
+        auto now = std::chrono::steady_clock::now();
 
-        auto now = steady_clock::now();
-
-        // 2. Drift Recovery: If we are WAY behind (e.g. > 100ms), snap the schedule to now.
-        // This prevents the "spiral of death" where we try to render 50 frames instantly to catch up.
-        if (now > m_nextFrameTime + milliseconds(100)) {
+        if (now > m_nextFrameTime + std::chrono::milliseconds(100)) {
             m_nextFrameTime = now;
-            return; // Don't sleep, just get back to work
+            return;
         }
 
-        // 3. Hybrid Wait Strategy
-        // We want to sleep to save power, but sleep is imprecise.
-        // We sleep until 1.5ms BEFORE the target, then spin-wait the rest.
-        auto timeToSleep = m_nextFrameTime - now - milliseconds(2); // 1.5ms + safety margin
+        auto timeToSleep = m_nextFrameTime - now - std::chrono::milliseconds(2);
 
-        if (timeToSleep > milliseconds(0)) {
+        if (timeToSleep > std::chrono::milliseconds(0)) {
             std::this_thread::sleep_for(timeToSleep);
         }
 
-        // 4. Spin Lock for precision (Burn remaining time)
-        while (steady_clock::now() < m_nextFrameTime) {
-            // std::this_thread::yield(); // Optional: reduces CPU slightly, but reduces precision
-            // _mm_pause(); // Ideally use an intrinsic for "cpu relax" if available
+        while (std::chrono::steady_clock::now() < m_nextFrameTime) {
         }
     }
 
@@ -68,7 +56,7 @@ private:
 
     static void acquireTimerPeriod() {
 #if defined(_WIN32)
-        // Set global timer resolution to 1ms to make sleep_for() more accurate
+
         timeBeginPeriod(1);
 #endif
     }
@@ -80,4 +68,4 @@ private:
     }
 };
 
-} // namespace pnkr::core
+}

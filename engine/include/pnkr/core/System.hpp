@@ -37,4 +37,4 @@ namespace pnkr::ecs {
         }
     };
 
-} // namespace pnkr::ecs
+}

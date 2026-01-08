@@ -1,0 +1,629 @@
+#include "pnkr/assets/AssetImporter.hpp"
+#include "pnkr/rhi/rhi_command_buffer.hpp"
+#include "pnkr/renderer/io/ModelSerializer.hpp"
+#include "pnkr/renderer/geometry/GeometryUtils.hpp"
+#include "pnkr/assets/GeometryProcessor.hpp"
+#include "pnkr/core/logger.hpp"
+#include "pnkr/core/common.hpp"
+#include "pnkr/core/profiler.hpp"
+#include "pnkr/core/TaskSystem.hpp"
+#include "pnkr/assets/TextureCacheSystem.hpp"
+#include "pnkr/assets/MemoryMappedFile.hpp"
+#include "pnkr/assets/GLTFParser.hpp"
+
+#include <algorithm>
+#include <fastgltf/core.hpp>
+#include <fastgltf/glm_element_traits.hpp>
+#include <fastgltf/tools.hpp>
+#include <fastgltf/types.hpp>
+
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <limits>
+#include <optional>
+#include <random>
+#include <stb_image.h>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/vec4.hpp>
+
+#include <ktx.h>
+#include <ktx.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+#include "pnkr/renderer/scene/GLTFUtils.hpp"
+
+namespace pnkr::assets
+{
+    namespace
+    {
+        constexpr uint64_t fnv1a64(std::string_view s) {
+             uint64_t h = 0xcbf29ce484222325ULL;
+             for (char c : s) {
+                 h ^= static_cast<uint64_t>(c);
+                 h *= 0x100000001b3ULL;
+             }
+             return h;
+        }
+
+        bool pathExistsNoThrow(const std::filesystem::path& p) noexcept {
+            std::error_code ec;
+            return std::filesystem::exists(p, ec);
+        }
+
+        bool hasExtIcase(const std::filesystem::path &p, std::string_view ext) {
+          auto e = p.extension().string();
+          std::ranges::transform(e, e.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+          });
+          std::string ex(ext);
+          std::ranges::transform(ex, ex.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+          });
+          return e == ex;
+        }
+
+        std::filesystem::path
+        normalizePathFast(const std::filesystem::path &p) {
+          return p.lexically_normal();
+        }
+
+        bool isKtx2Magic(const std::vector<std::uint8_t> &bytes) {
+          static constexpr std::uint8_t kMagic[12] = {0xAB, 0x4B, 0x54, 0x58,
+                                                      0x20, 0x32, 0x30, 0xBB,
+                                                      0x0D, 0x0A, 0x1A, 0x0A};
+          if (bytes.size() < sizeof(kMagic)) {
+            return false;
+          }
+          return std::equal(std::begin(kMagic), std::end(kMagic),
+                            bytes.begin());
+        }
+
+        struct TextureInfo
+        {
+          bool m_isSrgb = false;
+          LoadPriority m_priority = LoadPriority::Medium;
+        };
+
+        [[maybe_unused]] void markTextureInfo(std::vector<TextureInfo> &info, size_t texIdx,
+                             bool srgb, LoadPriority priority) {
+          if (texIdx < info.size()) {
+            info[texIdx].m_isSrgb = srgb ? true : info[texIdx].m_isSrgb;
+
+            if ((int)priority > (int)info[texIdx].m_priority) {
+               info[texIdx].m_priority = priority;
+            }
+          }
+          return;
+        }
+
+        fastgltf::URIView getUriView(const fastgltf::sources::URI &uri) {
+          if constexpr (requires { uri.uri; }) {
+            if constexpr (requires { uri.uri.string(); }) {
+              return fastgltf::URIView{uri.uri.string()};
+            } else if constexpr (requires { uri.uri.c_str(); }) {
+              return fastgltf::URIView{std::string_view{uri.uri.c_str()}};
+            } else {
+              return fastgltf::URIView{};
+            }
+          } else {
+            return fastgltf::URIView{};
+          }
+        }
+
+        std::optional<std::size_t> pickImageIndex(const fastgltf::Texture &texture) {
+          if (texture.imageIndex.has_value()) {
+            return texture.imageIndex.value();
+          }
+          if (texture.webpImageIndex.has_value()) {
+            return texture.webpImageIndex.value();
+          }
+          if (texture.ddsImageIndex.has_value()) {
+            return texture.ddsImageIndex.value();
+          }
+          if (texture.basisuImageIndex.has_value()) {
+            return texture.basisuImageIndex.value();
+          }
+          return std::nullopt;
+        }
+
+
+
+
+        struct TextureProcessTask : enki::ITaskSet
+        {
+          const fastgltf::Asset *m_gltf{};
+          std::vector<ImportedTexture> *m_textures{};
+          const std::vector<TextureInfo> *m_textureInfo{};
+          std::filesystem::path m_assetPath;
+          std::filesystem::path m_cacheDir;
+          uint32_t m_maxTextureSize{};
+          LoadProgress *m_progress = nullptr;
+          static constexpr uint32_t K_TEXTURES_PER_BATCH = 8;
+          core::ScopeSnapshot m_scopeSnapshot = core::Logger::captureScopes();
+
+          void ExecuteRange(enki::TaskSetPartition range,
+                            uint32_t threadnum) override {
+            PNKR_PROFILE_SCOPE("Process Textures Batch");
+            core::Logger::restoreScopes(m_scopeSnapshot);
+
+            for (uint32_t batchIdx = range.start; batchIdx < range.end;
+                 ++batchIdx) {
+              const uint32_t startTex = batchIdx * K_TEXTURES_PER_BATCH;
+              const uint32_t endTex =
+                  std::min(startTex + K_TEXTURES_PER_BATCH,
+                           static_cast<uint32_t>(m_gltf->textures.size()));
+
+              for (uint32_t texIdx = startTex; texIdx < endTex; ++texIdx) {
+                PNKR_PROFILE_SCOPE("ProcessTexture");
+                const auto texStartTime =
+                    std::chrono::high_resolution_clock::now();
+                if (m_progress != nullptr) {
+                  m_progress->texturesLoaded.fetch_add(
+                      1, std::memory_order_relaxed);
+                }
+                const auto imgIndexOpt =
+                    pickImageIndex((*m_gltf).textures[texIdx]);
+                if (!imgIndexOpt) {
+                  core::Logger::Asset.warn(
+                      "[Thread {}] Texture {} has no valid image", threadnum,
+                      texIdx);
+                  const auto texEndTime =
+                      std::chrono::high_resolution_clock::now();
+                  const double totalTime =
+                      std::chrono::duration<double>(texEndTime - texStartTime)
+                          .count();
+                  core::Logger::Asset.info(
+                      "[Thread {}] Texture {} TOTAL: {:.2f}s\n", threadnum,
+                      texIdx, totalTime);
+                  continue;
+                }
+
+                const auto &img = (*m_gltf).images[*imgIndexOpt];
+                std::string sourceKey;
+                std::string uriPath;
+
+                const auto t1 = std::chrono::high_resolution_clock::now();
+                std::visit(fastgltf::visitor{
+                               [&](const fastgltf::sources::URI &uriSrc) {
+                                 const auto uri = getUriView(uriSrc);
+                                 if (uri.valid() && uri.isLocalPath()) {
+                                   uriPath = normalizePathFast(
+                                                 m_assetPath.parent_path() /
+                                                 uri.fspath())
+                                                 .string();
+                                 }
+                               },
+                               [](auto &) {}},
+                           img.data);
+                const auto t2 = std::chrono::high_resolution_clock::now();
+                core::Logger::Asset.debug(
+                    "[Thread {}] URI extraction: {:.3f}ms", threadnum,
+                    std::chrono::duration<double, std::milli>(t2 - t1).count());
+
+                const bool srgb = (texIdx < m_textureInfo->size())
+                                      ? ((*m_textureInfo)[texIdx].m_isSrgb)
+                                      : false;
+                const LoadPriority priority =
+                    (texIdx < m_textureInfo->size())
+                        ? ((*m_textureInfo)[texIdx].m_priority)
+                        : LoadPriority::Medium;
+
+                const bool uriExists =
+                    !uriPath.empty() && pathExistsNoThrow(uriPath);
+                const bool uriIsKtx2 =
+                    uriExists &&
+                    hasExtIcase(std::filesystem::path(uriPath), ".ktx2");
+
+                if (uriIsKtx2) {
+                  core::Logger::Asset.info(
+                      "[Thread {}] Texture {} using existing KTX2: {}",
+                      threadnum, texIdx, uriPath);
+                  (*m_textures)[texIdx].sourcePath = uriPath;
+                  (*m_textures)[texIdx].isKtx = true;
+                  (*m_textures)[texIdx].isSrgb = srgb;
+                  (*m_textures)[texIdx].priority = priority;
+                  const auto texEndTime =
+                      std::chrono::high_resolution_clock::now();
+                  const double totalTime =
+                      std::chrono::duration<double>(texEndTime - texStartTime)
+                          .count();
+                  core::Logger::Asset.info(
+                      "[Thread {}] Texture {} TOTAL: {:.2f}s\n", threadnum,
+                      texIdx, totalTime);
+                  continue;
+                }
+
+                if (uriExists) {
+                  sourceKey = uriPath;
+                  const auto ktxPath = TextureCacheSystem::getCachedPath(
+                      m_cacheDir, sourceKey, m_maxTextureSize, srgb);
+
+                  core::Logger::Asset.info("[Thread {}] Texture {} source: {}",
+                                           threadnum, texIdx, uriPath);
+                  core::Logger::Asset.debug("[Thread {}] Cache path: {}",
+                                            threadnum, ktxPath.string());
+
+                  bool cacheValid = false;
+                  const auto t3 = std::chrono::high_resolution_clock::now();
+                  if (pathExistsNoThrow(ktxPath)) {
+                    std::error_code ec;
+                    auto sourceMTime =
+                        std::filesystem::last_write_time(uriPath, ec);
+                    if (!ec) {
+                      auto cacheMTime =
+                          std::filesystem::last_write_time(ktxPath, ec);
+                      if (!ec && cacheMTime >= sourceMTime) {
+                        cacheValid = true;
+                      }
+                    }
+                  }
+                  const auto t4 = std::chrono::high_resolution_clock::now();
+                  core::Logger::Asset.debug(
+                      "[Thread {}] Cache check: {:.3f}ms (valid: {})",
+                      threadnum,
+                      std::chrono::duration<double, std::milli>(t4 - t3)
+                          .count(),
+                      cacheValid);
+
+                  if (cacheValid) {
+                    core::Logger::Asset.info(
+                        "[Thread {}] Texture {} using cache: {}", threadnum,
+                        texIdx, ktxPath.string());
+                    (*m_textures)[texIdx].sourcePath = ktxPath.string();
+                    (*m_textures)[texIdx].isKtx = true;
+                    (*m_textures)[texIdx].isSrgb = srgb;
+                    (*m_textures)[texIdx].priority = priority;
+                    const auto texEndTime =
+                        std::chrono::high_resolution_clock::now();
+                    const double totalTime =
+                        std::chrono::duration<double>(texEndTime - texStartTime)
+                            .count();
+                    core::Logger::Asset.info(
+                        "[Thread {}] Texture {} TOTAL: {:.2f}s\n", threadnum,
+                        texIdx, totalTime);
+                    continue;
+                  }
+
+                  std::vector<std::uint8_t> fileBytes;
+                  {
+                    PNKR_PROFILE_SCOPE("FileRead");
+                    const auto t5 = std::chrono::high_resolution_clock::now();
+
+                    std::ifstream is(uriPath, std::ios::binary);
+                    if (is) {
+                      is.seekg(0, std::ios::end);
+                      const auto sz = (std::streamsize)is.tellg();
+                      if (sz > 0) {
+                        fileBytes.resize((size_t)sz);
+                        is.seekg(0, std::ios::beg);
+                        is.read(reinterpret_cast<char *>(fileBytes.data()), sz);
+                        if (!is.good()) {
+                          fileBytes.clear();
+                        }
+                      }
+                    }
+                    const auto t6 = std::chrono::high_resolution_clock::now();
+                    core::Logger::Asset.info(
+                        "[Thread {}] File read: {:.3f}ms ({} bytes)", threadnum,
+                        std::chrono::duration<double, std::milli>(t6 - t5)
+                            .count(),
+                        fileBytes.size());
+                  }
+                  if (fileBytes.empty()) {
+                    core::Logger::Asset.error(
+                        "[Thread {}] Failed to read texture file: {}",
+                        threadnum, uriPath);
+                    continue;
+                  }
+
+                  int w = 0;
+                  int h = 0;
+                  int comp = 0;
+                  const auto t7 = std::chrono::high_resolution_clock::now();
+                  stbi_uc *rgba = nullptr;
+                  {
+                    PNKR_PROFILE_SCOPE("STBI_Load");
+                    rgba = stbi_load_from_memory(fileBytes.data(),
+                                                 (int)fileBytes.size(), &w, &h,
+                                                 &comp, 4);
+                  }
+                  const auto t8 = std::chrono::high_resolution_clock::now();
+                  core::Logger::Asset.info(
+                      "[Thread {}] Image decode: {:.3f}ms ({}x{}, {} comp)",
+                      threadnum,
+                      std::chrono::duration<double, std::milli>(t8 - t7)
+                          .count(),
+                      w, h, comp);
+                  if (rgba != nullptr) {
+                    PNKR_PROFILE_SCOPE("CacheWrite");
+                    (void)TextureCacheSystem::writeKtx2RGBA8MipmappedAtomic(
+                        ktxPath, rgba, w, h, m_maxTextureSize, srgb, threadnum);
+                    stbi_image_free(rgba);
+                  } else {
+                    core::Logger::Asset.error(
+                        "[Thread {}] stbi_load failed for texture {}: {}",
+                        threadnum, texIdx, stbi_failure_reason());
+                    const uint8_t white[4] = {255, 255, 255, 255};
+                    (void)TextureCacheSystem::writeKtx2RGBA8MipmappedAtomic(ktxPath, white, 1, 1, 1,
+                                                        srgb, threadnum);
+                  }
+
+                  (*m_textures)[texIdx].sourcePath = ktxPath.string();
+                  (*m_textures)[texIdx].isKtx = true;
+                  (*m_textures)[texIdx].isSrgb = srgb;
+                  (*m_textures)[texIdx].priority = priority;
+
+                  const auto texEndTime =
+                      std::chrono::high_resolution_clock::now();
+                  const double totalTime =
+                      std::chrono::duration<double>(texEndTime - texStartTime)
+                          .count();
+                  core::Logger::Asset.info(
+                      "[Thread {}] Texture {} TOTAL: {:.2f}s\n", threadnum,
+                      texIdx, totalTime);
+                  continue;
+                }
+
+                core::Logger::Asset.warn(
+                    "[Thread {}] Texture {} using embedded/bufferView data",
+                    threadnum, texIdx);
+                const auto encoded = renderer::scene::extractImageBytes(
+                    *m_gltf, img, m_assetPath.parent_path());
+                if (encoded.empty()) {
+                  continue;
+                }
+
+                const uint64_t contentHash = fnv1a64(std::string_view(
+                    (const char *)encoded.data(), encoded.size()));
+                sourceKey = m_assetPath.string() + "#img" +
+                            std::to_string(*imgIndexOpt) + "#tex" +
+                            std::to_string(texIdx) + "#h" +
+                            std::to_string((unsigned long long)contentHash);
+
+                bool sourceIsKtx2 = false;
+                sourceIsKtx2 = isKtx2Magic(encoded);
+
+                std::string ktxPathStr;
+                if (sourceIsKtx2) {
+                  const auto ktxPath =
+                      TextureCacheSystem::getCachedPath(m_cacheDir, sourceKey, 0U, srgb);
+                  if (!pathExistsNoThrow(ktxPath)) {
+                    PNKR_PROFILE_SCOPE("CacheWrite_Existing");
+                    (void)TextureCacheSystem::writeBytesFileAtomic(ktxPath, encoded, threadnum);
+                  }
+                  ktxPathStr = ktxPath.string();
+                } else {
+                  const auto ktxPath = TextureCacheSystem::getCachedPath(
+                      m_cacheDir, sourceKey, m_maxTextureSize, srgb);
+                  if (!pathExistsNoThrow(ktxPath)) {
+                    int w = 0;
+                    int h = 0;
+                    int comp = 0;
+                    stbi_uc *rgba = stbi_load_from_memory(
+                        encoded.data(), (int)encoded.size(), &w, &h, &comp, 4);
+                    if (rgba != nullptr) {
+                      PNKR_PROFILE_SCOPE("CacheWrite_Embedded");
+                      (void)TextureCacheSystem::writeKtx2RGBA8MipmappedAtomic(ktxPath, rgba, w, h,
+                                                          m_maxTextureSize,
+                                                          srgb, threadnum);
+                      stbi_image_free(rgba);
+                    } else {
+                      const uint8_t white[4] = {255, 255, 255, 255};
+                      (void)TextureCacheSystem::writeKtx2RGBA8MipmappedAtomic(ktxPath, white, 1, 1,
+                                                          1, srgb, threadnum);
+                    }
+                  }
+                  ktxPathStr = ktxPath.string();
+                }
+
+                (*m_textures)[texIdx].sourcePath = ktxPathStr;
+                (*m_textures)[texIdx].isKtx = true;
+                (*m_textures)[texIdx].isSrgb = srgb;
+                (*m_textures)[texIdx].priority = priority;
+
+                const auto texEndTime =
+                    std::chrono::high_resolution_clock::now();
+                const double totalTime =
+                    std::chrono::duration<double>(texEndTime - texStartTime)
+                        .count();
+                core::Logger::Asset.info(
+                    "[Thread {}] Texture {} TOTAL: {:.2f}s\n", threadnum,
+                    texIdx, totalTime);
+              }
+            }
+            }
+        };
+    }
+
+    std::unique_ptr<ImportedModel> AssetImporter::loadGLTF(const std::filesystem::path& path, LoadProgress* progress)
+    {
+        PNKR_LOG_SCOPE(std::format("AssetImport[{}]", path.filename().string()));
+        PNKR_PROFILE_FUNCTION();
+        auto startTime = std::chrono::high_resolution_clock::now();
+        core::Logger::Asset.info("AssetImporter: Starting load of '{}'", path.string());
+
+        if (progress != nullptr) {
+          progress->currentStage.store(LoadStage::ReadingFile,
+                                       std::memory_order_relaxed);
+          progress->setStatusMessage("Starting load of '" + path.string() + "'");
+        }
+
+        auto model = std::make_unique<ImportedModel>();
+        const auto pmeshPath = path.parent_path() / ".cache" / (path.stem().string() + ".pmesh");
+        bool cacheHit = false;
+
+        if (pathExistsNoThrow(pmeshPath))
+        {
+            std::error_code ec;
+            auto sourceMTime = std::filesystem::last_write_time(path, ec);
+            if (!ec)
+            {
+                auto cacheMTime = std::filesystem::last_write_time(pmeshPath, ec);
+                if (!ec && cacheMTime >= sourceMTime)
+                {
+                    PNKR_PROFILE_SCOPE("Load PMESH Cache");
+                    if (renderer::io::ModelSerializer::loadPMESH(*model, pmeshPath))
+                    {
+                        core::Logger::Asset.info("AssetImporter: Loaded from binary cache '{}'", pmeshPath.string());
+                        cacheHit = true;
+                    }
+                }
+            }
+        }
+
+        if (cacheHit)
+        {
+          if (progress != nullptr) {
+            progress->currentStage.store(LoadStage::Complete,
+                                         std::memory_order_relaxed);
+          }
+            auto endTime = std::chrono::high_resolution_clock::now();
+            double duration = std::chrono::duration<double, std::milli>(endTime - startTime).count();
+            core::Logger::Asset.info("AssetImporter: Loaded (Cached) '{}' in {:.2f}ms.", path.filename().string(), duration);
+            return model;
+        }
+
+        fastgltf::Parser parser(
+            fastgltf::Extensions::KHR_texture_basisu | fastgltf::Extensions::MSFT_texture_dds |
+            fastgltf::Extensions::EXT_texture_webp |
+            fastgltf::Extensions::KHR_materials_pbrSpecularGlossiness | fastgltf::Extensions::KHR_materials_clearcoat |
+            fastgltf::Extensions::KHR_materials_sheen | fastgltf::Extensions::KHR_materials_specular |
+            fastgltf::Extensions::KHR_materials_ior | fastgltf::Extensions::KHR_materials_unlit |
+            fastgltf::Extensions::KHR_materials_transmission | fastgltf::Extensions::KHR_materials_volume |
+            fastgltf::Extensions::KHR_materials_anisotropy | fastgltf::Extensions::KHR_materials_iridescence |
+            fastgltf::Extensions::KHR_materials_emissive_strength | fastgltf::Extensions::KHR_lights_punctual |
+            fastgltf::Extensions::KHR_mesh_quantization);
+
+        if (progress != nullptr) {
+          progress->currentStage.store(LoadStage::ParsingGLTF,
+                                       std::memory_order_relaxed);
+        }
+
+        auto dataResult = fastgltf::GltfDataBuffer::FromPath(path);
+        if (dataResult.error() != fastgltf::Error::None)
+        {
+            core::Logger::Asset.error("AssetImporter: Failed to read file '{}': {}", path.string(),
+                                    fastgltf::getErrorMessage(dataResult.error()));
+            return nullptr;
+        }
+        auto& data = dataResult.get();
+
+        fastgltf::Expected<fastgltf::Asset> asset = fastgltf::Error::None;
+        {
+            PNKR_PROFILE_SCOPE("Parse GLTF");
+            auto expected = parser.loadGltf(data, path.parent_path(),
+                                            fastgltf::Options::LoadExternalBuffers |
+                                            fastgltf::Options::LoadExternalImages);
+            if (expected.error() != fastgltf::Error::None)
+            {
+                core::Logger::Asset.error("AssetImporter: Failed to parse GLTF '{}': {}", path.string(),
+                                    fastgltf::getErrorMessage(expected.error()));
+                return nullptr;
+            }
+            asset = std::move(expected);
+        }
+
+        auto& gltf = asset.get();
+
+        if (progress != nullptr) {
+          progress->texturesTotal.store((uint32_t)gltf.textures.size(),
+                                        std::memory_order_relaxed);
+          uint32_t primTotal = 0;
+          for (const auto &mesh : gltf.meshes) {
+            primTotal += (uint32_t)mesh.primitives.size();
+          }
+          progress->meshesTotal.store(primTotal, std::memory_order_relaxed);
+          progress->currentStage.store(LoadStage::LoadingTextures,
+                                       std::memory_order_relaxed);
+        }
+
+        GLTFParser::populateModel(*model, gltf, progress);
+
+        auto endTime = std::chrono::high_resolution_clock::now();
+        double duration = std::chrono::duration<double, std::milli>(endTime - startTime).count();
+
+        size_t texturesProcessed = 0;
+        size_t texturesCacheHit = 0;
+        for (const auto& tex : model->textures)
+        {
+            if (!tex.sourcePath.empty())
+            {
+                texturesProcessed++;
+                if (tex.sourcePath.find(".cache") != std::string::npos)
+                {
+                    texturesCacheHit++;
+                }
+            }
+        }
+
+        core::Logger::Asset.info("glTF Load Stats for '{}':", path.filename().string());
+        core::Logger::Asset.info("  Total time: {:.2f}ms", duration);
+        core::Logger::Asset.info(
+            "  Textures: {} total, {} cache hit ({:.1f}%)", texturesProcessed,
+            texturesCacheHit,
+            texturesProcessed > 0
+                ? (texturesCacheHit * 100.0F / texturesProcessed)
+                : 0.0F);
+
+        uint32_t totalVertices = 0;
+        uint32_t totalIndices = 0;
+        for (const auto& mesh : model->meshes)
+        {
+            for (const auto& prim : mesh.primitives)
+            {
+                totalVertices += (uint32_t)prim.vertices.size();
+                totalIndices += (uint32_t)prim.indices.size();
+            }
+        }
+        core::Logger::Asset.info("  Geometry: {} vertices, {} indices", totalVertices, totalIndices);
+
+        if (progress != nullptr) {
+          progress->currentStage.store(LoadStage::Complete,
+                                       std::memory_order_relaxed);
+        }
+
+#ifdef TRACY_ENABLE
+        TracyPlot("glTF/LoadTimeMs", (float)duration);
+        if (texturesProcessed > 0)
+        {
+            TracyPlot("glTF/TextureCacheHitRate", (float)texturesCacheHit / (float)texturesProcessed);
+        }
+#endif
+
+        {
+            PNKR_PROFILE_SCOPE("Save PMESH Cache");
+            std::filesystem::create_directories(pmeshPath.parent_path());
+            if (renderer::io::ModelSerializer::savePMESH(*model, pmeshPath))
+            {
+                core::Logger::Asset.info("AssetImporter: Saved binary cache to '{}'", pmeshPath.string());
+            }
+        }
+
+        return model;
+    }
+}

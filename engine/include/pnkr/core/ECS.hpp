@@ -7,18 +7,20 @@
 #include <limits>
 #include <tuple>
 #include <atomic>
+#include <span>
+#include <concepts>
+
+#include "pnkr/core/common.hpp"
 
 namespace pnkr::ecs {
 
-    // 1. Entity Definition
+    template<typename T>
+    concept Component = std::is_move_constructible_v<T> && std::is_destructible_v<T> && std::is_object_v<T>;
+
     using Entity = uint32_t;
     constexpr Entity NULL_ENTITY = std::numeric_limits<Entity>::max();
 
-    // 2. Component Type ID Generator
-    inline uint32_t getUniqueComponentID() {
-        static std::atomic<uint32_t> lastID{0};
-        return lastID.fetch_add(1, std::memory_order_relaxed);
-    }
+    uint32_t getUniqueComponentID();
 
     template <typename T>
     inline uint32_t getComponentTypeID() {
@@ -26,7 +28,6 @@ namespace pnkr::ecs {
         return typeID;
     }
 
-    // 3. Sparse Set Interface
     class ISparseSet {
     public:
         virtual ~ISparseSet() = default;
@@ -34,16 +35,43 @@ namespace pnkr::ecs {
         virtual bool has(Entity e) const = 0;
         virtual void clear() = 0;
         virtual size_t size() const = 0;
-        virtual const std::vector<Entity>& entities() const = 0;
+        virtual std::span<const Entity> entities() const = 0;
     };
 
-    // 4. Sparse Set Implementation
-    template <typename T>
+    template <Component T>
     class SparseSet : public ISparseSet {
     private:
+        static constexpr size_t PAGE_SIZE = 4096;
+        static constexpr size_t NULL_INDEX = std::numeric_limits<size_t>::max();
+
         std::vector<T> dense;
         std::vector<Entity> packed;
-        std::vector<size_t> sparse;
+        std::vector<std::unique_ptr<size_t[]>> sparsePages;
+
+        size_t* getSparseIndex(Entity e) const {
+            size_t page = e / PAGE_SIZE;
+            size_t offset = e % PAGE_SIZE;
+            if (page >= sparsePages.size() || !sparsePages[page]) {
+                return nullptr;
+            }
+            return &sparsePages[page][offset];
+        }
+
+        size_t* ensureSparseIndex(Entity e) {
+            size_t page = e / PAGE_SIZE;
+            size_t offset = e % PAGE_SIZE;
+
+            if (page >= sparsePages.size()) {
+                sparsePages.resize(page + 1);
+            }
+
+            if (!sparsePages[page]) {
+                sparsePages[page] = std::make_unique<size_t[]>(PAGE_SIZE);
+                std::fill_n(sparsePages[page].get(), PAGE_SIZE, NULL_INDEX);
+            }
+
+            return &sparsePages[page][offset];
+        }
 
     public:
         void reserve(size_t capacity) {
@@ -53,56 +81,64 @@ namespace pnkr::ecs {
 
         template<typename... Args>
         T& emplace(Entity e, Args&&... args) {
-            if (e >= sparse.size()) {
-                sparse.resize(e + 1, std::numeric_limits<size_t>::max());
+            size_t* idx = ensureSparseIndex(e);
+
+            if (*idx != NULL_INDEX) {
+                PNKR_ASSERT(*idx < dense.size(), "Sparse set corruption");
+                dense[*idx] = T(std::forward<Args>(args)...);
+                return dense[*idx];
             }
 
-            if (sparse[e] != std::numeric_limits<size_t>::max()) {
-                dense[sparse[e]] = T(std::forward<Args>(args)...);
-                return dense[sparse[e]];
-            }
-
-            sparse[e] = dense.size();
+            *idx = dense.size();
             packed.push_back(e);
             dense.emplace_back(std::forward<Args>(args)...);
             return dense.back();
         }
 
         void remove(Entity e) override {
-            if (!has(e)) return;
+            size_t* idx = getSparseIndex(e);
+            if (!idx || *idx == NULL_INDEX) return;
 
-            size_t idxToRemove = sparse[e];
+            size_t idxToRemove = *idx;
             size_t idxLast = dense.size() - 1;
             Entity entityLast = packed[idxLast];
 
-            dense[idxToRemove] = std::move(dense[idxLast]);
-            packed[idxToRemove] = entityLast;
+            if (idxToRemove != idxLast) {
+                dense[idxToRemove] = std::move(dense[idxLast]);
+                packed[idxToRemove] = entityLast;
 
-            sparse[entityLast] = idxToRemove;
-            sparse[e] = std::numeric_limits<size_t>::max();
+                size_t* idxSwap = getSparseIndex(entityLast);
+                PNKR_ASSERT(idxSwap, "Sparse set corruption on swap");
+                *idxSwap = idxToRemove;
+            }
+
+            *idx = NULL_INDEX;
 
             dense.pop_back();
             packed.pop_back();
         }
 
         bool has(Entity e) const override {
-            return e < sparse.size() && sparse[e] != std::numeric_limits<size_t>::max();
+            size_t* idx = getSparseIndex(e);
+            return idx && *idx != NULL_INDEX;
         }
 
         T& get(Entity e) {
-            assert(has(e));
-            return dense[sparse[e]];
+            size_t* idx = getSparseIndex(e);
+            PNKR_ASSERT(idx && *idx != NULL_INDEX, "Entity does not have component");
+            return dense[*idx];
         }
 
         const T& get(Entity e) const {
-            assert(has(e));
-            return dense[sparse[e]];
+            size_t* idx = getSparseIndex(e);
+            PNKR_ASSERT(idx && *idx != NULL_INDEX, "Entity does not have component");
+            return dense[*idx];
         }
-        
+
         void clear() override {
             dense.clear();
             packed.clear();
-            std::fill(sparse.begin(), sparse.end(), std::numeric_limits<size_t>::max());
+            sparsePages.clear();
         }
 
         auto begin() { return dense.begin(); }
@@ -110,18 +146,17 @@ namespace pnkr::ecs {
         auto begin() const { return dense.begin(); }
         auto end() const { return dense.end(); }
         size_t size() const override { return dense.size(); }
-        
+
         T* data() { return dense.data(); }
         const T* data() const { return dense.data(); }
-        const std::vector<Entity>& entities() const override { return packed; }
-        const std::vector<T>& getDense() const { return dense; }
-        std::vector<T>& getDense() { return dense; }
+        std::span<const Entity> entities() const override { return packed; }
+        std::span<const T> getDense() const { return dense; }
+        std::span<T> getDense() { return dense; }
     };
 
     class Registry;
 
-    // 5. Multi-Component View
-    template <typename... Components>
+    template <Component... Components>
     class View {
     public:
         Registry& reg;
@@ -133,16 +168,19 @@ namespace pnkr::ecs {
 
         struct Iterator {
             Registry& reg;
-            const std::vector<Entity>& entities;
+            std::span<const Entity> entities;
             size_t index;
 
-            Iterator(Registry& r, const std::vector<Entity>& list, size_t i) 
+            Iterator(Registry& r, std::span<const Entity> list, size_t i)
                 : reg(r), entities(list), index(i) {
                 validate();
             }
 
             void validate();
-            Entity operator*() const { return entities[index]; }
+            Entity operator*() const {
+                PNKR_ASSERT(index < entities.size(), "ECS Iterator out of bounds");
+                return entities[index];
+            }
             Iterator& operator++() { index++; validate(); return *this; }
             bool operator!=(const Iterator& other) const { return index != other.index; }
         };
@@ -151,10 +189,9 @@ namespace pnkr::ecs {
         Iterator end();
 
     private:
-        const std::vector<Entity>& smallestEntities() const;
+        std::span<const Entity> smallestEntities() const;
     };
 
-    // 6. Registry (The World)
     class Registry {
     private:
         mutable std::vector<std::unique_ptr<ISparseSet>> componentPools;
@@ -162,23 +199,10 @@ namespace pnkr::ecs {
         Entity entityCounter = 0;
 
     public:
-        Entity create() {
-            if (!freeEntities.empty()) {
-                Entity e = freeEntities.back();
-                freeEntities.pop_back();
-                return e;
-            }
-            return entityCounter++;
-        }
+        Entity create();
+        void destroy(Entity e);
 
-        void destroy(Entity e) {
-            for (auto& pool : componentPools) {
-                if (pool) pool->remove(e);
-            }
-            freeEntities.push_back(e);
-        }
-
-        template <typename T>
+        template <Component T>
         SparseSet<T>& getPool() {
             uint32_t typeID = getComponentTypeID<T>();
             if (typeID >= componentPools.size()) {
@@ -190,7 +214,7 @@ namespace pnkr::ecs {
             return *static_cast<SparseSet<T>*>(componentPools[typeID].get());
         }
 
-        template <typename T>
+        template <Component T>
         const SparseSet<T>& getPool() const {
             uint32_t typeID = getComponentTypeID<T>();
             if (typeID >= componentPools.size() || !componentPools[typeID]) {
@@ -202,58 +226,51 @@ namespace pnkr::ecs {
             return *static_cast<const SparseSet<T>*>(componentPools[typeID].get());
         }
 
-        template <typename T, typename... Args>
+        template <Component T, typename... Args>
         T& emplace(Entity e, Args&&... args) {
             return getPool<T>().emplace(e, std::forward<Args>(args)...);
         }
 
-        template <typename T>
+        template <Component T>
         void remove(Entity e) {
             getPool<T>().remove(e);
         }
 
-        template <typename T>
+        template <Component T>
         bool has(Entity e) const {
             uint32_t typeID = getComponentTypeID<T>();
             if (typeID >= componentPools.size() || !componentPools[typeID]) return false;
             return componentPools[typeID]->has(e);
         }
 
-        template <typename T>
+        template <Component T>
         T& get(Entity e) {
             return getPool<T>().get(e);
         }
 
-        template <typename T>
+        template <Component T>
         const T& get(Entity e) const {
             return getPool<T>().get(e);
         }
 
-        template <typename... Args>
+        template <Component... Args>
         View<Args...> view() {
             return View<Args...>(*this);
         }
 
-        template <typename... Args>
+        template <Component... Args>
         View<Args...> view() const {
             return View<Args...>(const_cast<Registry&>(*this));
         }
-        
-        void clear() {
-            for(auto& pool : componentPools) {
-                if(pool) pool->clear();
-            }
-            entityCounter = 0;
-            freeEntities.clear();
-        }
+
+        void clear();
     };
 
-    // View implementation
-    template <typename... Components>
+    template <Component... Components>
     template <typename Func>
     void View<Components...>::each(Func func) const {
         if constexpr (sizeof...(Components) == 0) return;
-        const auto& entities = smallestEntities();
+        const auto entities = smallestEntities();
         for (Entity entity : entities) {
             if ((reg.has<Components>(entity) && ...)) {
                 func(entity, reg.get<Components>(entity)...);
@@ -261,45 +278,44 @@ namespace pnkr::ecs {
         }
     }
 
-    template <typename... Components>
-    const std::vector<Entity>& View<Components...>::smallestEntities() const {
+    template <Component... Components>
+    std::span<const Entity> View<Components...>::smallestEntities() const {
         using First = std::tuple_element_t<0, std::tuple<Components...>>;
-        const std::vector<Entity>* smallest = &reg.getPool<First>().entities();
-        size_t smallestSize = smallest->size();
+        auto smallest = reg.getPool<First>().entities();
+        size_t smallestSize = smallest.size();
 
         (void)std::initializer_list<int>{
             ([&] {
                 using Comp = Components;
-                const auto& entities = reg.getPool<Comp>().entities();
+                auto entities = reg.getPool<Comp>().entities();
                 if (entities.size() < smallestSize) {
-                    smallest = &entities;
+                    smallest = entities;
                     smallestSize = entities.size();
                 }
             }(), 0)...
         };
 
-        return *smallest;
+        return smallest;
     }
 
-    template <typename... Components>
+    template <Component... Components>
     void View<Components...>::Iterator::validate() {
         while (index < entities.size() && !(reg.has<Components>(entities[index]) && ...)) {
             index++;
         }
     }
 
-    template <typename... Components>
+    template <Component... Components>
     typename View<Components...>::Iterator View<Components...>::begin() {
         return Iterator(reg, smallestEntities(), 0);
     }
 
-    template <typename... Components>
+    template <Component... Components>
     typename View<Components...>::Iterator View<Components...>::end() {
-        const auto& entities = smallestEntities();
+        auto entities = smallestEntities();
         return Iterator(reg, entities, entities.size());
     }
 
-    // 7. Command Buffer
     class EntityCommandBuffer {
     private:
         Registry& m_registry;
@@ -307,24 +323,9 @@ namespace pnkr::ecs {
         std::vector<Entity> m_toDestroy;
 
     public:
-        EntityCommandBuffer(Registry& reg) : m_registry(reg) {}
-
-        Entity create() {
-            Entity e = m_registry.create();
-            m_toCreate.push_back(e);
-            return e;
-        }
-
-        void destroy(Entity e) {
-            m_toDestroy.push_back(e);
-        }
-
-        void execute() {
-            for (Entity e : m_toDestroy) {
-                m_registry.destroy(e);
-            }
-            m_toCreate.clear();
-            m_toDestroy.clear();
-        }
+        EntityCommandBuffer(Registry& reg);
+        Entity create();
+        void destroy(Entity e);
+        void execute();
     };
 }

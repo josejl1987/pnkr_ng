@@ -1,9 +1,10 @@
 #pragma once
 
 #include <filesystem>
+#include "pnkr/core/RecentFilesStore.hpp"
+
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace pnkr::core {
 
@@ -11,26 +12,18 @@ class RecentFiles {
 public:
     explicit RecentFiles(std::string appName, size_t maxEntries = 10);
 
-    void load();
-    void save() const;
+    void load() { m_store.load(); }
+    void save() const { m_store.save(); }
 
-    void add(const std::filesystem::path& p);
-    void clear();
+    void add(const std::filesystem::path& p) { m_store.add(p); }
+    void clear() { m_store.clear(); }
 
-    const std::vector<std::filesystem::path>& items() const { return m_items; }
+    const std::vector<std::filesystem::path>& items() const { return m_store.items(); }
 
     std::optional<std::filesystem::path> drawImGuiMenu(const char* menuLabel = "Recent Files");
 
 private:
-    std::filesystem::path stateFilePath() const;
-
-    static std::string escapeJson(const std::string& s);
-    static std::vector<std::string> parseJsonStringArray(const std::string& text);
-
-private:
-    std::string m_appName;
-    size_t m_maxEntries = 10;
-    std::vector<std::filesystem::path> m_items;
+    RecentFilesStore m_store;
 };
 
-} // namespace pnkr::core
+}

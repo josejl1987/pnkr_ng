@@ -11,16 +11,16 @@
 namespace pnkr::core {
 
     struct CacheHeader {
-        uint32_t magic   = 0x504E4B52; // 'PNKR'
+        uint32_t magic   = 0x504E4B52;
         uint16_t version = 1;
-        uint16_t endian  = 1; // 1 little
+        uint16_t endian  = 1;
         uint32_t chunkCount = 0;
     };
 
     struct ChunkHeader {
-        uint32_t fourcc;   // e.g. 'MATL','TXFN','SCNH','SLOC', etc.
-        uint16_t version;  // per-chunk version
-        uint16_t flags;    // compression, etc. (optional)
+        uint32_t fourcc;
+        uint16_t version;
+        uint16_t elementSize;
         uint64_t sizeBytes;
     };
 
@@ -30,14 +30,14 @@ namespace pnkr::core {
             m_path = path;
             m_file.open(path, std::ios::binary);
             if (m_file.is_open()) {
-                // Placeholder for header
+
                 m_file.write(reinterpret_cast<const char*>(&m_header), sizeof(CacheHeader));
             }
         }
 
         ~CacheWriter() {
             if (m_file.is_open()) {
-                // Update header with final chunk count
+
                 m_file.seekp(0);
                 m_file.write(reinterpret_cast<const char*>(&m_header), sizeof(CacheHeader));
                 m_file.close();
@@ -46,15 +46,20 @@ namespace pnkr::core {
 
         bool isOpen() const { return m_file.is_open(); }
 
+        void setHeaderVersion(uint16_t version) { m_header.version = version; }
+
         template <typename T>
         void writeChunk(uint32_t fourcc, uint16_t version, const std::vector<T>& data) {
             static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable for writeChunk");
-            
+            static_assert(sizeof(T) <= std::numeric_limits<uint16_t>::max(),
+                          "T is too large to store element size in ChunkHeader");
+
             ChunkHeader chunk{};
             chunk.fourcc = fourcc;
             chunk.version = version;
+            chunk.elementSize = static_cast<uint16_t>(sizeof(T));
             chunk.sizeBytes = data.size() * sizeof(T);
-            
+
             m_file.write(reinterpret_cast<const char*>(&chunk), sizeof(ChunkHeader));
             if (!data.empty()) {
                 m_file.write(reinterpret_cast<const char*>(data.data()), chunk.sizeBytes);
@@ -65,10 +70,10 @@ namespace pnkr::core {
         template <typename T>
         void writeSparseSet(uint32_t fourcc, uint16_t version, const ecs::SparseSet<T>& ss) {
             static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable for writeSparseSet");
-            
+
             const auto& dense = ss.getDense();
             const auto& packed = ss.entities();
-            
+
             uint64_t denseSize = (uint64_t)dense.size();
             uint64_t totalBytes = sizeof(uint64_t) + denseSize * sizeof(T) + denseSize * sizeof(ecs::Entity);
 
@@ -87,8 +92,8 @@ namespace pnkr::core {
         }
 
         void writeStringListChunk(uint32_t fourcc, uint16_t version, const std::vector<std::string>& strings) {
-            // First calculate total size
-            uint64_t totalBytes = sizeof(uint64_t); // num strings
+
+            uint64_t totalBytes = sizeof(uint64_t);
             for (const auto& s : strings) {
                 totalBytes += sizeof(uint64_t) + s.size();
             }
@@ -99,7 +104,7 @@ namespace pnkr::core {
             chunk.sizeBytes = totalBytes;
 
             m_file.write(reinterpret_cast<const char*>(&chunk), sizeof(ChunkHeader));
-            
+
             uint64_t n = strings.size();
             m_file.write(reinterpret_cast<const char*>(&n), sizeof(n));
             for (const auto& s : strings) {
@@ -119,10 +124,10 @@ namespace pnkr::core {
             ChunkHeader chunk{};
             chunk.fourcc = fourcc;
             chunk.version = version;
-            
+
             size_t headerPos = m_file.tellp();
             m_file.write(reinterpret_cast<const char*>(&chunk), sizeof(ChunkHeader));
-            
+
             size_t dataStart = m_file.tellp();
             m_file.write(reinterpret_cast<const char*>(&denseSize), sizeof(denseSize));
             for (size_t i = 0; i < dense.size(); ++i) {
@@ -130,7 +135,7 @@ namespace pnkr::core {
                 serializer(m_file, dense[i]);
             }
             size_t dataEnd = m_file.tellp();
-            
+
             chunk.sizeBytes = (uint64_t)(dataEnd - dataStart);
             m_file.seekp(headerPos);
             m_file.write(reinterpret_cast<const char*>(&chunk), sizeof(ChunkHeader));
@@ -138,6 +143,26 @@ namespace pnkr::core {
 
             m_header.chunkCount++;
         }
+
+        void beginChunk(uint32_t fourcc, uint16_t version, size_t& outHeaderPos) {
+            ChunkHeader chunk{};
+            chunk.fourcc = fourcc;
+            chunk.version = version;
+            outHeaderPos = (size_t)m_file.tellp();
+            m_file.write(reinterpret_cast<const char*>(&chunk), sizeof(ChunkHeader));
+        }
+
+        void endChunk(size_t headerPos) {
+            size_t endPos = (size_t)m_file.tellp();
+            uint64_t sizeBytes = (uint64_t)(endPos - headerPos - sizeof(ChunkHeader));
+
+            m_file.seekp(headerPos + offsetof(ChunkHeader, sizeBytes));
+            m_file.write(reinterpret_cast<const char*>(&sizeBytes), sizeof(sizeBytes));
+            m_file.seekp(endPos);
+            m_header.chunkCount++;
+        }
+
+        std::ofstream& getStream() { return m_file; }
 
     private:
         std::string m_path;
@@ -181,6 +206,7 @@ namespace pnkr::core {
         }
 
         bool isOpen() const { return m_file.is_open(); }
+        bool isValid() const { return m_valid; }
         const CacheHeader& header() const { return m_header; }
 
         struct ChunkInfo {
@@ -198,18 +224,22 @@ namespace pnkr::core {
                 ChunkInfo info{};
                 const std::streamoff offset = m_file.tellg();
                 if (offset < 0) {
+                    m_valid = false;
                     return {};
                 }
                 info.offset = static_cast<uint64_t>(offset);
                 if (!canRead(info.offset, sizeof(ChunkHeader))) {
+                    m_valid = false;
                     return {};
                 }
                 if (!m_file.read(reinterpret_cast<char*>(&info.header), sizeof(ChunkHeader))) {
+                    m_valid = false;
                     return {};
                 }
                 if (info.header.sizeBytes > kMaxChunkBytes ||
                     !canRead(info.offset + sizeof(ChunkHeader), info.header.sizeBytes)) {
                     ::pnkr::core::Logger::error("Invalid cache chunk size {}", info.header.sizeBytes);
+                    m_valid = false;
                     return {};
                 }
                 chunks.push_back(info);
@@ -221,6 +251,11 @@ namespace pnkr::core {
         template <typename T>
         bool readChunk(const ChunkInfo& info, std::vector<T>& data) {
             static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable for readChunk");
+            if (info.header.elementSize != sizeof(T)) {
+                ::pnkr::core::Logger::error("Cache size mismatch for FourCC {}: File={}, Code={}",
+                                            info.header.fourcc, info.header.elementSize, sizeof(T));
+                return false;
+            }
             if (info.header.sizeBytes % sizeof(T) != 0) return false;
             if (!m_valid || info.header.sizeBytes > kMaxChunkBytes) return false;
             if (!canRead(info.offset + sizeof(ChunkHeader), info.header.sizeBytes)) return false;
@@ -296,7 +331,7 @@ namespace pnkr::core {
         bool readCustomSparseSet(const ChunkInfo& info, ecs::SparseSet<T>& ss, Deserializer deserializer) {
             if (!m_valid) return false;
             m_file.seekg(info.offset + sizeof(ChunkHeader));
-            
+
             uint64_t denseSize = 0;
             if (!m_file.read(reinterpret_cast<char*>(&denseSize), sizeof(denseSize))) return false;
 
@@ -309,6 +344,8 @@ namespace pnkr::core {
             }
             return true;
         }
+
+        std::ifstream& getStream() { return m_file; }
 
     private:
         static constexpr uint32_t kMaxChunkCount = 16384;
@@ -329,7 +366,6 @@ namespace pnkr::core {
         bool m_valid = false;
     };
 
-    // Helper to create FourCC
     constexpr uint32_t makeFourCC(const char* s) {
         return (static_cast<uint32_t>(s[0]) << 0) |
                (static_cast<uint32_t>(s[1]) << 8) |
@@ -337,4 +373,4 @@ namespace pnkr::core {
                (static_cast<uint32_t>(s[3]) << 24);
     }
 
-} // namespace pnkr::core
+}
