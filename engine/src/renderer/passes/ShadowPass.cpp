@@ -228,20 +228,28 @@ namespace pnkr::renderer
                     // Auto mode: Camera Frustum-Based Tight Shadow Fitting
                     // Based on: https://docs.microsoft.com/en-us/windows/win32/dxtecharts/common-techniques-to-improve-shadow-depth-maps
 
-                    auto meshView = scene.registry().view<scene::WorldBounds, scene::MeshRenderer>();
-
                     // ============================================================
                     // Auto mode: Whole-scene fitting (cookbook method)
                     // ============================================================
                     const auto& shadowSettings = ctx.settings.shadow;
 
-                    // Step 1: Compute world-space AABB of ALL shadow casters (do once, cache if static)
+                    // Step 1: Compute world-space AABB of ALL shadow casters (cookbook style)
+                    // Transform each mesh's local bounds by its world transform, then combine
                     scene::BoundingBox sceneAABB;
-                    meshView.each([&](ecs::Entity, const scene::WorldBounds& wb, const scene::MeshRenderer& mr)
+                    const auto& meshBounds = ctx.model->meshBounds();
+                    
+                    auto meshView = scene.registry().view<scene::MeshRenderer, scene::WorldTransform>();
+                    meshView.each([&](ecs::Entity, const scene::MeshRenderer& mr, const scene::WorldTransform& wt)
                     {
-                        if (mr.meshID >= 0 && wb.aabb.isValid())
+                        if (mr.meshID >= 0 && static_cast<size_t>(mr.meshID) < meshBounds.size())
                         {
-                            sceneAABB.combine(wb.aabb);
+                            const auto& localBounds = meshBounds[mr.meshID];
+                            if (localBounds.isValid())
+                            {
+                                // Transform the 8 corners of local bounds to world space
+                                scene::BoundingBox worldBounds = scene::transformAabbFast(localBounds, wt.matrix);
+                                sceneAABB.combine(worldBounds);
+                            }
                         }
                     });
 
@@ -251,13 +259,22 @@ namespace pnkr::renderer
                         sceneAABB.m_max = glm::vec3(10.0f);
                     }
 
-                    // Step 2: Build light view matrix (light at origin looking down lightDir)
-                    glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
+                    // Step 2: Build light view matrix
+                    // Position light BEHIND the scene so all geometry is in front (negative Z)
+                    // The cookbook assumes scene at origin, but Bistro is offset
+                    glm::vec3 sceneCenter = (sceneAABB.m_min + sceneAABB.m_max) * 0.5f;
+                    glm::vec3 sceneExtent = sceneAABB.m_max - sceneAABB.m_min;
+                    float sceneDiagonalRadius = glm::length(sceneExtent) * 0.5f;
+
+                    glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
                     if (std::abs(glm::dot(lightDir, up)) > 0.99f)
                     {
-                        up = glm::vec3(1.0f, 0.0f, 0.0f);
+                        up = glm::vec3(0.0f, 1.0f, 0.0f);
                     }
-                    lightViewMat = glm::lookAt(glm::vec3(0.0f), lightDir, up);
+
+                    // Position light behind scene center, looking toward center
+                    glm::vec3 lightEye = sceneCenter - lightDir * sceneDiagonalRadius;
+                    lightViewMat = glm::lookAt(lightEye, sceneCenter, up);
 
                     // Step 3: Transform scene AABB to light space
                     scene::BoundingBox sceneLS;
@@ -305,31 +322,23 @@ namespace pnkr::renderer
                     glm::vec2 minXY = snappedCenter - glm::vec2(halfExtent);
                     glm::vec2 maxXY = snappedCenter + glm::vec2(halfExtent);
 
-                    // Step 5: Z bounds (note: Vulkan RH_ZO, so we swap min/max like cookbook)
-                    // In RH view space, objects at negative Z, so max.z is closest to light
-                    float zNear = -sceneLS.m_max.z; // Closest point (becomes 0 in depth)
-                    float zFar = -sceneLS.m_min.z;  // Farthest point (becomes 1 in depth)
-
-                    // Add padding
-                    zNear = std::max(0.1f, zNear - shadowSettings.extraZPadding);
-                    zFar += shadowSettings.extraZPadding;
-
-                    // Step 6: Build orthographic projection
-                    // Note: Using RH_ZO (Vulkan convention), not LH_ZO (cookbook uses DirectX then flips)
-                    lightProjMat = glm::orthoRH_ZO(
+                    // Step 5: Build orthographic projection (cookbook style)
+                    // Use orthoLH_ZO with SWAPPED Z (max.z, min.z) - this is the Vulkan cookbook trick
+                    // The swap flips the depth direction to match Vulkan's expectations
+                    lightProjMat = glm::orthoLH_ZO(
                         minXY.x - shadowSettings.extraXYPadding,
                         maxXY.x + shadowSettings.extraXYPadding,
                         minXY.y - shadowSettings.extraXYPadding,
                         maxXY.y + shadowSettings.extraXYPadding,
-                        zNear,
-                        zFar
+                        sceneLS.m_max.z + shadowSettings.extraZPadding,  // near = max.z (closest)
+                        sceneLS.m_min.z - shadowSettings.extraZPadding   // far = min.z (farthest)
                     );
 
                     core::Logger::Render.debug(
-                        "ShadowPass [WHOLE-SCENE]: Extent:{:.2f}x{:.2f} Texel:{:.4f} Snap:{:.4f} "
-                        "Z:[{:.2f},{:.2f}] SceneWS:[({:.1f},{:.1f},{:.1f})-({:.1f},{:.1f},{:.1f})] Draws:{}",
+                        "ShadowPass [COOKBOOK]: Extent:{:.2f}x{:.2f} Texel:{:.4f} Snap:{:.4f} "
+                        "Z_LS:[{:.2f},{:.2f}] SceneWS:[({:.1f},{:.1f},{:.1f})-({:.1f},{:.1f},{:.1f})] Draws:{}",
                         extentLS.x, extentLS.y, worldUnitsPerTexel, snapIncrement,
-                        zNear, zFar,
+                        sceneLS.m_max.z, sceneLS.m_min.z,  // max.z = near, min.z = far (swapped)
                         sceneAABB.m_min.x, sceneAABB.m_min.y, sceneAABB.m_min.z,
                         sceneAABB.m_max.x, sceneAABB.m_max.y, sceneAABB.m_max.z,
                         ctx.shadowDodContext.opaqueCount + ctx.shadowDodContext.opaqueDoubleSidedCount
