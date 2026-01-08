@@ -617,6 +617,11 @@ namespace pnkr::renderer::rhi::vulkan
             ctx.frameTimelineSemaphore,
             ctx.computeTimelineSemaphore);
 
+        m_graphicsQueueFamily = ctx.queues.graphicsFamily;
+        m_computeQueueFamily = ctx.queues.computeFamily;
+        m_transferQueueFamily = ctx.queues.transferFamily;
+        m_commandPool = ctx.commandPool;
+
         RHIFactory::registerDebugDevice(this);
 
         if (m_bindlessManager)
