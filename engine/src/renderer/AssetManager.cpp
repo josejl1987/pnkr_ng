@@ -1,4 +1,6 @@
 #include "pnkr/renderer/AssetManager.hpp"
+#include "pnkr/renderer/TextureCache.hpp"
+#include "pnkr/renderer/FallbackTextureFactory.hpp"
 
 #include "pnkr/renderer/AsyncLoader.hpp"
 #include "pnkr/renderer/ktx_utils.hpp"
@@ -24,74 +26,25 @@ using namespace pnkr::util;
 
 namespace pnkr::renderer
 {
-    std::string AssetManager::normalizeTexturePath(const std::filesystem::path& p)
-    {
-
-        std::error_code ec;
-        std::filesystem::path canon = std::filesystem::weakly_canonical(p, ec);
-        if (ec)
-        {
-            canon = p.lexically_normal();
-        }
-
-        std::filesystem::path abs = canon;
-        if (!abs.is_absolute())
-        {
-            abs = std::filesystem::absolute(abs, ec);
-            if (ec) {
-              abs = canon;
-            }
-        }
-
-        return abs.lexically_normal().generic_string();
-    }
-
-    TexturePtr AssetManager::getTextureFromCache(const std::filesystem::path& path, bool srgb)
-    {
-      TextureCacheKey key{.path = normalizeTexturePath(path), .srgb = srgb};
-      std::scoped_lock lock(m_textureCacheMutex);
-      auto it = m_textureCache.find(key);
-      return (it != m_textureCache.end()) ? it->second : TexturePtr{};
-    }
-
-    void AssetManager::addTextureToCache(const std::filesystem::path& path, bool srgb, TexturePtr handle)
-    {
-      TextureCacheKey key{.path = normalizeTexturePath(path), .srgb = srgb};
-      std::scoped_lock lock(m_textureCacheMutex);
-      m_textureCache[key] = std::move(handle);
-    }
-
     TextureHandle AssetManager::getTexture(const std::filesystem::path& path, bool srgb) const
     {
-      TextureCacheKey key{.path = normalizeTexturePath(path), .srgb = srgb};
-
-      auto &mutableThis = const_cast<AssetManager &>(*this);
-      std::scoped_lock lock(mutableThis.m_textureCacheMutex);
-      auto it = m_textureCache.find(key);
-      return (it != m_textureCache.end()) ? it->second.handle()
-                                          : INVALID_TEXTURE_HANDLE;
+      TexturePtr ptr = const_cast<TextureCache&>(m_textureCache).get(path, srgb);
+      return ptr.isValid() ? ptr.handle() : INVALID_TEXTURE_HANDLE;
     }
 
     bool AssetManager::isTextureLoaded(const std::filesystem::path& path, bool srgb) const
     {
-      TextureCacheKey key{.path = normalizeTexturePath(path), .srgb = srgb};
-      auto &mutableThis = const_cast<AssetManager &>(*this);
-      std::scoped_lock lock(mutableThis.m_textureCacheMutex);
-      return m_textureCache.contains(key);
+      return const_cast<TextureCache&>(m_textureCache).get(path, srgb).isValid();
     }
 
     void AssetManager::unloadTexture(const std::filesystem::path& path, bool srgb)
     {
-      TextureCacheKey key{.path = normalizeTexturePath(path), .srgb = srgb};
-      std::scoped_lock lock(m_textureCacheMutex);
-      m_textureCache.erase(key);
+      m_textureCache.remove(path, srgb);
     }
 
     void AssetManager::unloadAllTextures()
     {
-      std::scoped_lock lock(m_textureCacheMutex);
       m_textureCache.clear();
-
     }
 
     TexturePtr AssetManager::createInternalTexture(const rhi::TextureDescriptor& desc, std::span<const std::byte> data)
@@ -119,110 +72,9 @@ namespace pnkr::renderer
         return smartHandle;
     }
 
-    void AssetManager::createFallbackTextures()
-    {
-      if (m_renderer == nullptr) {
-        return;
-      }
-
-        m_defaultWhite = createSolidColorTexture({255, 255, 255, 255}, "AssetManager_DefaultWhite");
-
-        uint8_t magenta[4] = {255, 0, 255, 255};
-        uint8_t black[4] = {0, 0, 0, 255};
-        m_errorTexture = createCheckerboardTexture(magenta, black, 2, "AssetManager_ErrorTexture");
-
-        uint8_t grey[4] = {128, 128, 128, 255};
-        uint8_t blue[4] = {64, 64, 128, 255};
-        m_loadingTexture = createCheckerboardTexture(grey, blue, 2, "AssetManager_LoadingTexture");
-
-        m_defaultWhiteCube = createSolidColorCubemap({255, 255, 255, 255}, "AssetManager_DefaultWhiteCube");
-        m_errorCube = createSolidColorCubemap({255, 0, 255, 255}, "AssetManager_ErrorCube");
-        m_loadingCube = createSolidColorCubemap({64, 64, 128, 255}, "AssetManager_LoadingCube");
-
-        if (m_asyncLoader) {
-            m_asyncLoader->setErrorTexture(m_errorTexture);
-            m_asyncLoader->setLoadingTexture(m_loadingTexture);
-            m_asyncLoader->setDefaultWhite(m_defaultWhite);
-        }
-
-        core::Logger::Asset.info("Created fallback textures: white={}, error={}, loading={}",
-            static_cast<uint32_t>(m_defaultWhite.handle().index),
-            static_cast<uint32_t>(m_errorTexture.handle().index),
-            static_cast<uint32_t>(m_loadingTexture.handle().index));
-        core::Logger::Asset.info("Created fallback cubemaps: white={}, error={}, loading={}",
-            static_cast<uint32_t>(m_defaultWhiteCube.handle().index),
-            static_cast<uint32_t>(m_errorCube.handle().index),
-            static_cast<uint32_t>(m_loadingCube.handle().index));
-    }
-
-    TexturePtr AssetManager::createSolidColorCubemap(glm::u8vec4 color, const char* debugName)
-    {
-        rhi::TextureDescriptor desc{};
-        desc.extent = {.width = 1, .height = 1, .depth = 1};
-        desc.format = rhi::Format::R8G8B8A8_UNORM;
-        desc.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
-        desc.mipLevels = 1;
-        desc.arrayLayers = 6;
-        desc.type = rhi::TextureType::TextureCube;
-        desc.debugName = debugName;
-
-        TexturePtr handle = m_renderer->createTexture(debugName, desc);
-        if (handle.isValid()) {
-            m_renderer->getTexture(handle.handle())->uploadData(std::span<const std::byte>(reinterpret_cast<const std::byte*>(&color), 4));
-        }
-        return handle;
-    }
-
-    TexturePtr AssetManager::createSolidColorTexture(glm::u8vec4 color, const char* debugName)
-    {
-        rhi::TextureDescriptor desc{};
-        desc.extent = {.width = 1, .height = 1, .depth = 1};
-        desc.format = rhi::Format::R8G8B8A8_UNORM;
-        desc.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
-        desc.mipLevels = 1;
-        desc.arrayLayers = 1;
-        desc.debugName = debugName;
-
-        TexturePtr handle = m_renderer->createTexture(debugName, desc);
-        if (handle.isValid()) {
-            m_renderer->getTexture(handle.handle())->uploadData(std::span<const std::byte>(reinterpret_cast<const std::byte*>(&color), 4));
-        }
-        return handle;
-    }
-
-    TexturePtr AssetManager::createCheckerboardTexture(const uint8_t color1[4],
-                                                       const uint8_t color2[4],
-                                                       uint32_t size,
-                                                       const char *debugName) {
-      std::vector<uint8_t> pixels(static_cast<size_t>(size * size * 4));
-      for (uint32_t y = 0; y < size; ++y) {
-        for (uint32_t x = 0; x < size; ++x) {
-          const uint8_t *color = ((x + y) % 2 == 0) ? color1 : color2;
-          uint32_t idx = (y * size + x) * 4;
-          std::copy(color, color + 4, pixels.begin() + idx);
-        }
-      }
-
-      rhi::TextureDescriptor desc{};
-      desc.extent = {.width = size, .height = size, .depth = 1};
-      desc.format = rhi::Format::R8G8B8A8_UNORM;
-      desc.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
-      desc.mipLevels = 1;
-      desc.arrayLayers = 1;
-      desc.debugName = debugName;
-
-      TexturePtr handle = m_renderer->createTexture(debugName, desc);
-      if (handle.isValid()) {
-        m_renderer->getTexture(handle.handle())
-            ->uploadData(std::span<const std::byte>(
-                reinterpret_cast<const std::byte *>(pixels.data()),
-                pixels.size()));
-      }
-      return handle;
-    }
-
     AssetManager::AssetManager(RHIRenderer* renderer, bool asyncEnabled)
         : m_renderer(renderer)
+        , m_fallbackFactory(*this)
     {
       if ((m_renderer != nullptr) && asyncEnabled) {
         try {
@@ -262,7 +114,16 @@ namespace pnkr::renderer
         }
 #endif
 
-        createFallbackTextures();
+        if (m_renderer != nullptr) {
+            m_fallbackFactory.createDefaults(m_defaultWhite, m_errorTexture, m_loadingTexture,
+                                           m_defaultWhiteCube, m_errorCube, m_loadingCube);
+            
+            if (m_asyncLoader) {
+                m_asyncLoader->setErrorTexture(m_errorTexture);
+                m_asyncLoader->setLoadingTexture(m_loadingTexture);
+                m_asyncLoader->setDefaultWhite(m_defaultWhite);
+            }
+        }
     }
 
     AssetManager::~AssetManager() = default;
@@ -400,7 +261,7 @@ namespace pnkr::renderer
           return m_errorTexture;
         }
 
-        if (TexturePtr cached = getTextureFromCache(filepath, srgb); cached.isValid())
+        if (TexturePtr cached = m_textureCache.get(filepath, srgb); cached.isValid())
         {
             return cached;
         }
@@ -426,7 +287,7 @@ namespace pnkr::renderer
 
             m_asyncLoader->requestTexture(filepath.string(), userHandle.handle(), srgb, priority, 0);
 
-            addTextureToCache(filepath, srgb, userHandle);
+            m_textureCache.add(filepath, srgb, userHandle);
 
             return userHandle;
         }
@@ -473,7 +334,7 @@ namespace pnkr::renderer
                   reinterpret_cast<const std::byte *>(data),
                   static_cast<size_t>(static_cast<size_t>(width * height) *
                                       bpp)));
-          addTextureToCache(filepath, srgb, handle);
+          m_textureCache.add(filepath, srgb, handle);
         }
 
         stbi_image_free(data);
@@ -642,11 +503,9 @@ namespace pnkr::renderer
           return m_errorTexture;
         }
 
-        if (TextureHandle cached = getTextureFromCache(filepath, srgb); cached != INVALID_TEXTURE_HANDLE)
+        if (TextureHandle cached = m_textureCache.get(filepath, srgb).handle(); cached != INVALID_TEXTURE_HANDLE)
         {
-
-            std::scoped_lock lock(m_textureCacheMutex);
-            return m_textureCache[{normalizeTexturePath(filepath), srgb}];
+             return m_textureCache.get(filepath, srgb);
         }
 
         if (m_asyncLoader && m_asyncLoader->isInitialized())
@@ -669,7 +528,7 @@ namespace pnkr::renderer
 
             m_renderer->replaceTexture(h, m_loadingTexture.handle());
 
-            addTextureToCache(filepath, srgb, userHandle);
+            m_textureCache.add(filepath, srgb, userHandle);
 
             m_asyncLoader->requestTexture(filepath.string(), h, srgb, priority, 0);
 
@@ -716,7 +575,7 @@ namespace pnkr::renderer
             return m_errorTexture;
         }
 
-        addTextureToCache(filepath, srgb, std::move(handle));
+        m_textureCache.add(filepath, srgb, handle);
 
         return handle;
     }

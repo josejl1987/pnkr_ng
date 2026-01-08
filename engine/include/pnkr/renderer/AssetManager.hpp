@@ -14,6 +14,8 @@
 #include <span>
 #include <cstddef>
 
+#include "pnkr/renderer/TextureCache.hpp"
+#include "pnkr/renderer/FallbackTextureFactory.hpp"
 #include "profiling/gpu_profiler.hpp"
 
 namespace pnkr::renderer
@@ -64,29 +66,12 @@ namespace pnkr::renderer
         void syncToGPU();
         std::vector<TextureHandle> consumeCompletedTextures();
 
+        const TextureCache& cache() const { return m_textureCache; }
+        TextureCache& cache() { return m_textureCache; }
+
+        friend class FallbackTextureFactory;
+
     private:
-        struct TextureCacheKey
-        {
-            std::string path;
-            bool srgb = true;
-            bool operator==(const TextureCacheKey& o) const noexcept { return srgb == o.srgb && path == o.path; }
-        };
-
-        struct TextureCacheKeyHash
-        {
-            size_t operator()(const TextureCacheKey& k) const noexcept
-            {
-
-                size_t h1 = std::hash<std::string>{}(k.path);
-                size_t h2 = std::hash<uint8_t>{}(static_cast<uint8_t>(k.srgb));
-                return h1 ^ (h2 + 0x9e3779b97f4a7c15ull + (h1 << 6) + (h1 >> 2));
-            }
-        };
-
-        static std::string normalizeTexturePath(const std::filesystem::path& p);
-        TexturePtr getTextureFromCache(const std::filesystem::path& path, bool srgb);
-        void addTextureToCache(const std::filesystem::path& path, bool srgb, TexturePtr handle);
-        TexturePtr createInternalTexture(const rhi::TextureDescriptor& desc, std::span<const std::byte> data);
         std::filesystem::path getCachePath(const std::vector<uint8_t>& encoded, bool srgb);
         static size_t computeHash(const std::vector<uint8_t> &data);
 
@@ -97,21 +82,15 @@ namespace pnkr::renderer
                                   const std::string &debugName,
                                   uint32_t baseMip = 0);
 
-        void createFallbackTextures();
-        TexturePtr createSolidColorTexture(glm::u8vec4 color, const char* debugName);
-        TexturePtr createSolidColorCubemap(glm::u8vec4 color, const char* debugName);
-        TexturePtr createCheckerboardTexture(const uint8_t color1[4],
-                                             const uint8_t color2[4],
-                                             uint32_t size,
-                                             const char *debugName);
+        TexturePtr createInternalTexture(const rhi::TextureDescriptor& desc, std::span<const std::byte> data);
 
         RHIRenderer* m_renderer = nullptr;
         std::unique_ptr<AsyncLoader> m_asyncLoader;
 
         std::filesystem::path m_cacheDirectory;
 
-        std::mutex m_textureCacheMutex;
-        std::unordered_map<TextureCacheKey, TexturePtr, TextureCacheKeyHash> m_textureCache;
+        TextureCache m_textureCache;
+        FallbackTextureFactory m_fallbackFactory;
 
         TexturePtr m_defaultWhite;
         TexturePtr m_errorTexture;
