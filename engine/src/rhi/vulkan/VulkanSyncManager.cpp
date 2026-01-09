@@ -41,13 +41,16 @@ namespace pnkr::renderer::rhi::vulkan {
 
     void VulkanSyncManager::waitIdle()
     {
+        PNKR_PROFILE_SCOPE_COLOR("VulkanWaitIdle", 0xFF0000); // Red
         std::scoped_lock lock(m_queueMutex);
+
         m_device.device().waitIdle();
         m_device.processDeletionQueue();
     }
 
     void VulkanSyncManager::waitForFences(const std::vector<uint64_t>& fenceValues)
     {
+        PNKR_PROFILE_SCOPE_COLOR("WaitForFences", 0xFF0000); // Red
         if (fenceValues.empty())
         {
             return;
@@ -70,6 +73,7 @@ namespace pnkr::renderer::rhi::vulkan {
 
     void VulkanSyncManager::waitForFrame(uint64_t frameIndex)
     {
+        PNKR_PROFILE_SCOPE_COLOR("WaitForFrame", 0xFF0000);
         if (frameIndex == 0)
         {
             return;
@@ -294,9 +298,9 @@ namespace pnkr::renderer::rhi::vulkan {
         queue.submit(submitInfo, fence);
     }
 
-    std::unique_lock<std::mutex> VulkanSyncManager::acquireQueueLock()
+    std::unique_lock<PNKR_MUTEX> VulkanSyncManager::acquireQueueLock()
     {
-        return std::unique_lock<std::mutex>(m_queueMutex);
+        return std::unique_lock<PNKR_MUTEX>(m_queueMutex);
     }
 
 }

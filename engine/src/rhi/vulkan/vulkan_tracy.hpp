@@ -17,7 +17,7 @@
     static_cast<TracyContext>(tracy::CreateVkContext(physDev, dev, queue, cmdBuffer, nullptr, nullptr))
 
 #define PNKR_PROFILE_GPU_CONTEXT_CALIBRATED(physDev, dev, queue, cmdBuffer, func1, func2) \
-    static_cast<TracyContext>(tracy::CreateVkContextCalibrated(physDev, dev, queue, cmdBuffer, nullptr, nullptr, func1, func2))
+    static_cast<TracyContext>(tracy::CreateVkContext(physDev, dev, queue, cmdBuffer, func1, func2))
 
 #define PNKR_PROFILE_GPU_DESTROY(ctx) TracyVkDestroy(static_cast<TracyVkCtx>(ctx))
 

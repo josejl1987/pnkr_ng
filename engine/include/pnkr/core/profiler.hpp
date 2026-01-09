@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstring>
+#include <mutex>
 
 #if defined(TRACY_ENABLE)
     #include <tracy/Tracy.hpp>
@@ -54,6 +55,7 @@
     // Combine Tracy and VTune scopes
     #define PNKR_PROFILE_FUNCTION() ZoneScoped; PNKR_VTUNE_SCOPE_IMPL(__func__)
     #define PNKR_PROFILE_SCOPE(name) ZoneScopedN(name); PNKR_VTUNE_SCOPE_IMPL(name)
+    #define PNKR_PROFILE_SCOPE_COLOR(name, color) ZoneScopedNC(name, color); PNKR_VTUNE_SCOPE_IMPL(name)
     
     #define PNKR_PROFILE_TAG(str) ZoneText(str, strlen(str))
 
@@ -66,8 +68,12 @@
     #define PNKR_PROFILE_GPU_CONTEXT_CALIBRATED(physDev, dev, queue, cmdBuffer, func1, func2) nullptr
     #define PNKR_PROFILE_GPU_DESTROY(ctx)
     #define PNKR_PROFILE_GPU_COLLECT(ctx, cmdBuffer)
+
     #define PNKR_PROFILE_GPU_ZONE(ctx, cmdBuffer, name)
     #define PNKR_RHI_GPU_ZONE(ctx, rhiCmd, name)
+
+    using PNKR_MUTEX = tracy::Lockable<std::mutex>;
+    #define PNKR_MUTEX_DECL(name, desc) TracyLockableN(std::mutex, name, desc)
 
 #else
 
@@ -79,6 +85,7 @@
     // Only VTune if Tracy is disabled
     #define PNKR_PROFILE_FUNCTION() PNKR_VTUNE_SCOPE_IMPL(__func__)
     #define PNKR_PROFILE_SCOPE(name) PNKR_VTUNE_SCOPE_IMPL(name)
+    #define PNKR_PROFILE_SCOPE_COLOR(name, color) PNKR_VTUNE_SCOPE_IMPL(name)
     
     #define PNKR_PROFILE_TAG(str)
 
@@ -93,5 +100,8 @@
     #define PNKR_PROFILE_GPU_COLLECT(ctx, cmdBuffer)
     #define PNKR_PROFILE_GPU_ZONE(ctx, cmdBuffer, name)
     #define PNKR_RHI_GPU_ZONE(ctx, rhiCmd, name)
+
+    using PNKR_MUTEX = std::mutex;
+    #define PNKR_MUTEX_DECL(name, desc) std::mutex name
 
 #endif

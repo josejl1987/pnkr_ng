@@ -355,9 +355,11 @@ namespace pnkr::renderer::rhi::vulkan
           auto cmd = m_device->createCommandList();
 
           auto *vkCmd = rhi_cast<VulkanRHICommandBuffer>(cmd.get());
-          m_tracyContext = PNKR_PROFILE_GPU_CONTEXT(
+          m_tracyContext = PNKR_PROFILE_GPU_CONTEXT_CALIBRATED(
               m_device->vkPhysicalDevice(), m_device->device(),
-              m_device->graphicsQueue(), vkCmd->commandBuffer());
+              m_device->graphicsQueue(), vkCmd->commandBuffer(),
+              m_device->getPhysicalDeviceCalibrateableTimeDomainsEXT,
+              m_device->getCalibratedTimestampsEXT);
         }
     }
 

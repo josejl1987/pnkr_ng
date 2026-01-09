@@ -6,6 +6,7 @@
 #include <atomic>
 #include <vector>
 #include <functional>
+#include "pnkr/core/profiler.hpp"
 
 namespace pnkr::renderer::rhi {
     class RHICommandBuffer;
@@ -53,7 +54,7 @@ namespace pnkr::renderer::rhi::vulkan {
 
         void queueSubmit(vk::Queue queue, const vk::SubmitInfo& submitInfo, vk::Fence fence);
 
-        std::unique_lock<std::mutex> acquireQueueLock();
+        std::unique_lock<PNKR_MUTEX> acquireQueueLock();
 
         vk::Semaphore frameTimelineSemaphore() const { return m_frameTimelineSemaphore; }
         vk::Semaphore computeTimelineSemaphore() const { return m_computeTimelineSemaphore; }
@@ -67,7 +68,7 @@ namespace pnkr::renderer::rhi::vulkan {
         vk::Queue m_graphicsQueue;
         vk::Queue m_computeQueue;
         vk::Queue m_transferQueue;
-        std::mutex m_queueMutex;
+        PNKR_MUTEX_DECL(m_queueMutex, "Queue Mutex");
 
         vk::Semaphore m_frameTimelineSemaphore;
         vk::Semaphore m_computeTimelineSemaphore;

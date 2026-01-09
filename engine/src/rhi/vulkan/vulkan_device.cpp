@@ -369,6 +369,11 @@ namespace pnkr::renderer::rhi::vulkan
                       VK_KHR_RELAXED_BLOCK_LAYOUT_EXTENSION_NAME);
                 }
 
+                if (hasExt(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME)) {
+                    extensions.push_back(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME);
+                    m_calibratedTimestampsEnabled = true;
+                }
+
                 const bool enableMinLodExt = hasExt(VK_EXT_IMAGE_VIEW_MIN_LOD_EXTENSION_NAME);
                 if (enableMinLodExt) {
                     extensions.push_back(VK_EXT_IMAGE_VIEW_MIN_LOD_EXTENSION_NAME);
@@ -556,6 +561,7 @@ namespace pnkr::renderer::rhi::vulkan
                 ctx.bdaRegistry = std::move(m_bdaRegistry);
                 ctx.bindlessManager = std::move(m_bindlessManager);
                 ctx.gpuProfiler = std::move(m_gpuProfiler);
+                ctx.calibratedTimestampsEnabled = m_calibratedTimestampsEnabled;
 
                 return ctx;
             }
@@ -568,6 +574,7 @@ namespace pnkr::renderer::rhi::vulkan
             VulkanQueues m_queues;
             vk::PhysicalDeviceFeatures m_enabledFeatures;
             bool m_minLodExtensionEnabled = false;
+            bool m_calibratedTimestampsEnabled = false;
 
             vk::CommandPool m_commandPool;
             vk::Semaphore m_frameTimelineSemaphore;
@@ -608,6 +615,21 @@ namespace pnkr::renderer::rhi::vulkan
         , m_descriptorPool(ctx.descriptorPool)
         , m_pipelineCache(ctx.pipelineCache)
     {
+        if (ctx.calibratedTimestampsEnabled) {
+            getPhysicalDeviceCalibrateableTimeDomainsEXT = reinterpret_cast<PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT>(
+                m_physicalDevice->instance().getProcAddr("vkGetPhysicalDeviceCalibrateableTimeDomainsEXT"));
+            getCalibratedTimestampsEXT = reinterpret_cast<PFN_vkGetCalibratedTimestampsEXT>(
+                m_device.getProcAddr("vkGetCalibratedTimestampsEXT"));
+                
+            if (!getPhysicalDeviceCalibrateableTimeDomainsEXT || !getCalibratedTimestampsEXT) {
+                core::Logger::RHI.error("Failed to load VK_EXT_calibrated_timestamps functions despite extension being enabled.");
+                getPhysicalDeviceCalibrateableTimeDomainsEXT = nullptr;
+                getCalibratedTimestampsEXT = nullptr;
+            } else {
+                 core::Logger::RHI.info("Calibrated timestamps enabled for Tracy profiling.");
+            }
+        }
+
         m_resourceFactory = std::make_unique<VulkanResourceFactory>(*this);
         m_deletionQueueMgr = std::make_unique<VulkanDeletionQueue>();
         m_syncManager = std::make_unique<VulkanSyncManager>(*this, 
@@ -926,7 +948,7 @@ namespace pnkr::renderer::rhi::vulkan
         return m_syncManager->transferQueue();
     }
 
-    std::unique_lock<std::mutex> VulkanRHIDevice::acquireQueueLock()
+    std::unique_lock<PNKR_MUTEX> VulkanRHIDevice::acquireQueueLock()
     {
         return m_syncManager->acquireQueueLock();
     }

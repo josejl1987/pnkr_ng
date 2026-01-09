@@ -2,6 +2,7 @@
 
 #include "pnkr/rhi/rhi_device.hpp"
 #include "pnkr/rhi/rhi_descriptor.hpp"
+#include "pnkr/core/profiler.hpp"
 #include <vulkan/vulkan.hpp>
 #include <vk_mem_alloc.h>
 #include <memory>
@@ -56,6 +57,7 @@ namespace pnkr::renderer::rhi::vulkan
         VulkanQueues queues;
         vk::PhysicalDeviceFeatures enabledFeatures;
         bool minLodExtensionEnabled = false;
+        bool calibratedTimestampsEnabled = false;
 
         vk::CommandPool commandPool;
         vk::Semaphore frameTimelineSemaphore;
@@ -124,6 +126,9 @@ namespace pnkr::renderer::rhi::vulkan
         explicit VulkanRHIDevice(VulkanDeviceConstructionContext&& ctx);
 
         ~VulkanRHIDevice() override;
+
+        PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT getPhysicalDeviceCalibrateableTimeDomainsEXT = nullptr;
+        PFN_vkGetCalibratedTimestampsEXT getCalibratedTimestampsEXT = nullptr;
 
         VulkanRHIDevice(const VulkanRHIDevice&) = delete;
         VulkanRHIDevice& operator=(const VulkanRHIDevice&) = delete;
@@ -222,7 +227,7 @@ namespace pnkr::renderer::rhi::vulkan
 
         void queueSubmit(vk::Queue queue, const vk::SubmitInfo& submitInfo, vk::Fence fence);
 
-        std::unique_lock<std::mutex> acquireQueueLock();
+        std::unique_lock<PNKR_MUTEX> acquireQueueLock();
 
         void trackObject(vk::ObjectType type, uint64_t handle, std::string_view name = {});
         void untrackObject(uint64_t handle);

@@ -2,6 +2,7 @@
 
 #include "rhi/vulkan/vulkan_device.hpp"
 #include "pnkr/core/logger.hpp"
+#include "pnkr/core/profiler.hpp"
 #include "pnkr/core/common.hpp"
 
 namespace pnkr::renderer::rhi::vulkan
@@ -32,6 +33,7 @@ namespace pnkr::renderer::rhi::vulkan
 
     bool VulkanRHIFence::wait(uint64_t timeout)
     {
+      PNKR_PROFILE_SCOPE_COLOR("VulkanRHIFence::wait", 0xFF0000);
       if ((m_device == nullptr) || !m_fence) {
         return false;
       }
