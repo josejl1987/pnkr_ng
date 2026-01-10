@@ -4,6 +4,7 @@
   "dependencies": [
     "glm",
     "concurrentqueue",
+    "boost-context",
     "vulkan-memory-allocator",
     "vulkan-headers",
     "stb",

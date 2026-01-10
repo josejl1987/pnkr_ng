@@ -12,12 +12,14 @@ target_sources(pnkr_engine
     RecentFilesImGui.cpp
     RecentFilesStore.cpp
     TaskSystem.cpp
+    JobSystem.cpp
 
   PUBLIC FILE_SET headers BASE_DIRS "${CMAKE_SOURCE_DIR}/engine/include" FILES
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/cvar.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/ECS.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/FramePacer.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/Handle.h"
+    "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/JobSystem.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/LinearAllocator.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/Pool.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/RecentFiles.hpp"

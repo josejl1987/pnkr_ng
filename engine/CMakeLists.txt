@@ -363,6 +363,10 @@ endif()
 # Dependencies
 # ============================================================================
 
+# Boost Context
+find_package(Boost REQUIRED COMPONENTS context)
+target_link_libraries(pnkr_engine PUBLIC Boost::context)
+
 # Prefer header-only spdlog
 if(TARGET spdlog::spdlog_header_only)
   set(PNKR_SPDLOG_TARGET spdlog::spdlog_header_only)
@@ -464,7 +468,7 @@ if(TRACY_ENABLE)
   )
 endif()
 
-find_package(tracy CONFIG REQUIRED)
+# find_package(tracy CONFIG REQUIRED)
 target_link_libraries(pnkr_engine PUBLIC Tracy::TracyClient)
 
 # SPIRV-Cross
@@ -478,6 +482,7 @@ find_package(fastgltf CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(mikktspace CONFIG REQUIRED)
 find_package(nfd CONFIG REQUIRED)
+find_package(Boost REQUIRED COMPONENTS context)
 
 target_link_libraries(pnkr_engine
   PUBLIC
@@ -492,6 +497,7 @@ target_link_libraries(pnkr_engine
     mikktspace::mikktspace
     cpptrace::cpptrace
     nfd::nfd
+    Boost::context
 )
 
 # ============================================================================

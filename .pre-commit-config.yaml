@@ -1,0 +1,18 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+  - repo: local
+    hooks:
+      - id: clang-format
+        name: clang-format
+        entry: python scripts/pre-commit/clang_format.py
+        language: system
+        files: \.(c|cc|cpp|cxx|h|hh|hpp|hxx)$
