@@ -22,7 +22,7 @@ namespace pnkr::renderer::io
         static bool savePMESH(const assets::ImportedModel& model, const std::filesystem::path& path);
         static bool loadPMESH(assets::ImportedModel& model, const std::filesystem::path& path);
 
-        static scene::MaterialCPU toMaterialCPU(const MaterialData& md, const std::vector<TextureHandle>& textures);
-        static MaterialData fromMaterialCPU(const scene::MaterialCPU& mc, const std::vector<TextureHandle>& textures);
+        static scene::MaterialCPU toMaterialCPU(const MaterialData& md, const std::vector<TexturePtr>& textures);
+        static MaterialData fromMaterialCPU(const scene::MaterialCPU& mc, const std::vector<TexturePtr>& textures);
     };
 }
