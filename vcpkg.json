@@ -13,7 +13,7 @@
     "opencl",
     "meshoptimizer",
     "mikktspace",
-    "spdlog",
+    "quill",
     "nlohmann-json",
     "imguizmo",
     "cpptrace",

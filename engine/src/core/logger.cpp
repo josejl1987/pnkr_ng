@@ -1,100 +1,135 @@
 #include "pnkr/core/logger.hpp"
 
+#include <quill/Backend.h>
+#include <quill/Frontend.h>
+#include <quill/LogMacros.h>
+#include <quill/sinks/ConsoleSink.h>
+
 namespace pnkr::core {
 
-static std::shared_ptr<spdlog::logger> &getInstanceRef() {
-  static std::shared_ptr<spdlog::logger> sLogger;
-  return sLogger;
-}
+// Global logger instance
+static quill::Logger *g_logger = nullptr;
 
-spdlog::logger *Logger::get_logger() { return getInstanceRef().get(); }
+quill::Logger *Logger::get_logger() { return g_logger; }
 
 void Logger::init(const std::string &pattern) {
-  auto &sLogger = getInstanceRef();
-  if (sLogger) {
+  if (g_logger) {
     return;
   }
 
-  auto consoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-  auto logger = std::make_shared<spdlog::logger>("pnkr", consoleSink);
+  // Start the backend thread
+  quill::Backend::start();
 
-  logger->set_pattern(pattern);
+  // Create sink options
+  quill::PatternFormatterOptions options;
+  options.format_pattern = pattern;
+  options.timestamp_pattern = "%H:%M:%S.%Qns";
+  options.timestamp_timezone = quill::Timezone::LocalTime;
+
+  // Create console sink config
+  quill::ConsoleSinkConfig cfg;
+  cfg.set_override_pattern_formatter_options(options);
+
+  // Create a console sink
+  auto console_sink = quill::Frontend::create_or_get_sink<quill::ConsoleSink>(
+      "console_sink", cfg);
+
+  // Create the logger
+  g_logger = quill::Frontend::create_or_get_logger("pnkr", console_sink);
 
 #ifdef PNKR_DEBUG
-  logger->set_level(spdlog::level::debug);
+  g_logger->set_log_level(quill::LogLevel::Debug);
 #else
-  logger->set_level(spdlog::level::info);
+  g_logger->set_log_level(quill::LogLevel::Info);
 #endif
 
-  logger->flush_on(spdlog::level::err);
-  sLogger = logger;
-
-  Core.info("Structured Logger initialized");
+  Core.info("Structured Logger initialized (Quill)");
 }
 
 void Logger::shutdown() {
-  auto &sLogger = getInstanceRef();
-  if (sLogger) {
+  if (g_logger) {
     Core.info("Shutting down logger");
-    sLogger.reset();
+    g_logger->flush_log();
+    g_logger = nullptr;
+    // Note: Quill backend thread handles its own lifecycle, but we can
+    // explicitly stop it if needed. Usually, letting it destroy statically is
+    // fine.
   }
-    spdlog::shutdown();
 }
 
 void Logger::setLevel(LogLevel level) {
-    auto* logger = get_logger();
-    if (logger == nullptr) {
-      return;
-    }
+  if (!g_logger)
+    return;
 
-    spdlog::level::level_enum spdLevel = spdlog::level::info;
-    switch(level) {
-        case LogLevel::Trace: spdLevel = spdlog::level::trace; break;
-        case LogLevel::Debug: spdLevel = spdlog::level::debug; break;
-        case LogLevel::Info:  spdLevel = spdlog::level::info; break;
-        case LogLevel::Warn:  spdLevel = spdlog::level::warn; break;
-        case LogLevel::Error: spdLevel = spdlog::level::err; break;
-        case LogLevel::Critical: spdLevel = spdlog::level::critical; break;
-        case LogLevel::Off:   spdLevel = spdlog::level::off; break;
-    }
-    logger->set_level(spdLevel);
+  quill::LogLevel quillLevel = quill::LogLevel::Info;
+  switch (level) {
+  case LogLevel::Trace:
+    quillLevel = quill::LogLevel::TraceL3;
+    break;
+  case LogLevel::Debug:
+    quillLevel = quill::LogLevel::Debug;
+    break;
+  case LogLevel::Info:
+    quillLevel = quill::LogLevel::Info;
+    break;
+  case LogLevel::Warn:
+    quillLevel = quill::LogLevel::Warning;
+    break;
+  case LogLevel::Error:
+    quillLevel = quill::LogLevel::Error;
+    break;
+  case LogLevel::Critical:
+    quillLevel = quill::LogLevel::Critical;
+    break;
+  case LogLevel::Off:
+    quillLevel = quill::LogLevel::None;
+    break;
+  }
+  g_logger->set_log_level(quillLevel);
 }
 
 LogLevel Logger::getLevel() {
-    auto* logger = get_logger();
-    if (logger == nullptr) {
-      return LogLevel::Off;
-    }
+  if (!g_logger)
+    return LogLevel::Off;
 
-    switch (logger->level()) {
-        case spdlog::level::trace: return LogLevel::Trace;
-        case spdlog::level::debug: return LogLevel::Debug;
-        case spdlog::level::info:  return LogLevel::Info;
-        case spdlog::level::warn:  return LogLevel::Warn;
-        case spdlog::level::err:   return LogLevel::Error;
-        case spdlog::level::critical: return LogLevel::Critical;
-        case spdlog::level::off:   return LogLevel::Off;
-        default: return LogLevel::Info;
-    }
+  auto qLevel = g_logger->get_log_level();
+  switch (qLevel) {
+  case quill::LogLevel::TraceL3:
+  case quill::LogLevel::TraceL2:
+  case quill::LogLevel::TraceL1:
+    return LogLevel::Trace;
+  case quill::LogLevel::Debug:
+    return LogLevel::Debug;
+  case quill::LogLevel::Info:
+    return LogLevel::Info;
+  case quill::LogLevel::Warning:
+    return LogLevel::Warn;
+  case quill::LogLevel::Error:
+    return LogLevel::Error;
+  case quill::LogLevel::Critical:
+    return LogLevel::Critical;
+  case quill::LogLevel::None:
+    return LogLevel::Off;
+  default:
+    return LogLevel::Info;
+  }
 }
+
+// ============================================================================
+// Scope Management (Same as before)
+// ============================================================================
 
 static thread_local std::vector<std::string> gThreadScopeStack;
 
-LogScope::LogScope(std::string_view name) {
-    Logger::pushScope(name);
+LogScope::LogScope(std::string_view name) { Logger::pushScope(name); }
+
+LogScope::LogScope(const char *name) { Logger::pushScope(name); }
+
+LogScope::LogScope(std::string &&name) : m_storage(std::move(name)) {
+  Logger::pushScope(m_storage);
 }
 
-LogScope::LogScope(const char* name) {
-    Logger::pushScope(name);
-}
-
-LogScope::LogScope(std::string&& name) : m_storage(std::move(name)) {
-    Logger::pushScope(m_storage);
-}
-
-LogScope::~LogScope() noexcept {
-    Logger::popScope();
-}
+LogScope::~LogScope() noexcept { Logger::popScope(); }
 
 void Logger::pushScope(std::string_view name) {
   gThreadScopeStack.emplace_back(name);
@@ -111,20 +146,20 @@ std::string Logger::getContextPrefix() {
     return "";
   }
 
-    std::string result;
-    for (const auto &scope : gThreadScopeStack) {
-      result += "[";
-      result += scope;
-      result += "]";
-    }
-    result += " ";
-    return result;
+  std::string result;
+  for (const auto &scope : gThreadScopeStack) {
+    result += "[";
+    result += scope;
+    result += "]";
+  }
+  result += " ";
+  return result;
 }
 
 ScopeSnapshot Logger::captureScopes() { return {gThreadScopeStack}; }
 
-void Logger::restoreScopes(const ScopeSnapshot& snapshot) {
+void Logger::restoreScopes(const ScopeSnapshot &snapshot) {
   gThreadScopeStack = snapshot.scopes;
 }
 
-}
+} // namespace pnkr::core
