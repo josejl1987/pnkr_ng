@@ -2,12 +2,14 @@
 
 #include "pnkr/core/logger.hpp"
 #include "pnkr/core/common.hpp"
+#include "pnkr/core/TaskSystem.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
 #include "pnkr/renderer/scene/Camera.hpp"
 #include "pnkr/renderer/scene/SpriteRenderer.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 
 namespace pnkr::renderer::scene
 {
@@ -133,104 +135,151 @@ namespace pnkr::renderer::scene
 
         const rhi::TextureBindlessHandle whiteTexIndex = m_renderer.getTextureBindlessIndex(m_renderer.getWhiteTexture());
 
-        for (uint32_t index = 0; index < m_slots.size(); ++index)
-        {
-            auto& slot = m_slots[index];
-            if (!slot.alive)
-            {
-                continue;
-            }
+        const size_t slotCount = m_slots.size();
+        if (slotCount == 0) {
+            return;
+        }
 
-            auto& sprite = slot.sprite;
-            if (!sprite.alive)
-            {
-                slot.alive = false;
-                toFree.push_back(index);
-                continue;
-            }
+        std::vector<uint8_t> needsSampler(slotCount, 0);
+        std::vector<uint8_t> needsTexture(slotCount, 0);
 
-            sprite.age += dt;
-            if (sprite.lifetime >= 0.0F && sprite.age >= sprite.lifetime)
-            {
-                sprite.alive = false;
-                slot.alive = false;
-                toFree.push_back(index);
-                continue;
-            }
+        const uint32_t threadCount =
+            core::TaskSystem::isInitialized()
+                ? std::max(1U, core::TaskSystem::scheduler().GetNumTaskThreads())
+                : 1U;
+        std::vector<std::vector<uint32_t>> toFreeBuckets(threadCount);
+        for (auto& bucket : toFreeBuckets) {
+            bucket.reserve(slotCount / threadCount + 1U);
+        }
+        std::mutex fallbackMutex;
+        std::vector<uint32_t> toFreeFallback;
 
-            if (!sprite.samplerIndex.isValid())
-
-            {
-                const rhi::Filter f = (sprite.filter == SpriteFilter::Nearest)
-                                          ? rhi::Filter::Nearest
-                                          : rhi::Filter::Linear;
-                sprite.samplerIndex = m_renderer.getBindlessSamplerIndex(f, sprite.addressMode);
-            }
-
-            if (sprite.clip && !sprite.clip->frames.empty())
-            {
-                const uint32_t frameCount = util::u32(sprite.clip->frames.size());
-                if (sprite.clipPlaying)
-                {
-                    sprite.clipTime += dt;
+        core::TaskSystem::parallelFor(
+            static_cast<uint32_t>(slotCount),
+            [&](enki::TaskSetPartition range, uint32_t threadnum) {
+                std::vector<uint32_t>* bucket = nullptr;
+                if (threadnum < toFreeBuckets.size()) {
+                    bucket = &toFreeBuckets[threadnum];
                 }
 
-                uint32_t frame = static_cast<uint32_t>(std::floor(sprite.clipTime * sprite.clip->fps));
-                if (sprite.clip->loop)
-                {
-                  frame = frameCount > 0 ? (frame % frameCount) : 0U;
-                }
-                else
-                {
-                    if (frame >= frameCount)
-                    {
-                      frame = frameCount - 1U;
-                      sprite.clipPlaying = false;
+                for (uint32_t index = range.start; index < range.end; ++index) {
+                    auto& slot = m_slots[index];
+                    if (!slot.alive) {
+                        continue;
+                    }
+
+                    auto& sprite = slot.sprite;
+                    if (!sprite.alive) {
+                        slot.alive = false;
+                        if (bucket != nullptr) {
+                            bucket->push_back(index);
+                        } else {
+                            std::lock_guard<std::mutex> lock(fallbackMutex);
+                            toFreeFallback.push_back(index);
+                        }
+                        continue;
+                    }
+
+                    sprite.age += dt;
+                    if (sprite.lifetime >= 0.0F && sprite.age >= sprite.lifetime) {
+                        sprite.alive = false;
+                        slot.alive = false;
+                        if (bucket != nullptr) {
+                            bucket->push_back(index);
+                        } else {
+                            std::lock_guard<std::mutex> lock(fallbackMutex);
+                            toFreeFallback.push_back(index);
+                        }
+                        continue;
+                    }
+
+                    if (!sprite.samplerIndex.isValid()) {
+                        needsSampler[index] = 1;
+                    }
+
+                    if (sprite.clip && !sprite.clip->frames.empty()) {
+                        const uint32_t frameCount =
+                            util::u32(sprite.clip->frames.size());
+                        if (sprite.clipPlaying) {
+                            sprite.clipTime += dt;
+                        }
+
+                        uint32_t frame = static_cast<uint32_t>(
+                            std::floor(sprite.clipTime * sprite.clip->fps));
+                        if (sprite.clip->loop) {
+                          frame = frameCount > 0 ? (frame % frameCount) : 0U;
+                        } else {
+                            if (frame >= frameCount) {
+                              frame = frameCount - 1U;
+                              sprite.clipPlaying = false;
+                            }
+                        }
+
+                        sprite.currentFrameIndex = frame;
+
+                        if (frame < sprite.clip->frameBindlessIndex.size()) {
+                            sprite.textureBindlessIndex =
+                                sprite.clip->frameBindlessIndex[frame];
+                        } else {
+                            sprite.textureBindlessIndex =
+                                rhi::TextureBindlessHandle::Invalid;
+                        }
+
+                        if (!sprite.textureBindlessIndex.isValid()) {
+                            sprite.textureBindlessIndex = whiteTexIndex;
+                        }
+
+                        if (!sprite.clip->uvRects.empty() &&
+                            frame < sprite.clip->uvRects.size()) {
+                            sprite.uvMin = sprite.clip->uvRects[frame].uvMin;
+                            sprite.uvMax = sprite.clip->uvRects[frame].uvMax;
+                        } else {
+                            sprite.uvMin = {0.0F, 0.0F};
+                            sprite.uvMax = {1.0F, 1.0F};
+                        }
+                    } else {
+                        if (sprite.texture == INVALID_TEXTURE_HANDLE) {
+                            sprite.textureBindlessIndex = whiteTexIndex;
+                        } else {
+                            needsTexture[index] = 1;
+                        }
+
+                        sprite.uvMin = {0.0F, 0.0F};
+                        sprite.uvMax = {1.0F, 1.0F};
                     }
                 }
+            },
+            512);
 
-                sprite.currentFrameIndex = frame;
+        for (const auto& bucket : toFreeBuckets) {
+            toFree.insert(toFree.end(), bucket.begin(), bucket.end());
+        }
+        if (!toFreeFallback.empty()) {
+            toFree.insert(toFree.end(), toFreeFallback.begin(),
+                          toFreeFallback.end());
+        }
 
-                if (frame < sprite.clip->frameBindlessIndex.size())
-                {
-                    sprite.textureBindlessIndex = sprite.clip->frameBindlessIndex[frame];
-                }
-                else
-                {
-                    sprite.textureBindlessIndex = rhi::TextureBindlessHandle::Invalid;
-                }
-
-                if (!sprite.textureBindlessIndex.isValid())
-                {
-                    sprite.textureBindlessIndex = whiteTexIndex;
-                }
-
-                if (!sprite.clip->uvRects.empty() && frame < sprite.clip->uvRects.size())
-                {
-                    sprite.uvMin = sprite.clip->uvRects[frame].uvMin;
-                    sprite.uvMax = sprite.clip->uvRects[frame].uvMax;
-                }
-                else
-                {
-                    sprite.uvMin = {0.0F, 0.0F};
-                    sprite.uvMax = {1.0F, 1.0F};
-                }
+        for (uint32_t index = 0; index < slotCount; ++index) {
+            auto& slot = m_slots[index];
+            if (!slot.alive) {
+                continue;
             }
-            else
-            {
-                if (sprite.texture == INVALID_TEXTURE_HANDLE)
-                {
-                    sprite.textureBindlessIndex = whiteTexIndex;
-                }
+            auto& sprite = slot.sprite;
 
-                else
-                {
-                    rhi::TextureBindlessHandle texIndex = m_renderer.getTextureBindlessIndex(sprite.texture);
-                    sprite.textureBindlessIndex = texIndex.isValid() ? texIndex : whiteTexIndex;
-                }
+            if (needsSampler[index] != 0) {
+                const rhi::Filter f =
+                    (sprite.filter == SpriteFilter::Nearest)
+                        ? rhi::Filter::Nearest
+                        : rhi::Filter::Linear;
+                sprite.samplerIndex =
+                    m_renderer.getBindlessSamplerIndex(f, sprite.addressMode);
+            }
 
-                sprite.uvMin = {0.0F, 0.0F};
-                sprite.uvMax = {1.0F, 1.0F};
+            if (needsTexture[index] != 0) {
+                rhi::TextureBindlessHandle texIndex =
+                    m_renderer.getTextureBindlessIndex(sprite.texture);
+                sprite.textureBindlessIndex =
+                    texIndex.isValid() ? texIndex : whiteTexIndex;
             }
         }
 
