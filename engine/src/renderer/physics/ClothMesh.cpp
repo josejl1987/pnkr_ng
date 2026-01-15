@@ -1,6 +1,7 @@
 #include "pnkr/renderer/physics/ClothMesh.hpp"
 #include "pnkr/renderer/RHIResourceManager.hpp"
 #include "pnkr/renderer/gpu_shared/PhysicsShared.h"
+#include "pnkr/core/TaskSystem.hpp"
 #include <cstddef>
 #include <random>
 
@@ -72,14 +73,19 @@ namespace pnkr::renderer::physics
 
         std::vector<float> posData(static_cast<size_t>(vertexCount * 3));
         std::vector<float> normData(static_cast<size_t>(vertexCount * 3));
-        for(size_t i=0; i<vertexCount; ++i) {
-          posData[(i * 3) + 0] = meshData.vertices[i].position.x;
-          posData[(i * 3) + 1] = meshData.vertices[i].position.y;
-          posData[(i * 3) + 2] = meshData.vertices[i].position.z;
-          normData[(i * 3) + 0] = meshData.vertices[i].normal.x;
-          normData[(i * 3) + 1] = meshData.vertices[i].normal.y;
-          normData[(i * 3) + 2] = meshData.vertices[i].normal.z;
-        }
+        core::TaskSystem::parallelFor(
+            vertexCount,
+            [&](enki::TaskSetPartition range, uint32_t) {
+              for (uint32_t i = range.start; i < range.end; ++i) {
+                posData[(i * 3) + 0] = meshData.vertices[i].position.x;
+                posData[(i * 3) + 1] = meshData.vertices[i].position.y;
+                posData[(i * 3) + 2] = meshData.vertices[i].position.z;
+                normData[(i * 3) + 0] = meshData.vertices[i].normal.x;
+                normData[(i * 3) + 1] = meshData.vertices[i].normal.y;
+                normData[(i * 3) + 2] = meshData.vertices[i].normal.z;
+              }
+            },
+            1024);
 
         positionBuffer = device->createBuffer(
             "ClothPosBuffer",
