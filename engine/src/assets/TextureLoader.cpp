@@ -2,7 +2,6 @@
 #include "pnkr/renderer/ktx_utils.hpp"
 #include "pnkr/core/logger.hpp"
 
-#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 #include <cstddef>

@@ -115,7 +115,9 @@ namespace pnkr::renderer
             m_shadowSampler->setBindlessHandle(m_shadowSamplerIndex);
         }
 
+        core::Logger::Render.info("Creating render targets...");
         createRenderTargets();
+        core::Logger::Render.info("Render targets created.");
 
         rhi::DescriptorSetLayout lightingLayoutDesc{};
         lightingLayoutDesc.bindings = {
@@ -134,17 +136,35 @@ namespace pnkr::renderer
              .count = 1,
              .stages = rhi::ShaderStage::Fragment,
              .name = "lightingMap_2"}};
+        
+        core::Logger::Render.info("Creating global lighting layout...");
         m_globalLightingLayout = device->createDescriptorSetLayout(lightingLayoutDesc);
+        core::Logger::Render.info("Allocating global lighting set...");
         m_globalLightingSet = device->allocateDescriptorSet(m_globalLightingLayout.get());
 
+        core::Logger::Render.info("Creating persistent staging buffer...");
         createPersistentStagingBuffer(static_cast<uint64_t>(128 * 1024 * 1024));
 
+        core::Logger::Render.info("Initializing system meshes...");
         m_systemMeshes.init(*this);
+        core::Logger::Render.info("System meshes initialized.");
 
         core::Logger::Render.info("RHI Renderer created successfully (Modular)");
         core::Logger::Render.trace("Bindless rendering: {}", m_useBindless ? "ENABLED" : "DISABLED");
 
         createDefaultResources();
+    }
+
+    void RHIRenderer::createDefaultResources()
+    {
+        core::Logger::Render.info("Creating default white texture...");
+        m_whiteTexture = m_resourceManager->createWhiteTexture();
+        core::Logger::Render.info("Creating default black texture...");
+        m_blackTexture = m_resourceManager->createBlackTexture();
+        core::Logger::Render.info("Creating default flat normal texture...");
+        m_flatNormalTexture = m_resourceManager->createFlatNormalTexture();
+        core::Logger::Render.info("Default resources created.");
+    
     }
 
     RHIRenderer::~RHIRenderer()
@@ -761,12 +781,7 @@ rhi::RHIPipeline* RHIRenderer::pipeline(PipelineHandle handle)
         core::Logger::Render.info("Created swapchain/depth targets: {}x{}", scExtent.width, scExtent.height);
     }
 
-void RHIRenderer::createDefaultResources()
-{
-    m_whiteTexture = m_resourceManager->createWhiteTexture();
-    m_blackTexture = m_resourceManager->createBlackTexture();
-    m_flatNormalTexture = m_resourceManager->createFlatNormalTexture();
-}
+
 
     bool RHIRenderer::checkDrawIndirectCountSupport() const
     {

@@ -11,6 +11,11 @@ include(doctest)
 add_executable(pnkr_tests
     doctest_main.cpp
     assets/texture_loader_test.cpp
+    renderer/Test_ResourceStateMachine.cpp
+    renderer/Test_ResourceRequestManager.cpp
+    renderer/Test_AsyncLoader.cpp
+    renderer/Test_NullRHI.cpp
+    renderer/Test_RHIResourceManager.cpp
 )
 
 target_include_directories(pnkr_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/include)

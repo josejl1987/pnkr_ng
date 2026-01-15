@@ -32,6 +32,62 @@ namespace pnkr::renderer
 
         std::vector<uint8_t> ownedData;
         std::vector<uint64_t> mipFileOffsets;
+
+        KTXTextureData() = default;
+        ~KTXTextureData() = default; // Destruction is handled manually via KTXUtils::destroy for now, 
+                                     // or we can add it here if we want full RAII. 
+                                     // Given current codebase uses KTXUtils::destroy, we'll keep it manual but prevent copies.
+
+        KTXTextureData(const KTXTextureData&) = delete;
+        KTXTextureData& operator=(const KTXTextureData&) = delete;
+
+        KTXTextureData(KTXTextureData&& other) noexcept 
+            : texture(other.texture)
+            , type(other.type)
+            , format(other.format)
+            , extent(other.extent)
+            , mipLevels(other.mipLevels)
+            , arrayLayers(other.arrayLayers)
+            , numLayers(other.numLayers)
+            , numFaces(other.numFaces)
+            , isCubemap(other.isCubemap)
+            , isArray(other.isArray)
+            , dataPtr(other.dataPtr)
+            , dataSize(other.dataSize)
+            , ownedData(std::move(other.ownedData))
+            , mipFileOffsets(std::move(other.mipFileOffsets))
+        {
+            other.texture = nullptr;
+            other.dataPtr = nullptr;
+            other.dataSize = 0;
+        }
+
+        KTXTextureData& operator=(KTXTextureData&& other) noexcept {
+            if (this != &other) {
+                // We should probably call KTXUtils::destroy(*this) here if we wanted true RAII
+                // but for now let's just ensure we don't leak if the target has a texture.
+                // However, the current code pattern is to call KTXUtils::destroy explicitly.
+                texture = other.texture;
+                type = other.type;
+                format = other.format;
+                extent = other.extent;
+                mipLevels = other.mipLevels;
+                arrayLayers = other.arrayLayers;
+                numLayers = other.numLayers;
+                numFaces = other.numFaces;
+                isCubemap = other.isCubemap;
+                isArray = other.isArray;
+                dataPtr = other.dataPtr;
+                dataSize = other.dataSize;
+                ownedData = std::move(other.ownedData);
+                mipFileOffsets = std::move(other.mipFileOffsets);
+
+                other.texture = nullptr;
+                other.dataPtr = nullptr;
+                other.dataSize = 0;
+            }
+            return *this;
+        }
     };
 
     class KTXUtils

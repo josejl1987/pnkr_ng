@@ -458,23 +458,6 @@ namespace pnkr::renderer
 
             ctx.cmd->endRendering();
 
-            // VERIFICATION: Check if stored matrices match what we just rendered
-            glm::mat4 verifyVP = ctx.camera->viewProj();
-            bool matricesMatch = glm::all(glm::epsilonEqual(verifyVP[0], gpuShadowData.lightViewProjRaw[0], 0.0001f)) &&
-                                 glm::all(glm::epsilonEqual(verifyVP[1], gpuShadowData.lightViewProjRaw[1], 0.0001f)) &&
-                                 glm::all(glm::epsilonEqual(verifyVP[2], gpuShadowData.lightViewProjRaw[2], 0.0001f)) &&
-                                 glm::all(glm::epsilonEqual(verifyVP[3], gpuShadowData.lightViewProjRaw[3], 0.0001f));
-
-            if (!matricesMatch) {
-                core::Logger::Render.warn(
-                    "Shadow matrix verification: stored={} rendered={} match={}",
-                    glm::to_string(m_lastLightProj[0]),
-                    glm::to_string(lightProjMat[0]),
-                    matricesMatch
-                );
-            }
-
-
         }
 
         if (ctx.shadowDataAddr != 0 && (ctx.frameBuffers.mappedShadowData != nullptr) &&
