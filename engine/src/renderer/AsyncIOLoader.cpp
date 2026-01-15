@@ -38,7 +38,7 @@ void AsyncIOLoader::waitAll() {
     }
 
     for (auto &t : tasks) {
-      core::TaskSystem::scheduler().WaitforTask(t.get());
+      core::TaskSystem::ioScheduler().WaitforTask(t.get());
     }
   }
 }
@@ -73,7 +73,7 @@ void AsyncIOLoader::scheduleRequests() {
     task->m_SetSize = 1;
     task->scopeSnapshot = core::Logger::captureScopes();
 
-    core::TaskSystem::scheduler().AddTaskSetToPipe(task.get());
+    core::TaskSystem::ioScheduler().AddTaskSetToPipe(task.get());
     m_loadingTasks.push_back(std::move(task));
   }
 }

@@ -37,7 +37,7 @@ private:
     std::vector<std::unique_ptr<FileLoadTask>> m_loadingTasks;
     mutable std::mutex m_taskMutex;
     
-    static constexpr uint32_t kMaxConcurrentFileLoads = 8;
+    static constexpr uint32_t kMaxConcurrentFileLoads = 32;
 };
 
 } // namespace pnkr::renderer
