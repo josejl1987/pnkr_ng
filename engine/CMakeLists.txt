@@ -97,20 +97,22 @@ set_source_files_properties(src/assets/AssetImporter.cpp PROPERTIES UNITY_BUILD 
 # ============================================================================
 # Precompiled Headers
 # ============================================================================
-target_precompile_headers(pnkr_engine PRIVATE
-  <vector>
-  <memory>
-  <string>
-  <stdexcept>
-  <vulkan/vulkan.hpp>
-  <vk_mem_alloc.h>
-  <glm/glm.hpp>
-  <glm/gtc/matrix_transform.hpp>
-  <fastgltf/core.hpp>
-  <fastgltf/types.hpp>
+if(NOT PNKR_ENABLE_COVERAGE)
+  target_precompile_headers(pnkr_engine PRIVATE
+    <vector>
+    <memory>
+    <string>
+    <stdexcept>
+    <vulkan/vulkan.hpp>
+    <vk_mem_alloc.h>
+    <glm/glm.hpp>
+    <glm/gtc/matrix_transform.hpp>
+    <fastgltf/core.hpp>
+    <fastgltf/types.hpp>
 
-  <SDL3/SDL.h>
-)
+    <SDL3/SDL.h>
+  )
+endif()
 
 # ============================================================================
 # Module Subdirectories
@@ -525,3 +527,6 @@ install(TARGETS pnkr_engine
 )
 
 install(DIRECTORY include/ DESTINATION include)
+
+# Code Coverage Instrumentation
+pnkr_instrument_target(pnkr_engine)

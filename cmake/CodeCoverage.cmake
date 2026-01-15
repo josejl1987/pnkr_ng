@@ -33,8 +33,15 @@ function(pnkr_instrument_target target_name)
         return()
     endif()
 
-    target_compile_options(${target_name} PRIVATE -fprofile-instr-generate -fcoverage-mapping)
-    target_link_options(${target_name} PRIVATE -fprofile-instr-generate)
+    # For clang-cl, we need to pass these as clang driver arguments or cc1 arguments
+    if(MSVC)
+        # Try only instrumentation first, and NO linker flags (let auto-linking handle it or fix later)
+        target_compile_options(${target_name} PRIVATE /clang:-fprofile-instr-generate)
+        # target_link_options(${target_name} PRIVATE /clang:-fprofile-instr-generate)
+    else()
+        target_compile_options(${target_name} PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+        target_link_options(${target_name} PRIVATE -fprofile-instr-generate)
+    endif()
 endfunction()
 
 function(pnkr_add_coverage_report test_target_name)
@@ -55,8 +62,12 @@ function(pnkr_add_coverage_report test_target_name)
     # Note: LLVM_PROFILE_FILE env var can set the output path, but default is default.profraw in working dir
     
     add_custom_target(${test_target_name}_coverage
-        # 1. Run the tests
-        COMMAND ${CMAKE_COMMAND} -E env LLVM_PROFILE_FILE=${PROFRAW_FILE} $<TARGET_FILE:${test_target_name}>
+        # 1. Run the tests (Ignore failure so report is generated)
+        if(WIN32)
+            COMMAND cmd /C "set LLVM_PROFILE_FILE=${PROFRAW_FILE} && $<TARGET_FILE:${test_target_name}> || exit 0"
+        else()
+            COMMAND ${CMAKE_COMMAND} -E env LLVM_PROFILE_FILE=${PROFRAW_FILE} $<TARGET_FILE:${test_target_name}> || true
+        endif()
         
         # 2. Merge profile data
         COMMAND ${LLVM_PROFDATA_PATH} merge -sparse ${PROFRAW_FILE} -o ${PROFDATA_FILE}

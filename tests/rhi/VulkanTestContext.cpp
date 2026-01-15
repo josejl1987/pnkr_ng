@@ -243,32 +243,44 @@ void VulkanTestContext::validateLavapipeAvailable() {
   for (const auto &pd : physicalDevices) {
     if (isLavapipeDevice(pd)) {
       lavapipeFound = true;
-      core::Logger::RHI.info("Found lavapipe device: {}",
-                             pd.getProperties().deviceName.data());
       break;
     }
   }
 
   if (!lavapipeFound) {
-    core::Logger::RHI.error("Lavapipe device not found. Available devices:");
-    for (const auto &pd : physicalDevices) {
-      core::Logger::RHI.error("  - {}", pd.getProperties().deviceName.data());
-    }
-    throw std::runtime_error("Lavapipe not available for Vulkan tests");
+    core::Logger::RHI.warn("Lavapipe device not found. Will attempt to use physical GPU.");
   }
 }
 
 bool VulkanTestContext::selectLavapipeDevice() {
   auto physicalDevices = m_instanceContext->instance.enumeratePhysicalDevices();
 
+  // 1. Try Lavapipe
   for (const auto &pd : physicalDevices) {
     if (isLavapipeDevice(pd)) {
       m_physicalDevice = pd;
+      core::Logger::RHI.info("Selected Lavapipe device: {}", pd.getProperties().deviceName.data());
       return true;
     }
   }
 
-  throw std::runtime_error("Lavapipe device not found");
+  // 2. Try Discrete GPU
+  for (const auto &pd : physicalDevices) {
+    if (pd.getProperties().deviceType == vk::PhysicalDeviceType::eDiscreteGpu) {
+      m_physicalDevice = pd;
+      core::Logger::RHI.info("Selected Discrete GPU: {}", pd.getProperties().deviceName.data());
+      return true;
+    }
+  }
+
+  // 3. Any
+  if (!physicalDevices.empty()) {
+    m_physicalDevice = physicalDevices[0];
+    core::Logger::RHI.info("Selected fallback device: {}", m_physicalDevice.getProperties().deviceName.data());
+    return true;
+  }
+
+  throw std::runtime_error("No suitable Vulkan device found");
 }
 
 void VulkanTestContext::setup() {

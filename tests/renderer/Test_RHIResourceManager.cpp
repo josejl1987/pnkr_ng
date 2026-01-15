@@ -84,4 +84,45 @@ TEST_CASE("RHIResourceManager Lifetime") {
         manager.processDestroyEvents();
         CHECK(manager.getResourceStats().texturesAlive == 0);
     }
+    SUBCASE("Deferred Destruction Timing (Regression Test)") {
+        // This test verifies that resources destroyed in frame N are NOT destroyed immediately
+        // in frame N, but are deferred until frame N + FramesInFlight (effectively).
+        
+        TextureDescriptor texDesc{};
+        texDesc.extent = {1, 1, 1};
+        texDesc.format = Format::R8G8B8A8_UNORM;
+        texDesc.usage = TextureUsage::Sampled;
+
+        {
+            TexturePtr tex = manager.createTexture("TimingTest", texDesc, true);
+        } // tex goes out of scope, destroyDeferred called.
+        
+        // At this point, the destroy event is in the queue, but not processed.
+        CHECK(manager.getResourceStats().texturesAlive == 1);
+        CHECK(manager.getResourceStats().texturesDeferred == 0);
+
+        // Simulate Frame 0 start:
+        // flush(0) should:
+        // 1. flushDeferred(0) -> CLEARS old garbage (nothing atm)
+        // 2. processDestroyEvents() -> Moves event to deferred queue for slot 0
+        manager.flush(0);
+
+        // Resources should be "Alive" but "Deferred"
+        // Wait, 'Alive' counts the StablePool slots. destroyTexture() calls retire() which effectively removes it from 'Alive' count in the pool?
+        // RHIResourceManager::destroyTexture calls retire() and freeSlot(),
+        // so texturesAlive should be 0, and texturesDeferred should be 1.
+        
+        CHECK(manager.getResourceStats().texturesAlive == 0);
+        CHECK(manager.getResourceStats().texturesDeferred == 1);
+
+        // If the bug existed, flush(0) would have processed events THEN flushed deferred,
+        // resulting in texturesDeferred == 0 immediately.
+        CHECK(manager.getResourceStats().texturesDeferred == 1);
+
+        // Simulate Frame 0 again (or Frame N + FramesInFlight)
+        manager.flush(0);
+        
+        // NOW it should be gone.
+        CHECK(manager.getResourceStats().texturesDeferred == 0);
+    }
 }

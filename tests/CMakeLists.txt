@@ -150,3 +150,10 @@ if(PNKR_VULKAN_TEST_ENV)
 else()
   doctest_discover_tests(pnkr_vulkan_tests PROPERTIES LABELS "Vulkan")
 endif()
+
+# Code Coverage
+pnkr_instrument_target(pnkr_tests)
+pnkr_add_coverage_report(pnkr_tests)
+
+pnkr_instrument_target(pnkr_vulkan_tests)
+pnkr_add_coverage_report(pnkr_vulkan_tests)
