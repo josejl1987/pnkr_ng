@@ -1,0 +1,60 @@
+name: Vulkan Unit Tests with Lavapipe
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  vulkan-lavapipe:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            wayland-dev \
+            xorg-dev
+
+      - name: Install Vulkan SDK with Lavapipe
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          install_lavapipe: true
+          install_runtime: true
+          cache: true
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DPNKR_DEBUG=1
+
+      - name: Build Vulkan Tests
+        run: |
+          cmake --build build --config Debug --target pnkr_vulkan_tests
+
+      - name: Run Vulkan Tests with Lavapipe
+        env:
+          VK_ICD_FILENAMES: ${{ github.workspace }}/.vulkan/lavapipe_icd.x86_64.json
+          VK_LAYER_PATH: ${{ github.workspace }}/.vulkan/explicit_layer.d
+          PNKR_VK_REQUIRE_HEADLESS: "1"
+        run: |
+          ctest --test-dir build -C Debug --output-on-failure -L Vulkan --verbose
+
+      - name: Upload Test Results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulkan-test-results
+          path: build/Testing/

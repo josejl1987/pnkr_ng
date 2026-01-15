@@ -36,6 +36,64 @@ Target C++ Standard: **C++20/23**.
   ./build/tests/Debug/pnkr_tests --list-test-cases
   ```
 
+## Vulkan Unit Testing with Lavapipe
+
+### Overview
+Vulkan unit tests run on the lavapipe software renderer for CI consistency and hardware-independent testing. Tests use headless rendering (VK_EXT_headless_surface) and enable validation layers in Debug builds.
+
+### Running Vulkan Tests Locally
+
+**Install lavapipe:**
+```bash
+# Ubuntu/Debian
+sudo apt-get install mesa-vulkan-drivers
+
+# Verify lavapipe is available
+vulkaninfo | grep "llvmpipe"
+
+# Set environment to use lavapipe
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lavapipe_icd.x86_64.json
+```
+
+**Run tests:**
+```bash
+# Run all Vulkan tests
+./build/tests/Debug/pnkr_vulkan_tests
+
+# Run specific test case
+./build/tests/Debug/pnkr_vulkan_tests --test-case="Vulkan Buffer Operations"
+
+# Require headless surface support (CI default)
+export PNKR_VK_REQUIRE_HEADLESS=1
+
+# Run with validation enabled (automatic in Debug builds)
+export VK_LAYER_PATH=/usr/share/vulkan/explicit_layer.d
+./build/tests/Debug/pnkr_vulkan_tests
+
+# List all test cases
+./build/tests/Debug/pnkr_vulkan_tests --list-test-cases
+```
+
+### Test Organization
+
+- **Test_VulkanRHI.cpp**: Device initialization, buffer operations, texture operations, multi-threaded access
+- **Test_VulkanCompute.cpp**: Compute pipeline creation, dispatch, shader verification
+- **Test_VulkanPipelines.cpp**: Graphics pipeline creation and states
+- **Test_VulkanSynchronization.cpp**: Fences and timeline synchronization
+- **Test_VulkanBindless.cpp**: Bindless allocation and compute usage
+
+### CI/CD
+
+Vulkan tests run on GitHub Actions using:
+- `jakoch/install-vulkan-sdk-action` with `install_lavapipe: true`
+- `VK_ICD_FILENAMES` set to the lavapipe ICD path
+- Headless rendering via `VK_EXT_headless_surface`
+- Validation layers enabled in Debug builds
+
+### Shader Compilation
+
+Test shaders live in `tests/shaders/` and are compiled to SPIR-V with `add_slang_target_spirv()` into `build/bin/shaders/`. The Vulkan test target copies them into `build/tests/bin/shaders/`.
+
 ### Lint and Format
 - **Auto-format**:
   ```bash
