@@ -41,9 +41,13 @@ namespace pnkr::renderer::rhi::vulkan {
 
     void VulkanSyncManager::waitIdle()
     {
-        PNKR_PROFILE_SCOPE_COLOR("VulkanWaitIdle", 0xFF0000); // Red
         std::scoped_lock lock(m_queueMutex);
+        waitIdleInternal();
+    }
 
+    void VulkanSyncManager::waitIdleInternal()
+    {
+        PNKR_PROFILE_SCOPE_COLOR("VulkanWaitIdle", 0xFF0000); // Red
         m_device.device().waitIdle();
         m_device.processDeletionQueue();
     }
@@ -123,6 +127,17 @@ namespace pnkr::renderer::rhi::vulkan {
     }
 
     void VulkanSyncManager::submitCommands(
+        RHICommandList* commandBuffer,
+        RHIFence* signalFence,
+        const std::vector<uint64_t>& waitSemaphores,
+        const std::vector<uint64_t>& signalSemaphores,
+        RHISwapchain* swapchain)
+    {
+        std::scoped_lock lock(m_queueMutex);
+        submitCommandsInternal(commandBuffer, signalFence, waitSemaphores, signalSemaphores, swapchain);
+    }
+
+    void VulkanSyncManager::submitCommandsInternal(
         RHICommandList* commandBuffer,
         RHIFence* signalFence,
         const std::vector<uint64_t>& waitSemaphores,
@@ -222,7 +237,7 @@ namespace pnkr::renderer::rhi::vulkan {
             queue = m_transferQueue;
         }
 
-        queueSubmit(queue, submitInfo, fenceHandle);
+        queueSubmitInternal(queue, submitInfo, fenceHandle);
     }
 
     void VulkanSyncManager::submitComputeCommands(
@@ -284,17 +299,23 @@ namespace pnkr::renderer::rhi::vulkan {
 
     void VulkanSyncManager::immediateSubmit(std::function<void(RHICommandList*)>&& func)
     {
+        std::unique_lock<PNKR_MUTEX> lock(m_queueMutex);
         auto cmd = m_device.createCommandList();
         cmd->begin();
         func(cmd.get());
         cmd->end();
-        submitCommands(cmd.get(), nullptr, {}, {}, nullptr);
-        waitIdle();
+        submitCommandsInternal(cmd.get(), nullptr, {}, {}, nullptr);
+        waitIdleInternal();
     }
 
     void VulkanSyncManager::queueSubmit(vk::Queue queue, const vk::SubmitInfo& submitInfo, vk::Fence fence)
     {
         std::scoped_lock lock(m_queueMutex);
+        queueSubmitInternal(queue, submitInfo, fence);
+    }
+
+    void VulkanSyncManager::queueSubmitInternal(vk::Queue queue, const vk::SubmitInfo& submitInfo, vk::Fence fence)
+    {
         queue.submit(submitInfo, fence);
     }
 

@@ -64,6 +64,16 @@ namespace pnkr::renderer::rhi::vulkan {
         vk::Queue transferQueue() const { return m_transferQueue; }
 
     private:
+        void submitCommandsInternal(
+            RHICommandList* commandBuffer,
+            RHIFence* signalFence,
+            const std::vector<uint64_t>& waitSemaphores,
+            const std::vector<uint64_t>& signalSemaphores,
+            RHISwapchain* swapchain);
+
+        void queueSubmitInternal(vk::Queue queue, const vk::SubmitInfo& submitInfo, vk::Fence fence);
+        void waitIdleInternal();
+
         VulkanRHIDevice& m_device;
         vk::Queue m_graphicsQueue;
         vk::Queue m_computeQueue;

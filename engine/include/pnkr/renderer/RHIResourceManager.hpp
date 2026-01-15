@@ -12,9 +12,9 @@
 #include <memory>
 #include <vector>
 #include <span>
-#include <mutex>
-#include <atomic>
-#include <iosfwd>
+#include <shared_mutex>
+#include <concurrentqueue/moodycamel/concurrentqueue.h>
+#include "pnkr/core/StablePool.hpp"
 
 namespace pnkr::renderer {
     class AssetManager;
@@ -31,7 +31,6 @@ namespace pnkr::renderer {
         uint32_t m_vertexCount;
         uint32_t m_indexCount;
         bool m_vertexPulling;
-        std::atomic<uint32_t> refCount{0};
 
         RHIMeshData() = default;
         RHIMeshData(RHIMeshData&& other) noexcept
@@ -39,42 +38,69 @@ namespace pnkr::renderer {
             , m_indexBuffer(std::move(other.m_indexBuffer))
             , m_vertexCount(other.m_vertexCount)
             , m_indexCount(other.m_indexCount)
-            , m_vertexPulling(other.m_vertexPulling)
-            , refCount(other.refCount.load()) {}
+            , m_vertexPulling(other.m_vertexPulling) {}
+
+        RHIMeshData& operator=(RHIMeshData&& other) noexcept {
+            if (this != &other) {
+                m_vertexBuffer = std::move(other.m_vertexBuffer);
+                m_indexBuffer = std::move(other.m_indexBuffer);
+                m_vertexCount = other.m_vertexCount;
+                m_indexCount = other.m_indexCount;
+                m_vertexPulling = other.m_vertexPulling;
+            }
+            return *this;
+        }
     };
 
     struct RHITextureData {
         std::shared_ptr<rhi::RHITexture> texture;
         rhi::TextureBindlessHandle bindlessIndex;
-        std::atomic<uint32_t> refCount{0};
 
         RHITextureData() = default;
         RHITextureData(RHITextureData&& other) noexcept
             : texture(std::move(other.texture))
-            , bindlessIndex(other.bindlessIndex)
-            , refCount(other.refCount.load()) {}
+            , bindlessIndex(other.bindlessIndex) {}
+
+        RHITextureData& operator=(RHITextureData&& other) noexcept {
+            if (this != &other) {
+                texture = std::move(other.texture);
+                bindlessIndex = other.bindlessIndex;
+            }
+            return *this;
+        }
     };
 
     struct RHIBufferData {
         std::unique_ptr<rhi::RHIBuffer> buffer;
         rhi::BufferBindlessHandle bindlessIndex;
-        std::atomic<uint32_t> refCount{0};
 
         RHIBufferData() = default;
         RHIBufferData(RHIBufferData&& other) noexcept
             : buffer(std::move(other.buffer))
-            , bindlessIndex(other.bindlessIndex)
-            , refCount(other.refCount.load()) {}
+            , bindlessIndex(other.bindlessIndex) {}
+
+        RHIBufferData& operator=(RHIBufferData&& other) noexcept {
+            if (this != &other) {
+                buffer = std::move(other.buffer);
+                bindlessIndex = other.bindlessIndex;
+            }
+            return *this;
+        }
     };
 
     struct RHIPipelineData {
         std::unique_ptr<rhi::RHIPipeline> pipeline;
-        std::atomic<uint32_t> refCount{0};
 
         RHIPipelineData() = default;
         RHIPipelineData(RHIPipelineData&& other) noexcept
-            : pipeline(std::move(other.pipeline))
-            , refCount(other.refCount.load()) {}
+            : pipeline(std::move(other.pipeline)) {}
+
+        RHIPipelineData& operator=(RHIPipelineData&& other) noexcept {
+            if (this != &other) {
+                pipeline = std::move(other.pipeline);
+            }
+            return *this;
+        }
     };
 
     class RHIResourceManager;
@@ -164,6 +190,18 @@ namespace pnkr::renderer {
         uint32_t pipelinesDeferred = 0;
     };
 
+    struct DestroyEvent {
+        enum class Kind : uint8_t { Texture, Buffer, Mesh, Pipeline };
+        Kind kind;
+        uint32_t index : 20;
+        uint32_t generation : 12;
+
+        template<typename Tag>
+        static DestroyEvent fromHandle(core::Handle<Tag> handle, Kind kind) {
+            return { kind, handle.index, handle.generation };
+        }
+    };
+
     class RHIResourceManager {
     public:
         explicit RHIResourceManager(rhi::RHIDevice* device, uint32_t framesInFlight);
@@ -195,7 +233,12 @@ namespace pnkr::renderer {
         void destroyTexture(TextureHandle handle, uint32_t frameIndex);
         void destroyBuffer(BufferHandle handle, uint32_t frameIndex);
         void destroyMesh(MeshHandle handle);
+        void destroyPipeline(PipelineHandle handle, uint32_t frameIndex);
 
+        void processDestroyEvents();
+        void flushDeferred(uint32_t frameSlot);
+
+        // Deprecated: use processDestroyEvents() + flushDeferred()
         void flush(uint32_t frameSlot);
         void clear();
 
@@ -204,38 +247,56 @@ namespace pnkr::renderer {
         [[nodiscard]] rhi::RHIPipeline* getPipeline(PipelineHandle handle) const;
         [[nodiscard]] const RHIMeshData* getMesh(MeshHandle handle) const;
 
-        core::Pool<RHITextureData, core::TextureTag>& textures() { return m_textures; }
-        core::Pool<RHIBufferData, core::BufferTag>& buffers() { return m_buffers; }
+        [[nodiscard]] rhi::RHITexture* getTexture(const TexturePtr& ptr) const;
+        [[nodiscard]] rhi::RHIBuffer* getBuffer(const BufferPtr& ptr) const;
+        [[nodiscard]] rhi::RHIPipeline* getPipeline(const PipelinePtr& ptr) const;
+        [[nodiscard]] const RHIMeshData* getMesh(const MeshPtr& ptr) const;
+
+        [[nodiscard]] bool isRenderThread() const {
+            return m_renderThreadId == std::thread::id() || std::this_thread::get_id() == m_renderThreadId;
+        }
+
+        core::StablePool<RHITextureData, core::TextureTag>& textures() { return m_textures; }
+        core::StablePool<RHIBufferData, core::BufferTag>& buffers() { return m_buffers; }
 
         void setCurrentFrameIndex(uint32_t index) { m_currentFrameIndex = index; }
         [[nodiscard]] uint32_t currentFrameIndex() const { return m_currentFrameIndex; }
 
+        std::shared_mutex& getMutex() const { return m_mutex; }
+
         template<typename Tag>
         auto* getPoolSlot(core::Handle<Tag> handle) {
-            if constexpr (std::is_same_v<Tag, core::TextureTag>) return m_textures.get(handle);
-            else if constexpr (std::is_same_v<Tag, core::BufferTag>) return m_buffers.get(handle);
-            else if constexpr (std::is_same_v<Tag, core::MeshTag>) return m_meshes.get(handle);
-            else if constexpr (std::is_same_v<Tag, core::PipelineTag>) return m_pipelines.get(handle);
+            if constexpr (std::is_same_v<Tag, core::TextureTag>) return m_textures.getSlotPtr(handle.index);
+            else if constexpr (std::is_same_v<Tag, core::BufferTag>) return m_buffers.getSlotPtr(handle.index);
+            else if constexpr (std::is_same_v<Tag, core::MeshTag>) return m_meshes.getSlotPtr(handle.index);
+            else if constexpr (std::is_same_v<Tag, core::PipelineTag>) return m_pipelines.getSlotPtr(handle.index);
             else return (void*)nullptr;
         }
 
         template<typename Tag>
         void destroyDeferred(core::Handle<Tag> handle) {
-            if constexpr (std::is_same_v<Tag, core::TextureTag>) destroyTexture(handle, m_currentFrameIndex);
-            else if constexpr (std::is_same_v<Tag, core::BufferTag>) destroyBuffer(handle, m_currentFrameIndex);
-            else if constexpr (std::is_same_v<Tag, core::MeshTag>) destroyMesh(handle);
+            DestroyEvent::Kind kind;
+            if constexpr (std::is_same_v<Tag, core::TextureTag>) kind = DestroyEvent::Kind::Texture;
+            else if constexpr (std::is_same_v<Tag, core::BufferTag>) kind = DestroyEvent::Kind::Buffer;
+            else if constexpr (std::is_same_v<Tag, core::MeshTag>) kind = DestroyEvent::Kind::Mesh;
+            else if constexpr (std::is_same_v<Tag, core::PipelineTag>) kind = DestroyEvent::Kind::Pipeline;
+
+            m_destroyQueue.enqueue(DestroyEvent::fromHandle(handle, kind));
         }
 
     private:
         rhi::RHIDevice* m_device;
         uint32_t m_currentFrameIndex = 0;
-        core::Pool<RHIMeshData, core::MeshTag> m_meshes;
-        core::Pool<RHITextureData, core::TextureTag> m_textures;
-        core::Pool<RHIBufferData, core::BufferTag> m_buffers;
-        core::Pool<RHIPipelineData, core::PipelineTag> m_pipelines;
+        std::thread::id m_renderThreadId;
+
+        core::StablePool<RHIMeshData, core::MeshTag> m_meshes;
+        core::StablePool<RHITextureData, core::TextureTag> m_textures;
+        core::StablePool<RHIBufferData, core::BufferTag> m_buffers;
+        core::StablePool<RHIPipelineData, core::PipelineTag> m_pipelines;
 
         std::vector<std::vector<RHIDeferredDestruction>> m_deferredDestructionQueues;
-        mutable std::mutex m_mutex;
+        moodycamel::ConcurrentQueue<DestroyEvent> m_destroyQueue;
+        mutable std::shared_mutex m_mutex;
     };
 
     template<typename T, typename Tag>
@@ -247,8 +308,13 @@ namespace pnkr::renderer {
     template<typename T, typename Tag>
     void SmartHandle<T, Tag>::addRefInternal() {
         if (m_manager && m_handle.isValid()) {
-            if (auto* data = m_manager->getPoolSlot<Tag>(m_handle)) {
-                data->refCount.fetch_add(1, std::memory_order_relaxed);
+            if (auto* slot = m_manager->template getPoolSlot<Tag>(m_handle)) {
+                // Lock-free validation: state must be Alive and generation must match
+                // Note: getPoolSlot only returns slot if basics match, but we double-check state
+                if (slot->state.load(std::memory_order_acquire) == core::SlotState::Alive && 
+                    slot->generation.load(std::memory_order_acquire) == m_handle.generation) {
+                    slot->refCount.fetch_add(1, std::memory_order_relaxed);
+                }
             }
         }
     }
@@ -256,10 +322,14 @@ namespace pnkr::renderer {
     template<typename T, typename Tag>
     void SmartHandle<T, Tag>::releaseInternal() {
         if (m_manager && m_handle.isValid()) {
-            if (auto* data = m_manager->getPoolSlot<Tag>(m_handle)) {
-                uint32_t val = data->refCount.fetch_sub(1, std::memory_order_acq_rel);
-                if (val == 1) {
-                    m_manager->destroyDeferred<Tag>(m_handle);
+            if (auto* slot = m_manager->template getPoolSlot<Tag>(m_handle)) {
+                // Relaxed check: we don't strictly need Alive for decrement, 
+                // but generation MUST match to be the right resource.
+                if (slot->generation.load(std::memory_order_acquire) == m_handle.generation) {
+                    uint32_t val = slot->refCount.fetch_sub(1, std::memory_order_acq_rel);
+                    if (val == 1) {
+                        m_manager->destroyDeferred<Tag>(m_handle);
+                    }
                 }
             }
         }

@@ -20,8 +20,12 @@ namespace pnkr::renderer {
     }
 
     RHIResourceManager::RHIResourceManager(rhi::RHIDevice* device, uint32_t framesInFlight)
-        : m_device(device) {
+        : m_device(device), m_renderThreadId(std::this_thread::get_id()) {
         m_deferredDestructionQueues.resize(framesInFlight);
+        m_meshes.setRenderThreadId(m_renderThreadId);
+        m_textures.setRenderThreadId(m_renderThreadId);
+        m_buffers.setRenderThreadId(m_renderThreadId);
+        m_pipelines.setRenderThreadId(m_renderThreadId);
     }
 
     RHIResourceManager::~RHIResourceManager() {
@@ -29,59 +33,62 @@ namespace pnkr::renderer {
     }
 
     ResourceStats RHIResourceManager::getResourceStats() const {
-      std::scoped_lock lock(m_mutex);
       ResourceStats stats{};
-      stats.texturesAlive = static_cast<uint32_t>(m_textures.size());
-      stats.buffersAlive = static_cast<uint32_t>(m_buffers.size());
-      stats.meshesAlive = static_cast<uint32_t>(m_meshes.size());
-      stats.pipelinesAlive = static_cast<uint32_t>(m_pipelines.size());
+      stats.texturesAlive = m_textures.size();
+      stats.buffersAlive = m_buffers.size();
+      stats.meshesAlive = m_meshes.size();
+      stats.pipelinesAlive = m_pipelines.size();
 
       for (const auto &queue : m_deferredDestructionQueues) {
         for (const auto &item : queue) {
-          if (item.texture) {
-            stats.texturesDeferred++;
-          }
-          if (item.buffer) {
-            stats.buffersDeferred++;
-          }
-          if (item.pipeline) {
-            stats.pipelinesDeferred++;
-          }
+          if (item.texture) stats.texturesDeferred++;
+          if (item.buffer) stats.buffersDeferred++;
+          if (item.pipeline) stats.pipelinesDeferred++;
         }
-        }
-        return stats;
+      }
+      return stats;
     }
 
     void RHIResourceManager::dumpLeaks(std::ostream& out) const {
 #ifndef NDEBUG
-      std::scoped_lock lock(m_mutex);
       bool hasLeaks = false;
-      m_textures.for_each([&](const RHITextureData &data, TextureHandle h) {
-        if (data.refCount.load() > 0) {
-          out << "[LEAK] Texture index=" << h.index << " (gen=" << h.generation
-              << ") refCount=" << data.refCount.load() << "\n";
-          hasLeaks = true;
+      m_textures.for_each([&](const RHITextureData &, TextureHandle h) {
+        if (auto* slot = m_textures.getSlotPtr(h.index)) {
+             uint32_t rc = slot->refCount.load();
+             if (rc > 0) {
+                 out << "[LEAK] Texture index=" << h.index << " (gen=" << h.generation << ") refCount=" << rc << "\n";
+                 hasLeaks = true;
+             }
         }
       });
-      m_buffers.for_each([&](const RHIBufferData &data, BufferHandle h) {
-        if (data.refCount.load() > 0) {
-          out << "[LEAK] Buffer index=" << h.index << " (gen=" << h.generation
-              << ") refCount=" << data.refCount.load() << "\n";
-          hasLeaks = true;
+      // Similar for buffers, meshes, pipelines... 
+      // (Truncated for brevity in this edit, but I should probably implement them all if I want to be thorough)
+      // Actually, let's do them all.
+      m_buffers.for_each([&](const RHIBufferData &, BufferHandle h) {
+        if (auto* slot = m_buffers.getSlotPtr(h.index)) {
+             uint32_t rc = slot->refCount.load();
+             if (rc > 0) {
+                 out << "[LEAK] Buffer index=" << h.index << " (gen=" << h.generation << ") refCount=" << rc << "\n";
+                 hasLeaks = true;
+             }
         }
       });
-      m_meshes.for_each([&](const RHIMeshData &data, MeshHandle h) {
-        if (data.refCount.load() > 0) {
-          out << "[LEAK] Mesh index=" << h.index << " (gen=" << h.generation
-              << ") refCount=" << data.refCount.load() << "\n";
-          hasLeaks = true;
+      m_meshes.for_each([&](const RHIMeshData &, MeshHandle h) {
+        if (auto* slot = m_meshes.getSlotPtr(h.index)) {
+             uint32_t rc = slot->refCount.load();
+             if (rc > 0) {
+                 out << "[LEAK] Mesh index=" << h.index << " (gen=" << h.generation << ") refCount=" << rc << "\n";
+                 hasLeaks = true;
+             }
         }
       });
-      m_pipelines.for_each([&](const RHIPipelineData &data, PipelineHandle h) {
-        if (data.refCount.load() > 0) {
-          out << "[LEAK] Pipeline index=" << h.index << " (gen=" << h.generation
-              << ") refCount=" << data.refCount.load() << "\n";
-          hasLeaks = true;
+      m_pipelines.for_each([&](const RHIPipelineData &, PipelineHandle h) {
+        if (auto* slot = m_pipelines.getSlotPtr(h.index)) {
+             uint32_t rc = slot->refCount.load();
+             if (rc > 0) {
+                 out << "[LEAK] Pipeline index=" << h.index << " (gen=" << h.generation << ") refCount=" << rc << "\n";
+                 hasLeaks = true;
+             }
         }
       });
 
@@ -93,24 +100,20 @@ namespace pnkr::renderer {
 
     void RHIResourceManager::reportToTracy() const {
 #ifdef TRACY_ENABLE
-      std::scoped_lock lock(m_mutex);
       PNKR_TRACY_PLOT("RHI Textures", static_cast<int64_t>(m_textures.size()));
       PNKR_TRACY_PLOT("RHI Buffers", static_cast<int64_t>(m_buffers.size()));
       PNKR_TRACY_PLOT("RHI Meshes", static_cast<int64_t>(m_meshes.size()));
-      PNKR_TRACY_PLOT("RHI Pipelines",
-                      static_cast<int64_t>(m_pipelines.size()));
+      PNKR_TRACY_PLOT("RHI Pipelines", static_cast<int64_t>(m_pipelines.size()));
 
       uint32_t deferredTotal = 0;
       for (const auto &q : m_deferredDestructionQueues) {
         deferredTotal += static_cast<uint32_t>(q.size());
       }
-      PNKR_TRACY_PLOT("RHI Deferred Destruction",
-                      static_cast<int64_t>(deferredTotal));
+      PNKR_TRACY_PLOT("RHI Deferred Destruction", static_cast<int64_t>(deferredTotal));
 #endif
     }
 
     TexturePtr RHIResourceManager::createTexture(const char* name, const rhi::TextureDescriptor& desc, bool useBindless) {
-      std::scoped_lock lock(m_mutex);
       auto textureUnique = m_device->createTexture(name, desc);
       std::shared_ptr<rhi::RHITexture> texture = std::move(textureUnique);
 
@@ -128,21 +131,26 @@ namespace pnkr::renderer {
           }
           texture->setBindlessHandle(bindlessHandle);
         }
-        }
+      }
 
-        RHITextureData texData{};
-        texData.texture = std::move(texture);
-        texData.bindlessIndex = texData.texture->getBindlessHandle();
+      RHITextureData texData{};
+      texData.texture = std::move(texture);
+      texData.bindlessIndex = texData.texture->getBindlessHandle();
 
-        return { this, m_textures.emplace(std::move(texData)) };
+      PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+      uint32_t index = 0;
+      auto handle = m_textures.emplace(std::move(texData));
+      return { this, handle };
     }
 
     TexturePtr RHIResourceManager::createTextureView(const char* name, TextureHandle parent, const rhi::TextureViewDescriptor& desc, bool useBindless) {
-      std::scoped_lock lock(m_mutex);
-      if (!m_textures.validate(parent) || !m_textures.get(parent)->texture) {
+      PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+      auto* parentData = m_textures.get(parent);
+      if (!parentData || !parentData->texture) {
         return {};
       }
-        auto parentShared = m_textures.get(parent)->texture;
+      auto parentShared = parentData->texture;
+
         auto* parentTex = parentShared.get();
 
         auto textureUnique = m_device->createTextureView(name, parentTex, desc);
@@ -161,101 +169,79 @@ namespace pnkr::renderer {
         texData.texture = std::move(texture);
         texData.bindlessIndex = texData.texture->getBindlessHandle();
 
-        return { this, m_textures.emplace(std::move(texData)) };
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        auto handle = m_textures.emplace(std::move(texData));
+        return { this, handle };
     }
 
     void RHIResourceManager::replaceTexture(TextureHandle handle, TextureHandle source, uint32_t frameIndex, bool useBindless) {
-      std::scoped_lock lock(m_mutex);
-      if (!m_textures.validate(handle) || !m_textures.validate(source)) {
-        core::Logger::Render.error("replaceTexture: invalid handle(s)");
-        return;
+      PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+      auto* srcData = m_textures.get(source);
+      auto* dstData = m_textures.get(handle);
+      if (!srcData || !dstData) {
+          core::Logger::Render.error("replaceTexture: invalid handle(s)");
+          return;
+      }
+      
+      auto srcTexture = srcData->texture;
+      auto oldTexture = std::move(dstData->texture);
+      auto oldBindlessIndex = dstData->bindlessIndex;
+      dstData->texture = srcTexture;
+
+      if (oldTexture) {
+          if (oldTexture.use_count() == 1) {
+              oldTexture->setBindlessHandle(rhi::TextureBindlessHandle::Invalid);
+          }
+          const uint32_t frameSlot = frameIndex % static_cast<uint32_t>(m_deferredDestructionQueues.size());
+          m_deferredDestructionQueues[frameSlot].push_back({ .buffer = nullptr, .texture = std::move(oldTexture), .pipeline = nullptr });
       }
 
-        auto* dstData = m_textures.get(handle);
-        auto* srcData = m_textures.get(source);
-
-        if ((dstData != nullptr) && (srcData != nullptr)) {
-          core::Logger::Render.trace("RHIResourceManager: Replacing texture "
-                                     "handle {} with content from handle {}",
-                                     (uint32_t)handle.index,
-                                     (uint32_t)source.index);
-
-          rhi::TextureType oldType = rhi::TextureType::Texture2D;
-          if (dstData->texture) {
-            oldType = dstData->texture->type();
-            if (dstData->texture.use_count() == 1) {
-              dstData->texture->setBindlessHandle(
-                  rhi::TextureBindlessHandle::Invalid);
-            }
-            const uint32_t frameSlot =
-                frameIndex %
-                static_cast<uint32_t>(m_deferredDestructionQueues.size());
-            m_deferredDestructionQueues[frameSlot].push_back(
-                {.buffer = nullptr,
-                 .texture = std::move(dstData->texture),
-                 .pipeline = nullptr});
-          }
-
-          dstData->texture = srcData->texture;
-
-          if (useBindless && dstData->bindlessIndex.isValid()) {
-            auto *bindless = m_device->getBindlessManager();
-            if (bindless != nullptr) {
-              rhi::TextureType newType = dstData->texture
-                                             ? dstData->texture->type()
-                                             : rhi::TextureType::Texture2D;
+      if (useBindless && oldBindlessIndex.isValid()) {
+          auto* bindless = m_device->getBindlessManager();
+          if (bindless != nullptr) {
+              rhi::TextureType oldType = oldTexture ? oldTexture->type() : rhi::TextureType::Texture2D;
+              rhi::TextureType newType = srcTexture ? srcTexture->type() : rhi::TextureType::Texture2D;
 
               if (oldType != newType) {
-                core::Logger::Render.warn(
-                    "RHIResourceManager: Texture type changed ({} -> {}) for "
-                    "handle {}. Re-allocating bindless.",
-                    (int)oldType, (int)newType, (uint32_t)handle.index);
+                  if (oldType == rhi::TextureType::TextureCube) {
+                      bindless->releaseCubemap(oldBindlessIndex);
+                  } else {
+                      bindless->releaseTexture(oldBindlessIndex);
+                  }
 
-                if (oldType == rhi::TextureType::TextureCube) {
-                  bindless->releaseCubemap(dstData->bindlessIndex);
-                } else {
-                  bindless->releaseTexture(dstData->bindlessIndex);
-                }
+                  rhi::TextureBindlessHandle newBindless;
+                  if (newType == rhi::TextureType::TextureCube) {
+                      newBindless = bindless->registerCubemapImage(srcTexture.get());
+                  } else {
+                      newBindless = bindless->registerTexture2D(srcTexture.get());
+                  }
 
-                if (newType == rhi::TextureType::TextureCube) {
-                  dstData->bindlessIndex =
-                      bindless->registerCubemapImage(dstData->texture.get());
-                } else {
-                  dstData->bindlessIndex =
-                      bindless->registerTexture2D(dstData->texture.get());
-                }
-
-                core::Logger::Render.info(
-                    "RHIResourceManager: Re-allocated bindless index: {}",
-                    dstData->bindlessIndex.index());
+                  if (auto* dstData = m_textures.get(handle)) {
+                      dstData->bindlessIndex = newBindless;
+                      if (dstData->texture) {
+                          dstData->texture->setBindlessHandle(newBindless);
+                      }
+                  }
               } else {
-                core::Logger::Render.trace(
-                    "RHIResourceManager: Updating bindless index {} for "
-                    "texture handle {}",
-                    dstData->bindlessIndex.index(), (uint32_t)handle.index);
-                bindless->updateTexture(dstData->bindlessIndex,
-                                        dstData->texture.get());
+                  bindless->updateTexture(oldBindlessIndex, srcTexture.get());
+                  if (srcTexture) {
+                      srcTexture->setBindlessHandle(oldBindlessIndex);
+                  }
               }
-              if (dstData->texture) {
-                dstData->texture->setBindlessHandle(dstData->bindlessIndex);
-              }
-            }
-          } else {
-            if (useBindless) {
-              core::Logger::Render.warn(
-                  "RHIResourceManager: Texture replaced but bindless update "
-                  "skipped (Index Invalid). Handle: {}",
-                  (uint32_t)handle.index);
-            }
           }
-        }
+      }
     }
 
     BufferPtr RHIResourceManager::createBuffer(const char* name, const rhi::BufferDescriptor& desc) {
         RHIBufferData bufferData{};
         bufferData.buffer = m_device->createBuffer(name, desc);
         bufferData.bindlessIndex = bufferData.buffer->getBindlessHandle();
-        return { this, m_buffers.emplace(std::move(bufferData)) };
+        
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        core::Logger::Render.trace("RHIResourceManager::createBuffer: {}", name ? name : "unnamed");
+        auto handle = m_buffers.emplace(std::move(bufferData));
+        core::Logger::Render.trace("RHIResourceManager::createBuffer: Created handle {}:{}", (uint32_t)handle.index, (uint32_t)handle.generation);
+        return { this, handle };
     }
 
     MeshPtr RHIResourceManager::createMesh(std::span<const Vertex> vertices, std::span<const uint32_t> indices, bool enableVertexPulling) {
@@ -309,19 +295,27 @@ namespace pnkr::renderer {
         mesh.m_vertexCount = static_cast<uint32_t>(vertices.size());
         mesh.m_indexCount = static_cast<uint32_t>(indices.size());
 
-        return { this, m_meshes.emplace(std::move(mesh)) };
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        auto handle = m_meshes.emplace(std::move(mesh));
+        return { this, handle };
     }
 
     PipelinePtr RHIResourceManager::createGraphicsPipeline(const rhi::GraphicsPipelineDescriptor& desc) {
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
         RHIPipelineData data{};
         data.pipeline = m_device->createGraphicsPipeline(desc);
-        return { this, m_pipelines.emplace(std::move(data)) };
+        
+        auto handle = m_pipelines.emplace(std::move(data));
+        return { this, handle };
     }
 
     PipelinePtr RHIResourceManager::createComputePipeline(const rhi::ComputePipelineDescriptor& desc) {
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
         RHIPipelineData data{};
         data.pipeline = m_device->createComputePipeline(desc);
-        return { this, m_pipelines.emplace(std::move(data)) };
+        
+        auto handle = m_pipelines.emplace(std::move(data));
+        return { this, handle };
     }
 
     MeshPtr RHIResourceManager::loadNoVertexPulling(std::span<const struct Vertex> vertices, std::span<const uint32_t> indices) {
@@ -333,79 +327,173 @@ namespace pnkr::renderer {
     }
 
     void RHIResourceManager::destroyTexture(TextureHandle handle, uint32_t frameIndex) {
-      if (!m_textures.validate(handle)) {
-        return;
-      }
-        auto* data = m_textures.get(handle);
-
-        if (data->texture) {
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        auto* slot = m_textures.getSlotPtr(handle.index);
+        if (!slot) return;
+        
+        // Use acquire here to ensure we see the latest T
+        if (slot->state.load(std::memory_order_acquire) == core::SlotState::Alive && 
+            slot->generation.load(std::memory_order_relaxed) == handle.generation) {
+            
+            auto& data = *slot->get();
             const uint32_t frameSlot = frameIndex % static_cast<uint32_t>(m_deferredDestructionQueues.size());
-            m_deferredDestructionQueues[frameSlot].push_back({ .buffer = nullptr, .texture = std::move(data->texture), .pipeline = nullptr });
+            m_deferredDestructionQueues[frameSlot].push_back({ .buffer = nullptr, .texture = std::move(data.texture), .pipeline = nullptr });
+            
+            m_textures.retire(handle);
+            m_textures.freeSlot(handle.index);
         }
-        m_textures.erase(handle);
     }
 
     void RHIResourceManager::destroyBuffer(BufferHandle handle, uint32_t frameIndex) {
-      if (!m_buffers.validate(handle)) {
-        return;
-      }
-        auto* data = m_buffers.get(handle);
-        if (data->buffer) {
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        auto* slot = m_buffers.getSlotPtr(handle.index);
+        if (!slot) return;
+
+        if (slot->state.load(std::memory_order_acquire) == core::SlotState::Alive && 
+            slot->generation.load(std::memory_order_relaxed) == handle.generation) {
+            
+            auto& data = *slot->get();
             const uint32_t frameSlot = frameIndex % static_cast<uint32_t>(m_deferredDestructionQueues.size());
-            m_deferredDestructionQueues[frameSlot].push_back({ .buffer = std::move(data->buffer), .texture = nullptr, .pipeline = nullptr });
+            m_deferredDestructionQueues[frameSlot].push_back({ .buffer = std::move(data.buffer), .texture = nullptr, .pipeline = nullptr });
+            
+            m_buffers.retire(handle);
+            m_buffers.freeSlot(handle.index);
         }
-        m_buffers.erase(handle);
     }
 
     void RHIResourceManager::destroyMesh(MeshHandle handle) {
-      if (!m_meshes.validate(handle)) {
-        return;
-      }
-        m_meshes.erase(handle);
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        auto* slot = m_meshes.getSlotPtr(handle.index);
+        if (!slot) return;
+
+        if (slot->state.load(std::memory_order_acquire) == core::SlotState::Alive && 
+            slot->generation.load(std::memory_order_relaxed) == handle.generation) {
+            
+            m_meshes.retire(handle);
+            m_meshes.freeSlot(handle.index);
+        }
+    }
+
+    void RHIResourceManager::destroyPipeline(PipelineHandle handle, uint32_t frameIndex) {
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        auto* slot = m_pipelines.getSlotPtr(handle.index);
+        if (!slot) return;
+
+        if (slot->state.load(std::memory_order_acquire) == core::SlotState::Alive && 
+            slot->generation.load(std::memory_order_relaxed) == handle.generation) {
+            
+            auto& data = *slot->get();
+            const uint32_t frameSlot = frameIndex % static_cast<uint32_t>(m_deferredDestructionQueues.size());
+            m_deferredDestructionQueues[frameSlot].push_back({ .buffer = nullptr, .texture = nullptr, .pipeline = std::move(data.pipeline) });
+            
+            m_pipelines.retire(handle);
+            m_pipelines.freeSlot(handle.index);
+        }
+    }
+
+    void RHIResourceManager::processDestroyEvents() {
+        DestroyEvent event;
+        while (m_destroyQueue.try_dequeue(event)) {
+            switch (event.kind) {
+                case DestroyEvent::Kind::Texture:
+                    destroyTexture(TextureHandle(event.index, event.generation), m_currentFrameIndex);
+                    break;
+                case DestroyEvent::Kind::Buffer:
+                    destroyBuffer(BufferHandle(event.index, event.generation), m_currentFrameIndex);
+                    break;
+                case DestroyEvent::Kind::Mesh:
+                    destroyMesh(MeshHandle(event.index, event.generation));
+                    break;
+                case DestroyEvent::Kind::Pipeline:
+                    destroyPipeline(PipelineHandle(event.index, event.generation), m_currentFrameIndex);
+                    break;
+            }
+        }
+    }
+
+    void RHIResourceManager::flushDeferred(uint32_t frameSlot) {
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        if (m_deferredDestructionQueues.empty()) return;
+        uint32_t slot = frameSlot % static_cast<uint32_t>(m_deferredDestructionQueues.size());
+        auto toDestroy = std::move(m_deferredDestructionQueues[slot]);
+        m_deferredDestructionQueues[slot].clear();
+        // unique_ptrs/shared_ptrs in toDestroy will be destroyed here on Render Thread
     }
 
     void RHIResourceManager::flush(uint32_t frameSlot) {
-        uint32_t slot = frameSlot % static_cast<uint32_t>(m_deferredDestructionQueues.size());
-        m_deferredDestructionQueues[slot].clear();
+        processDestroyEvents();
+        flushDeferred(frameSlot);
     }
 
     void RHIResourceManager::clear() {
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        processDestroyEvents();
+
         for (auto& queue : m_deferredDestructionQueues) {
             queue.clear();
         }
-
-        m_meshes.clear();
+        
         m_textures.clear();
         m_buffers.clear();
+        m_meshes.clear();
         m_pipelines.clear();
     }
 
     rhi::RHITexture* RHIResourceManager::getTexture(TextureHandle handle) const {
-      if (!m_textures.validate(handle)) {
+        if (!handle.isValid()) return nullptr;
+        // Not strictly thread-safe without owning handle, but valid for Render Thread
+        auto* slot = m_textures.getSlotPtr(handle.index);
+        if (slot && slot->state.load(std::memory_order_acquire) == core::SlotState::Alive && 
+            slot->generation.load(std::memory_order_relaxed) == handle.generation) {
+            return slot->get()->texture.get();
+        }
         return nullptr;
-      }
-        return m_textures.get(handle)->texture.get();
     }
 
     rhi::RHIBuffer* RHIResourceManager::getBuffer(BufferHandle handle) const {
-      if (!m_buffers.validate(handle)) {
+        if (!handle.isValid()) return nullptr;
+        auto* slot = m_buffers.getSlotPtr(handle.index);
+        if (slot && slot->state.load(std::memory_order_acquire) == core::SlotState::Alive && 
+            slot->generation.load(std::memory_order_relaxed) == handle.generation) {
+            return slot->get()->buffer.get();
+        }
         return nullptr;
-      }
-        return m_buffers.get(handle)->buffer.get();
     }
 
     rhi::RHIPipeline* RHIResourceManager::getPipeline(PipelineHandle handle) const {
-      if (!m_pipelines.validate(handle)) {
+        if (!handle.isValid()) return nullptr;
+        auto* slot = m_pipelines.getSlotPtr(handle.index);
+        if (slot && slot->state.load(std::memory_order_acquire) == core::SlotState::Alive && 
+            slot->generation.load(std::memory_order_relaxed) == handle.generation) {
+            return slot->get()->pipeline.get();
+        }
         return nullptr;
-      }
-        return m_pipelines.get(handle)->pipeline.get();
     }
 
     const RHIMeshData* RHIResourceManager::getMesh(MeshHandle handle) const {
-      if (!m_meshes.validate(handle)) {
+        if (!handle.isValid()) return nullptr;
+        auto* slot = m_meshes.getSlotPtr(handle.index);
+        if (slot && slot->state.load(std::memory_order_acquire) == core::SlotState::Alive && 
+            slot->generation.load(std::memory_order_relaxed) == handle.generation) {
+            return slot->get();
+        }
         return nullptr;
-      }
-        return m_meshes.get(handle);
+    }
+
+    rhi::RHITexture* RHIResourceManager::getTexture(const TexturePtr& ptr) const {
+        return getTexture(ptr.handle());
+    }
+
+    rhi::RHIBuffer* RHIResourceManager::getBuffer(const BufferPtr& ptr) const {
+        return getBuffer(ptr.handle());
+    }
+
+    rhi::RHIPipeline* RHIResourceManager::getPipeline(const PipelinePtr& ptr) const {
+        return getPipeline(ptr.handle());
+    }
+
+    const RHIMeshData* RHIResourceManager::getMesh(const MeshPtr& ptr) const {
+        return getMesh(ptr.handle());
     }
 
     TextureHandle RHIResourceManager::createWhiteTexture() {
@@ -451,38 +539,40 @@ namespace pnkr::renderer {
     }
 
     void RHIResourceManager::hotSwapPipeline(PipelineHandle handle, const rhi::GraphicsPipelineDescriptor& desc) {
-        if (!m_pipelines.validate(handle)) {
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        auto newPipeline = m_device->createGraphicsPipeline(desc);
+
+        auto* slot = m_pipelines.get(handle);
+        if (!slot) {
             core::Logger::Render.error("Invalid pipeline handle for hot-swap");
             return;
         }
-
-        auto* slot = m_pipelines.get(handle);
 
         if (slot->pipeline) {
              const uint32_t frameSlot = m_currentFrameIndex % static_cast<uint32_t>(m_deferredDestructionQueues.size());
              m_deferredDestructionQueues[frameSlot].push_back({ .buffer = nullptr, .texture = nullptr, .pipeline = std::move(slot->pipeline) });
         }
 
-        slot->pipeline = m_device->createGraphicsPipeline(desc);
-
+        slot->pipeline = std::move(newPipeline);
         core::Logger::Render.trace("Pipeline {} hot-swapped", (uint32_t)handle.index);
     }
 
     void RHIResourceManager::hotSwapPipeline(PipelineHandle handle, const rhi::ComputePipelineDescriptor& desc) {
-        if (!m_pipelines.validate(handle)) {
+        PNKR_ASSERT(isRenderThread(), "Must be called on Render Thread");
+        auto newPipeline = m_device->createComputePipeline(desc);
+
+        auto* slot = m_pipelines.get(handle);
+        if (!slot) {
             core::Logger::Render.error("Invalid pipeline handle for hot-swap");
             return;
         }
-
-        auto* slot = m_pipelines.get(handle);
 
         if (slot->pipeline) {
              const uint32_t frameSlot = m_currentFrameIndex % static_cast<uint32_t>(m_deferredDestructionQueues.size());
              m_deferredDestructionQueues[frameSlot].push_back({ .buffer = nullptr, .texture = nullptr, .pipeline = std::move(slot->pipeline) });
         }
 
-        slot->pipeline = m_device->createComputePipeline(desc);
-
+        slot->pipeline = std::move(newPipeline);
         core::Logger::Render.trace("Pipeline {} hot-swapped", (uint32_t)handle.index);
     }
 

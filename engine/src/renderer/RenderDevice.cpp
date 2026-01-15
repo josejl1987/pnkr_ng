@@ -18,7 +18,7 @@ namespace pnkr::renderer {
             deviceDesc.requiredExtensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
         }
 
-        m_deviceContext = std::make_unique<RHIDeviceContext>(rhi::RHIBackend::Vulkan, deviceDesc);
+        m_deviceContext = std::make_unique<RHIDeviceContext>(config.m_backend, deviceDesc);
 
         // Create Swapchain
         // Assuming user wants VSnyc by default or controlled via config if it had it.
