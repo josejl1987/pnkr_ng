@@ -62,8 +62,8 @@ namespace pnkr::renderer {
         }
       });
       // Similar for buffers, meshes, pipelines... 
-      // (Truncated for brevity in this edit, but I should probably implement them all if I want to be thorough)
-      // Actually, let's do them all.
+      // Process all other resource types to check for leaks
+
       m_buffers.for_each([&](const RHIBufferData &, BufferHandle h) {
         if (auto* slot = m_buffers.getSlotPtr(h.index)) {
              uint32_t rc = slot->refCount.load();
@@ -421,8 +421,12 @@ namespace pnkr::renderer {
     }
 
     void RHIResourceManager::flush(uint32_t frameSlot) {
-        processDestroyEvents();
+        // Fix: Flush the deferred queue *before* processing new events.
+        // If we process events first, the newly added items (which must live for FramesInFlight frames)
+        // would be immediately flushed because they land in 'frameSlot'.
+        // By flushing first, we clear items from 'FramesInFlight' frames ago.
         flushDeferred(frameSlot);
+        processDestroyEvents();
     }
 
     void RHIResourceManager::clear() {

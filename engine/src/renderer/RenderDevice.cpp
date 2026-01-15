@@ -1,5 +1,6 @@
 #include "pnkr/renderer/RenderDevice.hpp"
 #include "pnkr/renderer/rhi_renderer.hpp"
+#include <vulkan/vulkan.hpp>
 
 namespace pnkr::renderer {
 
@@ -20,24 +21,10 @@ namespace pnkr::renderer {
 
         m_deviceContext = std::make_unique<RHIDeviceContext>(config.m_backend, deviceDesc);
 
-        // Create Swapchain
-        // Assuming user wants VSnyc by default or controlled via config if it had it.
-        // RHISwapchainManager constructor takes format.
-        // We need to decide on a default format or pick one. 
-        // Existing RHIRenderer likely picked one.
-        // Let's use rhi::Format::B8G8R8A8_UNORM as a reasonable default for swapchain if not specified, 
-        // but typically the manager picks the best one.
-        // RHISwapchainManager signature: (rhi::RHIDevice* device, platform::Window& window, rhi::Format format)
-        
-        // We'll use the format from config if available, or a default.
-        // Looking at RendererConfig, it might not have swapchain format. 
-        // Let's assume B8G8R8A8_UNORM for now, or check what RHIRenderer did.
-        // RHIRenderer passed rhi::Format::B8G8R8A8_UNORM or similar.
-        
         m_swapchainManager = std::make_unique<RHISwapchainManager>(
             m_deviceContext->device(), 
             window, 
-            rhi::Format::B8G8R8A8_UNORM 
+            config.m_swapchainFormat 
         );
     }
 

@@ -167,11 +167,19 @@ public:
         }
         free_list_.clear();
         next_index_ = 0;
-        // In a "stable" pool, we might choose NOT to release chunks to avoid pointer invalidation 
-        // if this pool is reused. For now, we keep chunks.
-        if (!chunks_.empty()) {
-            // Reset logic if we want to reuse chunks from index 0
-            // Simplified: we just reset tracking.
+        // Optimization: We keep the allocated chunks to avoid reallocation overhead if the pool is reused.
+        // Use release_memory() if you want to free the underlying storage.
+    }
+
+    // Explicitly release all memory held by chunks
+    void release_memory() {
+        checkRenderThread();
+        clear(); // Ensure destructors are called
+        chunks_.clear();
+        std::array<std::atomic<Slot*>, kMaxChunks> empty_ptrs{};
+        // Reset pointers atomically
+        for(size_t i=0; i<kMaxChunks; ++i) {
+             chunks_ptrs_[i].store(nullptr, std::memory_order_release);
         }
     }
 
