@@ -292,6 +292,10 @@ public:
         m_model.reset();
         m_debugLayer.reset();
 
+        m_brdfLut.reset();
+        m_irradiance.reset();
+        m_prefilter.reset();
+
         Application::onShutdown();
     }
 
