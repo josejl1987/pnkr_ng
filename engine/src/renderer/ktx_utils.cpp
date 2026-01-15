@@ -505,4 +505,33 @@ namespace pnkr::renderer
     {
       return lookupFormat(K_VK_FORMAT_TABLE, vkFormat);
     }
+
+    KTXTextureData::~KTXTextureData() {
+        KTXUtils::destroy(*this);
+    }
+    KTXTextureData& KTXTextureData::operator=(KTXTextureData&& other) noexcept {
+        if (this != &other) {
+            KTXUtils::destroy(*this);
+
+            texture = other.texture;
+            type = other.type;
+            format = other.format;
+            extent = other.extent;
+            mipLevels = other.mipLevels;
+            arrayLayers = other.arrayLayers;
+            numLayers = other.numLayers;
+            numFaces = other.numFaces;
+            isCubemap = other.isCubemap;
+            isArray = other.isArray;
+            dataPtr = other.dataPtr;
+            dataSize = other.dataSize;
+            ownedData = std::move(other.ownedData);
+            mipFileOffsets = std::move(other.mipFileOffsets);
+
+            other.texture = nullptr;
+            other.dataPtr = nullptr;
+            other.dataSize = 0;
+        }
+        return *this;
+    }
 }

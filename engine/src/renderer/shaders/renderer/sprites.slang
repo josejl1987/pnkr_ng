@@ -29,7 +29,7 @@ VSOutput vertexMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID
     
     // Quad UVs (Triangle Strip order or Index Buffer order)
     // Assuming Indexed: 0,1,2, 2,3,0 -> TL, TR, BR, BR, BL, TL
-    // Let's generate generic 0-1 UVs based on VertexID 0-3
+    // Generate generic 0-1 UVs based on VertexID 0-3
     float2 baseUVs[4] = { float2(0,0), float2(1,0), float2(1,1), float2(0,1) };
     // Map vertexID (0-5 if indexed triangle list, or 0-3 if strip)
     // Assuming standard quad index buffer is bound on CPU side:

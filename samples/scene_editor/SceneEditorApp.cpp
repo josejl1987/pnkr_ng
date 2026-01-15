@@ -8,6 +8,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/norm.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 #include <limits>
 
 using namespace pnkr;
@@ -351,9 +352,30 @@ void SceneEditorApp::onImGui()
         if (ImGui::Combo("Scene Camera", &selectedCam, camNames.data(), (int)camNames.size()))
         {
             if (selectedCam >= 0) {
-                const auto& gltfCam = m_model->cameras()[selectedCam];
-                // In a real implementation, we would find the node with this camera and use its transform
-                // For now, just show we can select it
+                // Find node with this camera
+                auto& registry = m_model->scene().registry();
+                auto view = registry.view<renderer::scene::CameraComponent, renderer::scene::WorldTransform>();
+                for (auto entity : view) {
+                    const auto& camComp = registry.get<renderer::scene::CameraComponent>(entity);
+                    if (camComp.cameraID == selectedCam) {
+                         const auto& transform = registry.get<renderer::scene::WorldTransform>(entity);
+                         
+                         // Decompose transform
+                         glm::vec3 scale;
+                         glm::quat rotation;
+                         glm::vec3 translation;
+                         glm::vec3 skew;
+                         glm::vec4 perspective;
+                         glm::decompose(transform.matrix, scale, rotation, translation, skew, perspective);
+                         
+                         m_cameraController.setPosition(translation);
+                         
+                         // Convert quat to yaw/pitch (approximate)
+                         glm::vec3 euler = glm::eulerAngles(rotation);
+                         m_cameraController.setRotation(glm::degrees(euler.y), glm::degrees(euler.x)); 
+                         break;
+                    }
+                }
             }
         }
         if (ImGui::Button("Reset Free Camera")) {

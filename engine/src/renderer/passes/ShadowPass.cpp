@@ -393,10 +393,8 @@ namespace pnkr::renderer
             // Scale bias by world units per texel (or 1.0 if not directional)
             float biasScale = 1.0f;
             if (lightType == scene::LightType::Directional && !ctx.settings.shadow.useManualFrustum) {
-                // We don't have worldUnitsPerTexel handy here easily unless we scope it out, 
-                // but let's recompute or use a reasonable default.
-                // Actually, wait, worldUnitsPerTexel was computed inside the if block above.
-                // Let's just grab the projection width from the matrix to estimate it.
+                // Estimate bias scale using projection width
+
                 float orthoWidth = 1.0f / lightProjMat[0][0] * 2.0f; 
                 biasScale = orthoWidth / float(m_shadowDim);
             }

@@ -523,11 +523,10 @@ float3 calculatePunctualLightContribution(PBRParameters p, float3 lightDir, floa
         
         color += lerp(diffuse, transmission, p.transmissionFactor);
 
-        // Sheen (attenuate by transmission if below clearcoat - assuming sheen is above base but below clearcoat? 
-        // User snippet says: Sheen (attenuate by transmission if below clearcoat) -> actually user says "below clearcoat" but calculates it using attenuatedLight.
+        // Sheen (attenuated by transmission if below clearcoat)
         if (max3(p.sheenColorFactor) > 0.0) {
-            // Note: User snippet logic: extraContribs += sheen * albedoSheenScalingFactor(...)
-            // We separate sheenContrib.
+            // Calculate sheen contribution separately
+
             float3 sheen = attenuatedLight * getPunctualRadianceSheen(p.sheenColorFactor, p.sheenRoughnessFactor, NdotL, p.NdotV, NdotH);
             sheenContrib += sheen * albedoSheenScalingFactor(p.NdotV, p.sheenRoughnessFactor);
         }

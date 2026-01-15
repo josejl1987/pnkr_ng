@@ -8,7 +8,7 @@ namespace pnkr::assets {
 
     class AssetImporter {
     public:
-        static std::unique_ptr<ImportedModel> loadGLTF(const std::filesystem::path& path, LoadProgress* progress = nullptr);
+        static std::unique_ptr<ImportedModel> loadGLTF(const std::filesystem::path& path, LoadProgress* progress = nullptr, uint32_t maxTextureSize = 4096);
     };
 
 }

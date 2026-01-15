@@ -3,6 +3,7 @@
 #include "pnkr/rhi/rhi_swapchain.hpp"
 #include "pnkr/rhi/rhi_texture.hpp"
 #include "pnkr/core/profiler.hpp"
+#include "pnkr/renderer/renderer_config.hpp"
 #include <vulkan/vulkan.hpp>
 
 #include <memory>
@@ -92,7 +93,7 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t m_currentImage = 0;
         uint32_t m_currentFrameIndex = 0;
 
-        uint32_t m_framesInFlight = 3;
+        uint32_t m_framesInFlight = pnkr::renderer::RendererConfig::kFramesInFlight;
         std::vector<vk::Semaphore> m_imageAvailable;
 
         std::vector<vk::Semaphore> m_renderFinished;

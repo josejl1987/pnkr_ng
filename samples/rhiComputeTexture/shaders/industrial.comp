@@ -326,8 +326,7 @@ vec3 nr(vec3 p, inout float edge, float t)
   edge = abs(d1 + d2 - d) + abs(d3 + d4 - d) + abs(d5 + d6 - d);
   // edge = max(max(abs(d1 + d2 - d), abs(d3 + d4 - d)), abs(d5 + d6 - d)); // Etc.
 
-  // Once you have an edge value, it needs to normalized, and smoothed if possible. How you
-  // do that is up to you. This is what I came up with for now, but I might tweak it later.
+  // Once you have an edge value, it needs to normalized, and smoothed if possible.
   edge = smoothstep(0., 1., sqrt(edge / e.x * 2.));
 
   // Redoing the calculations for the normal with a more precise epsilon value.
