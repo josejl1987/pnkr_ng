@@ -4,8 +4,10 @@
 #include "pnkr/renderer/AssetManager.hpp"
 #include "pnkr/renderer/io/ModelSerializer.hpp"
 #include "pnkr/core/common.hpp"
+#include "pnkr/core/TaskSystem.hpp"
 
 #include <glm/gtc/type_ptr.hpp>
+#include <cstring>
 
 #include "pnkr/renderer/gpu_shared/SkinningShared.h"
 
@@ -138,61 +140,113 @@ namespace pnkr::renderer::io {
 
         std::vector<gpu::MorphVertex> allMorphVertices;
 
-        for (size_t meshIdx = 0; meshIdx < source.meshes.size(); ++meshIdx) {
+        const size_t meshCount = source.meshes.size();
+        std::vector<size_t> meshVertexOffsets(meshCount);
+        std::vector<size_t> meshIndexOffsets(meshCount);
+        std::vector<uint32_t> meshVertexCounts(meshCount);
+
+        size_t totalVertices = 0;
+        size_t totalIndices = 0;
+
+        for (size_t meshIdx = 0; meshIdx < meshCount; ++meshIdx) {
+            const auto& impMesh = source.meshes[meshIdx];
+            meshVertexOffsets[meshIdx] = totalVertices;
+            meshIndexOffsets[meshIdx] = totalIndices;
+
+            uint32_t meshVertexCount = 0;
+            uint32_t meshIndexCount = 0;
+            for (const auto& impPrim : impMesh.primitives) {
+                meshVertexCount += static_cast<uint32_t>(impPrim.vertices.size());
+                meshIndexCount += static_cast<uint32_t>(impPrim.indices.size());
+            }
+
+            meshVertexCounts[meshIdx] = meshVertexCount;
+            totalVertices += meshVertexCount;
+            totalIndices += meshIndexCount;
+        }
+
+        globalVertices.resize(totalVertices);
+        globalIndices.resize(totalIndices);
+        meshes.resize(meshCount);
+        meshBounds.resize(meshCount);
+        morphInfos.resize(meshCount);
+        morphStates.resize(meshCount);
+
+        if (meshCount > 0) {
+            core::TaskSystem::parallelFor(static_cast<uint32_t>(meshCount),
+                [&](enki::TaskSetPartition range, uint32_t) {
+                    for (uint32_t meshIdx = range.start; meshIdx < range.end; ++meshIdx) {
+                        auto& impMesh = source.meshes[meshIdx];
+                        auto& meshDOD = meshes[meshIdx];
+                        meshDOD.name = std::move(impMesh.name);
+                        meshDOD.primitives.resize(impMesh.primitives.size());
+
+                        glm::vec3 meshMin(std::numeric_limits<float>::max());
+                        glm::vec3 meshMax(std::numeric_limits<float>::lowest());
+                        bool hasBounds = false;
+
+                        const size_t meshVertexStart = meshVertexOffsets[meshIdx];
+                        const size_t meshIndexStart = meshIndexOffsets[meshIdx];
+                        size_t currentVOffset = meshVertexStart;
+                        size_t currentIOffset = meshIndexStart;
+
+                        for (size_t primIdx = 0; primIdx < impMesh.primitives.size(); ++primIdx) {
+                            const auto& impPrim = impMesh.primitives[primIdx];
+                            auto& primDOD = meshDOD.primitives[primIdx];
+
+                            primDOD.firstIndex = static_cast<uint32_t>(currentIOffset);
+                            primDOD.vertexOffset = static_cast<int32_t>(currentVOffset);
+                            primDOD.materialIndex = impPrim.materialIndex;
+                            primDOD.indexCount = static_cast<uint32_t>(impPrim.indices.size());
+
+                            if (!impPrim.vertices.empty()) {
+                                std::memcpy(globalVertices.data() + currentVOffset,
+                                            impPrim.vertices.data(),
+                                            impPrim.vertices.size() * sizeof(Vertex));
+                            }
+                            if (!impPrim.indices.empty()) {
+                                std::memcpy(globalIndices.data() + currentIOffset,
+                                            impPrim.indices.data(),
+                                            impPrim.indices.size() * sizeof(uint32_t));
+                            }
+
+                            meshMin = glm::min(meshMin, impPrim.minPos);
+                            meshMax = glm::max(meshMax, impPrim.maxPos);
+                            hasBounds = true;
+
+                            currentVOffset += impPrim.vertices.size();
+                            currentIOffset += impPrim.indices.size();
+                        }
+
+                        const uint32_t meshVertexCount = meshVertexCounts[meshIdx];
+                        for (uint32_t i = 0; i < meshVertexCount; ++i) {
+                            auto& vertex = globalVertices[meshVertexStart + i];
+                            vertex.localIndex = i;
+                            vertex.meshIndex = meshIdx;
+                        }
+
+                        BoundingBox bounds{};
+                        if (hasBounds) {
+                            bounds.m_min = meshMin;
+                            bounds.m_max = meshMax;
+                        }
+                        meshBounds[meshIdx] = bounds;
+                    }
+                },
+                1);
+        }
+
+        for (size_t meshIdx = 0; meshIdx < meshCount; ++meshIdx) {
             auto& impMesh = source.meshes[meshIdx];
-            MeshDOD meshDOD;
-            meshDOD.name = std::move(impMesh.name);
-
-            glm::vec3 meshMin(std::numeric_limits<float>::max());
-            glm::vec3 meshMax(std::numeric_limits<float>::lowest());
-            bool hasBounds = false;
-
-            auto meshVertexStart = (uint32_t)globalVertices.size();
-
-            for (auto& impPrim : impMesh.primitives) {
-                PrimitiveDOD primDOD;
-                primDOD.firstIndex = (uint32_t)globalIndices.size();
-                primDOD.vertexOffset = (int32_t)globalVertices.size();
-                primDOD.materialIndex = impPrim.materialIndex;
-                primDOD.indexCount = (uint32_t)impPrim.indices.size();
-
-                globalVertices.insert(globalVertices.end(),
-                    std::make_move_iterator(impPrim.vertices.begin()),
-                    std::make_move_iterator(impPrim.vertices.end()));
-                globalIndices.insert(globalIndices.end(),
-                    std::make_move_iterator(impPrim.indices.begin()),
-                    std::make_move_iterator(impPrim.indices.end()));
-
-                meshMin = glm::min(meshMin, impPrim.minPos);
-                meshMax = glm::max(meshMax, impPrim.maxPos);
-                hasBounds = true;
-
-                meshDOD.primitives.push_back(primDOD);
-            }
-
-            uint32_t meshVertexCount = (uint32_t)globalVertices.size() - meshVertexStart;
-            for (uint32_t i = 0; i < meshVertexCount; ++i) {
-                globalVertices[meshVertexStart + i].localIndex = i;
-                globalVertices[meshVertexStart + i].meshIndex = (uint32_t)meshIdx;
-            }
-            meshes.push_back(std::move(meshDOD));
-
-            BoundingBox bounds{};
-            if (hasBounds) {
-                bounds.m_min = meshMin;
-                bounds.m_max = meshMax;
-            }
-            meshBounds.push_back(bounds);
-
             MorphTargetInfo mInfo;
-            mInfo.meshIndex = (uint32_t)meshIdx;
+            mInfo.meshIndex = static_cast<uint32_t>(meshIdx);
 
             if (!impMesh.primitives.empty() && !impMesh.primitives[0].targets.empty()) {
                 size_t numTargets = impMesh.primitives[0].targets.size();
-                uint32_t meshVertexCount = (uint32_t)globalVertices.size() - meshVertexStart;
+                const uint32_t meshVertexCount = meshVertexCounts[meshIdx];
 
                 for (size_t targetIdx = 0; targetIdx < numTargets; ++targetIdx) {
-                  auto targetOffset = (uint32_t)allMorphVertices.size();
+                  auto targetOffset = static_cast<uint32_t>(allMorphVertices.size());
                   mInfo.targetOffsets.push_back(targetOffset);
                   allMorphVertices.resize(targetOffset + meshVertexCount);
 
@@ -222,8 +276,8 @@ namespace pnkr::renderer::io {
                   }
                 }
             }
-            morphInfos.push_back(mInfo);
-            morphStates.push_back({});
+            morphInfos[meshIdx] = mInfo;
+            morphStates[meshIdx] = {};
         }
 
         model->uploadUnifiedBuffers(renderer);
