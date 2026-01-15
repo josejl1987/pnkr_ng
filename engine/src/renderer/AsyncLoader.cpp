@@ -211,6 +211,8 @@ void AsyncLoader::syncToGPU() {
         }
         m_metrics.averageLatencyMs = samples > 0 ? (sum / samples) : 0.0;
         m_metrics.lastBandwidthUpdate = now;
+
+        PNKR_TRACY_PLOT("AsyncLoader/ThroughputMBps", (int64_t)m_metrics.currentBandwidthMBps);
     }
   } catch (const std::exception& e) {
     core::Logger::Asset.critical("AsyncLoader::syncToGPU: Caught exception: {}", e.what());
