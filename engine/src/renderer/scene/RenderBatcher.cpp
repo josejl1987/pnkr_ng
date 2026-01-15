@@ -3,6 +3,7 @@
 #include "pnkr/core/logger.hpp"
 #include "pnkr/renderer/SystemMeshes.hpp"
 #include <algorithm>
+#include <execution>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/norm.hpp>
 #include <vector>
@@ -81,6 +82,8 @@ namespace pnkr::renderer::scene
         auto sysView = scene.registry().view<SystemMeshRenderer, WorldTransform, Visibility, WorldBounds>();
 
         uint32_t totalInstances = 0;
+        uint32_t currentTransformIndex = 0;
+        const uint32_t systemMeshCount = (uint32_t)SystemMeshType::Count;
         meshView.each([&](ecs::Entity, MeshRenderer &meshComp, WorldTransform &,
                           Visibility &vis, WorldBounds &) {
           if (!ignoreVisibility && !vis.visible) {
@@ -134,8 +137,6 @@ namespace pnkr::renderer::scene
         thread_local std::vector<RenderItem> renderQueue;
         renderQueue.clear();
         renderQueue.reserve(totalInstances);
-
-        const uint32_t systemMeshCount = (uint32_t)SystemMeshType::Count;
 
         {
             PNKR_PROFILE_SCOPE("Batch Collect Phase");
@@ -310,10 +311,10 @@ namespace pnkr::renderer::scene
 
         {
             PNKR_PROFILE_SCOPE("Batch Sort Phase");
-            std::ranges::sort(renderQueue,
-                              [](const RenderItem &a, const RenderItem &b) {
-                                return a.sortKey < b.sortKey;
-                              });
+            std::sort(std::execution::par, renderQueue.begin(), renderQueue.end(),
+                               [](const RenderItem &a, const RenderItem &b) {
+                                 return a.sortKey < b.sortKey;
+                               });
         }
 
         {
