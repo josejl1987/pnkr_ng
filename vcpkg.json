@@ -13,11 +13,11 @@
     "opencl",
     "meshoptimizer",
     "mikktspace",
-    "quill",
     "nlohmann-json",
     "imguizmo",
     "cpptrace",
     "enkits",
+    "quill",
     "shader-slang",
     "nativefiledialog-extended",
     {

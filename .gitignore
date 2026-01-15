@@ -94,3 +94,10 @@ LastTest.log
 ############################################
 imgui.ini
 *.log
+
+# Test Output
+test_output.txt
+test_trace_*.txt
+
+# Profiling
+*.profraw

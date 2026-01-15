@@ -28,7 +28,6 @@ target_include_directories(pnkr_engine
 # ============================================================================
 target_compile_definitions(pnkr_engine
   PUBLIC
-    SPDLOG_USE_STD_FORMAT=1
     GLM_FORCE_RADIANS
     GLM_FORCE_DEPTH_ZERO_TO_ONE
     GLM_ENABLE_EXPERIMENTAL
@@ -45,7 +44,7 @@ target_compile_definitions(pnkr_engine
 target_compile_features(pnkr_engine PUBLIC cxx_std_23)
 
 if(MSVC)
-  target_compile_options(pnkr_engine PRIVATE /W4 /WX)
+  target_compile_options(pnkr_engine PRIVATE /W4)
   
   if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # clang-cl specific optimizations
@@ -109,7 +108,7 @@ target_precompile_headers(pnkr_engine PRIVATE
   <glm/gtc/matrix_transform.hpp>
   <fastgltf/core.hpp>
   <fastgltf/types.hpp>
-  <spdlog/spdlog.h>
+
   <SDL3/SDL.h>
 )
 
@@ -363,17 +362,11 @@ endif()
 # Dependencies
 # ============================================================================
 
-# Prefer header-only spdlog
-if(TARGET spdlog::spdlog_header_only)
-  set(PNKR_SPDLOG_TARGET spdlog::spdlog_header_only)
-  target_compile_definitions(pnkr_engine PUBLIC SPDLOG_HEADER_ONLY=1)
-else()
-  set(PNKR_SPDLOG_TARGET spdlog::spdlog)
-endif()
+
 
 target_link_libraries(pnkr_engine
   PUBLIC
-    ${PNKR_SPDLOG_TARGET}
+
     SDL3::SDL3
     Vulkan::Vulkan
 )
@@ -458,14 +451,29 @@ if(TRACY_ENABLE)
     GIT_TAG v0.13.1
     OPTIONS
       "TRACY_ENABLE ON"
-      "TRACY_ON_DEMAND ON"
+      "TRACY_ON_DEMAND OFF"
       "TRACY_NO_BROADCAST OFF"
+      "TRACY_NO_SAMPLING OFF"
       "TRACY_NO_SYSTEM_VULKAN OFF"
+      "TRACY_FIBERS ON"
   )
 endif()
 
-find_package(tracy CONFIG REQUIRED)
-target_link_libraries(pnkr_engine PUBLIC Tracy::TracyClient)
+if(TRACY_ENABLE)
+  if(NOT TARGET Tracy::TracyClient)
+    find_package(tracy CONFIG REQUIRED)
+  endif()
+  target_link_libraries(pnkr_engine PUBLIC Tracy::TracyClient)
+
+  # Ensure TracyClient.cpp is compiled into the engine.
+  if(tracy_SOURCE_DIR)
+    target_sources(pnkr_engine PRIVATE "${tracy_SOURCE_DIR}/public/TracyClient.cpp")
+  elseif(TRACY_CLIENT_CPP)
+    target_sources(pnkr_engine PRIVATE "${TRACY_CLIENT_CPP}")
+  endif()
+
+  target_compile_definitions(pnkr_engine PUBLIC TRACY_ENABLE=1 TRACY_FIBERS=1)
+endif()
 
 # SPIRV-Cross
 find_package(spirv_cross_core CONFIG REQUIRED)

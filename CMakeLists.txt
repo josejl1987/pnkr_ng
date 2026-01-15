@@ -31,6 +31,7 @@ endif()
 
 if(WIN32)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+  add_compile_definitions(NOMINMAX)
 endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -85,16 +86,9 @@ include(cmake/ShaderTools.cmake)
 # Find Dependencies
 # ============================================================================
 
-# spdlog
-find_package(spdlog CONFIG QUIET)
-if(NOT spdlog_FOUND)
-  CPMAddPackage(
-          NAME spdlog
-          VERSION 1.13.0
-          GITHUB_REPOSITORY gabime/spdlog
-          OPTIONS "SPDLOG_FMT_EXTERNAL=OFF"
-  )
-endif()
+# quill
+find_package(quill CONFIG REQUIRED)
+
 
 # cpptrace
 # cpptrace
@@ -215,11 +209,9 @@ add_subdirectory(tests)
 # ============================================================================
 # Status Report
 # ============================================================================
-set(PNKR_SPDLOG_VERSION "unknown")
-if(DEFINED spdlog_VERSION AND spdlog_VERSION)
-  set(PNKR_SPDLOG_VERSION "${spdlog_VERSION}")
-elseif(DEFINED SPDLOG_VERSION AND SPDLOG_VERSION)
-  set(PNKR_SPDLOG_VERSION "${SPDLOG_VERSION}")
+set(PNKR_QUILL_VERSION "unknown")
+if(DEFINED quill_VERSION AND quill_VERSION)
+  set(PNKR_QUILL_VERSION "${quill_VERSION}")
 endif()
 
 message(STATUS "")
@@ -227,7 +219,8 @@ message(STATUS "=== PNKR Configuration ===")
 message(STATUS "C++ Standard:        ${CMAKE_CXX_STANDARD}")
 message(STATUS "Generator:           ${CMAKE_GENERATOR}")
 message(STATUS "Build Type:          ${CMAKE_BUILD_TYPE}")
-message(STATUS "spdlog found:        YES (v${PNKR_SPDLOG_VERSION})")
+message(STATUS "quill found:         YES (v${PNKR_QUILL_VERSION})")
+
 message(STATUS "SDL3 found:          ${SDL3_FOUND}")
 message(STATUS "Vulkan found:        YES (v${Vulkan_VERSION})")
 message(STATUS "")

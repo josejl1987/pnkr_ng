@@ -9,6 +9,7 @@ Checks: >
   portability-*,
   readability-*,
   clang-analyzer-*,
+  concurrency-*,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-type-union-access,
   -modernize-use-trailing-return-type,
