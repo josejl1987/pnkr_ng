@@ -48,6 +48,24 @@ namespace pnkr::core
             task.release();
         }
 
+        template<typename Func>
+        static void parallelFor(uint32_t setSize, Func&& func, uint32_t minRange = 1) {
+            if (setSize == 0) {
+                return;
+            }
+            if (!s_scheduler) {
+                enki::TaskSetPartition range{0, setSize};
+                func(range, 0);
+                return;
+            }
+
+            ScopedTask<Func> task(std::forward<Func>(func));
+            task.m_SetSize = setSize;
+            task.m_MinRange = minRange;
+            scheduler().AddTaskSetToPipe(&task);
+            scheduler().WaitforTask(&task);
+        }
+
     private:
         static std::unique_ptr<enki::TaskScheduler> s_scheduler;
         static std::unique_ptr<enki::TaskScheduler> s_ioScheduler;
