@@ -53,10 +53,10 @@ private:
     ResourceRequestManager* m_requestManager = nullptr;
     AsyncLoaderStagingManager* m_stagingManager = nullptr;
 
-    static constexpr uint32_t kInFlight = 2;
+    static constexpr uint32_t kInFlight = 3;
     static constexpr uint64_t kLargeAssetThreshold = 128 * 1024 * 1024;
-    static constexpr uint64_t kMaxUploadBytesPerFrame = 32 * 1024 * 1024;
-    static constexpr uint32_t kMaxUploadJobsPerFrame = 16;
+    static constexpr uint64_t kMaxUploadBytesPerFrame = 128 * 1024 * 1024;
+    static constexpr uint32_t kMaxUploadJobsPerFrame = 128;
 
     struct InFlightBatch {
         std::vector<UploadRequest> jobs;

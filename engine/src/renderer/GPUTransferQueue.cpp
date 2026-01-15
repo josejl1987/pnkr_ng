@@ -413,7 +413,7 @@ void GPUTransferQueue::transferLoop() {
     }
 
     PNKR_TRACY_PLOT(
-        "AsyncLoader/BandwidthMB",
+        "AsyncLoader/BatchSizeMB",
         (int64_t)(bytesThisBatch / static_cast<uint64_t>(1024 * 1024)));
     m_slotBusy[slotToUse] = true;
     m_submitCursor = (slotToUse + 1) % kInFlight;
