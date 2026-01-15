@@ -8,6 +8,7 @@
 #include "pnkr/renderer/geometry/Vertex.h"
 #include "pnkr/renderer/geometry/GeometryUtils.hpp"
 #include "pnkr/renderer/scene/Bounds.hpp"
+#include "pnkr/renderer/scene/Light.hpp"
 #include "pnkr/assets/ImportedData.hpp"
 #include <filesystem>
 #include <vector>

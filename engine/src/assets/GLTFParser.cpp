@@ -2,6 +2,7 @@
 #include "pnkr/renderer/geometry/GeometryUtils.hpp"
 #include "pnkr/assets/GeometryProcessor.hpp"
 #include "pnkr/renderer/scene/GLTFUtils.hpp"
+#include "pnkr/renderer/scene/Light.hpp"
 #include "pnkr/core/logger.hpp"
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>

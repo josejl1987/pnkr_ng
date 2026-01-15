@@ -1,5 +1,5 @@
 #include "pnkr/core/RecentFiles.hpp"
-#include "pnkr/core/RecentFilesImGui.hpp"
+#include <optional>
 
 namespace pnkr::core {
 
@@ -10,7 +10,8 @@ RecentFiles::RecentFiles(std::string appName, size_t maxEntries)
 
 std::optional<std::filesystem::path> RecentFiles::drawImGuiMenu(const char* menuLabel)
 {
-    return RecentFilesImGui::drawMenu(m_store, menuLabel);
+    (void)menuLabel;
+    return std::nullopt;
 }
 
 }
