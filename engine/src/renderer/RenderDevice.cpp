@@ -7,14 +7,14 @@ namespace pnkr::renderer {
     RenderDevice::RenderDevice(platform::Window& window, const RendererConfig& config) {
         rhi::DeviceDescriptor deviceDesc{};
         deviceDesc.enableValidation = config.m_enableValidation;
-        deviceDesc.enableBindless = config.m_enableBindless;
+        deviceDesc.enableBindless = config.m_useBindless;
         
         deviceDesc.requiredExtensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
             VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
         };
 
-        if (config.m_enableBindless)
+        if (config.m_useBindless)
         {
             deviceDesc.requiredExtensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
         }
