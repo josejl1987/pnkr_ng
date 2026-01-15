@@ -10,7 +10,6 @@ target_sources(pnkr_engine
     BDARegistry.cpp
     BindlessDescriptorManager.cpp
     DescriptorUpdater.cpp
-    rhi_factory.cpp
     vulkan_buffer.cpp
     vulkan_command_buffer.cpp
     vulkan_descriptor.cpp

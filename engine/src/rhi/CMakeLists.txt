@@ -4,6 +4,7 @@
 
 target_sources(pnkr_engine
   PRIVATE
+    rhi_factory.cpp
     rhi_pipeline_builder.cpp
     rhi_shader.cpp
 
@@ -25,5 +26,6 @@ target_sources(pnkr_engine
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/rhi/rhi_types.hpp"
 )
 
-# Add Vulkan backend subdirectory
+# Add Backend subdirectories
 add_subdirectory(vulkan)
+add_subdirectory(null)
