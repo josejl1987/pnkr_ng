@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pnkr/renderer/AsyncLoaderTypes.hpp"
 #include "pnkr/renderer/ktx_utils.hpp"
 #include "pnkr/rhi/rhi_types.hpp"
 #include <optional>
@@ -15,21 +16,6 @@ namespace pnkr::renderer
         bool success = false;
         uint64_t totalSize = 0;
         uint32_t targetMipLevels = 0;
-    };
-
-    enum class UploadDirection {
-        HighToLowRes,
-        LowToHighRes
-    };
-
-    struct StreamRequestState
-    {
-        uint32_t baseMip = 0;
-        UploadDirection direction = UploadDirection::LowToHighRes;
-        int32_t currentLevel = -1;
-        uint32_t currentLayer = 0;
-        uint32_t currentFace = 0;
-        uint32_t currentRow = 0;
     };
 
     struct CopyRegionPlan

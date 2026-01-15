@@ -9,6 +9,9 @@ target_sources(pnkr_engine
     TextureCache.cpp
     FallbackTextureFactory.cpp
     AsyncLoader.cpp
+    AsyncIOLoader.cpp
+    GPUTransferQueue.cpp
+    ResourceRequestManager.cpp
     AsyncLoaderStagingManager.cpp
     BRDFLutGenerator.cpp
     CommandListPool.cpp

@@ -2,94 +2,92 @@
 
 #include "pnkr/renderer/RHIResourceManager.hpp"
 #include "pnkr/rhi/rhi_buffer.hpp"
+#include <array>
 #include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <vector>
-#include <array>
-#include <condition_variable>
 
-namespace pnkr::renderer
-{
-    class RHIRenderer;
+namespace pnkr::renderer {
 
-    struct StagingBuffer
-    {
-        BufferPtr handle;
-        rhi::RHIBuffer* buffer = nullptr;
-        uint8_t* mapped = nullptr;
-        uint64_t size = 0;
-        std::atomic<bool> inUse{false};
-    };
 
-    struct RingBufferPage
-    {
-        uint64_t lastBatchId = 0;
-    };
+struct StagingBuffer {
+  BufferPtr handle;
+  rhi::RHIBuffer *buffer = nullptr;
+  uint8_t *mapped = nullptr;
+  uint64_t size = 0;
+  std::atomic<bool> inUse{false};
+};
 
-    class AsyncLoaderStagingManager
-    {
-    public:
-        explicit AsyncLoaderStagingManager(RHIRenderer* renderer);
-        ~AsyncLoaderStagingManager();
+struct RingBufferPage {
+  uint64_t lastBatchId = 0;
+};
 
-        AsyncLoaderStagingManager(const AsyncLoaderStagingManager&) = delete;
-        AsyncLoaderStagingManager& operator=(const AsyncLoaderStagingManager&) = delete;
+class AsyncLoaderStagingManager {
+public:
+  explicit AsyncLoaderStagingManager(RHIResourceManager *resourceManager);
+  ~AsyncLoaderStagingManager();
 
-        uint8_t* ringBufferMapped() const { return m_ringBufferMapped; }
-        rhi::RHIBuffer* ringBuffer() const { return m_ringBuffer; }
-        uint64_t ringBufferSize() const { return kRingBufferSize; }
+  AsyncLoaderStagingManager(const AsyncLoaderStagingManager &) = delete;
+  AsyncLoaderStagingManager &
+  operator=(const AsyncLoaderStagingManager &) = delete;
 
-        struct Allocation {
-            uint64_t offset = 0;
-            uint8_t* systemPtr = nullptr;
-            rhi::RHIBuffer* buffer = nullptr;
-            bool isTemporary = false;
-            StagingBuffer* tempHandle = nullptr;
-            uint64_t batchId = 0;
-        };
+  uint8_t *ringBufferMapped() const { return m_ringBufferMapped; }
+  rhi::RHIBuffer *ringBuffer() const { return m_ringBuffer; }
+  uint64_t ringBufferSize() const { return kRingBufferSize; }
 
-        [[nodiscard]] uint64_t beginBatch();
-        Allocation reserve(uint64_t size, uint64_t batchId);
-        void markPages(uint64_t offset, uint64_t size, uint64_t batchId);
-        void notifyBatchComplete(uint64_t batchId);
-        
-        void releaseTemporaryBuffer(StagingBuffer* buffer);
-        StagingBuffer* allocateTemporaryBuffer(uint64_t size);
+  struct Allocation {
+    uint64_t offset = 0;
+    uint8_t *systemPtr = nullptr;
+    rhi::RHIBuffer *buffer = nullptr;
+    bool isTemporary = false;
+    StagingBuffer *tempHandle = nullptr;
+    uint64_t batchId = 0;
+  };
 
-        uint32_t getActiveTemporaryBufferCount() const;
+  [[nodiscard]] uint64_t beginBatch();
+  Allocation reserve(uint64_t size, uint64_t batchId, bool wait = true);
+  void markPages(uint64_t offset, uint64_t size, uint64_t batchId);
+  void notifyBatchComplete(uint64_t batchId);
 
-        void cleanup();
+  void releaseTemporaryBuffer(StagingBuffer *buffer);
+  StagingBuffer *allocateTemporaryBuffer(uint64_t size);
 
-        bool isInitialized() const { return m_initialized; }
+  uint32_t getActiveTemporaryBufferCount() const;
 
-    private:
-        bool waitForPages(uint32_t startPage, uint32_t endPage, uint64_t currentBatchId);
+  void cleanup();
 
-        RHIRenderer* m_renderer = nullptr;
-        bool m_initialized = false;
+  bool isInitialized() const { return m_initialized; }
 
-        static constexpr uint64_t kRingBufferSize = 512 * 1024 * 1024;
-        static constexpr uint64_t kPageSize = 2 * 1024 * 1024;
-        static constexpr uint32_t kTotalPages = kRingBufferSize / kPageSize;
-        static constexpr uint32_t kMaxTemporaryBuffers = 16;
+private:
+  bool waitForPages(uint32_t startPage, uint32_t endPage,
+                    uint64_t currentBatchId, bool wait);
 
-        BufferPtr m_ringBufferHandle;
-        rhi::RHIBuffer* m_ringBuffer = nullptr;
-        uint8_t* m_ringBufferMapped = nullptr;
+  RHIResourceManager *m_resourceManager = nullptr;
+  bool m_initialized = false;
 
-        std::vector<RingBufferPage> m_pages;
-        uint64_t m_head = 0;
+  static constexpr uint64_t kRingBufferSize = 512 * 1024 * 1024;
+  static constexpr uint64_t kPageSize = 2 * 1024 * 1024;
+  static constexpr uint32_t kTotalPages = kRingBufferSize / kPageSize;
+  static constexpr uint32_t kMaxTemporaryBuffers = 16;
 
-        std::atomic<uint64_t> m_nextBatchId{1};
-        std::atomic<uint64_t> m_completedBatchId{0};
-        
-        std::mutex m_batchMutex;
-        std::condition_variable m_batchCv;
+  BufferPtr m_ringBufferHandle;
+  rhi::RHIBuffer *m_ringBuffer = nullptr;
+  uint8_t *m_ringBufferMapped = nullptr;
 
-        std::array<std::unique_ptr<StagingBuffer>, kMaxTemporaryBuffers> m_temporaryBuffers;
-        mutable std::mutex m_temporaryMutex;
-        mutable std::mutex m_ringMutex;
-    };
-}
+  std::vector<RingBufferPage> m_pages;
+  uint64_t m_head = 0;
 
+  std::atomic<uint64_t> m_nextBatchId{1};
+  std::atomic<uint64_t> m_completedBatchId{0};
+
+  std::mutex m_batchMutex;
+  std::condition_variable m_batchCv;
+
+  std::array<std::unique_ptr<StagingBuffer>, kMaxTemporaryBuffers>
+      m_temporaryBuffers;
+  mutable std::mutex m_temporaryMutex;
+  mutable std::mutex m_ringMutex;
+};
+} // namespace pnkr::renderer

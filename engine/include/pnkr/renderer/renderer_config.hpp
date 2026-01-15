@@ -10,6 +10,7 @@ struct RendererConfig
     uint32_t m_maxFramesInFlight = 3;
     bool m_enableBindless = true;
     bool m_enableAsyncTextureLoading = true;
+    rhi::RHIBackend m_backend = rhi::RHIBackend::Vulkan;
 };
 
 }

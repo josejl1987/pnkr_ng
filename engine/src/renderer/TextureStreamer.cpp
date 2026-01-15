@@ -98,7 +98,7 @@ namespace pnkr::renderer
               }
             } catch(...) {}
 
-            bool headerOnly = (ext == ".ktx2" && !isSmall);
+            bool headerOnly = false;
 
             if (headerOnly) {
                 core::Logger::Asset.debug("Attempting Header-Only stream for: {}", path);
