@@ -41,7 +41,7 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         auto buf = std::make_unique<VulkanRHIBuffer>(&m_device, finalDesc);
-        core::Logger::RHI.info("Created buffer: {} ({} bytes)", name, finalDesc.size);
+        core::Logger::RHI.trace("Created buffer: {} ({} bytes)", name, finalDesc.size);
 
         if (finalDesc.data != nullptr)
         {
@@ -85,7 +85,7 @@ namespace pnkr::renderer::rhi::vulkan
         finalDesc.debugName = name;
 
         auto tex = std::make_unique<VulkanRHITexture>(&m_device, finalDesc);
-        core::Logger::RHI.info("Created texture: {} ({}x{} {})", name, desc.extent.width, desc.extent.height, static_cast<uint32_t>(desc.format));
+        core::Logger::RHI.trace("Created texture: {} ({}x{} {})", name, desc.extent.width, desc.extent.height, static_cast<uint32_t>(desc.format));
         return tex;
     }
 
@@ -105,7 +105,7 @@ namespace pnkr::renderer::rhi::vulkan
             return nullptr;
         }
 
-        core::Logger::RHI.info("Created texture view: {} from parent", name);
+        core::Logger::RHI.trace("Created texture view: {} from parent", name);
         return std::make_unique<VulkanRHITexture>(&m_device, vkParent, desc);
     }
 
