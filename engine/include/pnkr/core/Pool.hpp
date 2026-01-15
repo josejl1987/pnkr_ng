@@ -76,18 +76,23 @@ public:
     }
 
     bool erase(HandleType handle) {
+        return take(handle).has_value();
+    }
+
+    std::optional<T> take(HandleType handle) {
         if (!validate(handle)) {
-            return false;
+            return std::nullopt;
         }
 
         PNKR_ASSERT(handle.index < slots_.size(), "Pool index out of range");
         Slot& slot = slots_[handle.index];
+        std::optional<T> result = std::move(slot.storage);
         slot.storage.reset();
 
         slot.generation = (slot.generation + 1) & ((1 << 12) - 1);
         free_list_.push_back(handle.index);
 
-        return true;
+        return result;
     }
 
     [[nodiscard]] T* get(HandleType handle) {
@@ -140,13 +145,15 @@ public:
         return size() == 0;
     }
 
+    std::vector<Slot> clearAndTakeSlots() {
+        std::vector<Slot> oldSlots = std::move(slots_);
+        slots_.clear();
+        free_list_.clear();
+        return oldSlots;
+    }
+
     void clear() {
-        for (auto& slot : slots_) {
-            if (slot.occupied()) {
-                slot.storage.reset();
-                slot.generation = (slot.generation + 1) & ((1 << 12) - 1);
-            }
-        }
+        slots_.clear();
         free_list_.clear();
     }
 

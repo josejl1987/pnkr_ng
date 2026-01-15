@@ -94,8 +94,8 @@ public:
 
   static void
   init(const std::string &pattern =
-           "%(time) [%(log_level)] %(message)"); // simplified default pattern
-                                                 // for quill
+           "[%(time)] [%(log_level)] %(message)"); // simplified default pattern
+                                                   // for quill
   static void shutdown();
   static void setLevel(LogLevel level);
   static LogLevel getLevel();
