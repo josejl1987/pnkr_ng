@@ -6,11 +6,11 @@
 
 namespace pnkr::renderer {
 
-AsyncLoader::AsyncLoader(RHIRenderer &renderer) : m_renderer(&renderer) {
+AsyncLoader::AsyncLoader(RHIRenderer &renderer, uint64_t stagingBufferSize) : m_renderer(&renderer) {
   m_requestManager = std::make_unique<ResourceRequestManager>();
 
   m_stagingManager = std::make_unique<AsyncLoaderStagingManager>(
-      m_renderer->resourceManager());
+      m_renderer->resourceManager(), stagingBufferSize);
   if (!m_stagingManager->isInitialized()) {
     core::Logger::Asset.error(
         "AsyncLoader: Staging manager initialization failed.");
@@ -89,9 +89,8 @@ void AsyncLoader::syncToGPU() {
     while ((loadedReq = m_requestManager->dequeueLoaded())) {
         PNKR_PROFILE_SCOPE("AsyncLoader::CreateTexture");
         
-        // Capture scope for the actual creation (it was captured in task thread before, 
-        // but now we are on render thread, maybe restore it?)
-        // actually AsyncIOLoader already did some work, we just need the texture.
+        // Create the texture resource from the intermediate description
+
         
         loadedReq->intermediateTexture = m_renderer->createTexture(loadedReq->intermediateDesc);
         if (!loadedReq->intermediateTexture.isValid()) {
@@ -247,6 +246,17 @@ GPUStreamingStatistics AsyncLoader::getStatistics() const {
   stats.avgLatencyMs = m_metrics.averageLatencyMs;
   stats.failedLoads = m_metrics.failedLoads.load(std::memory_order_relaxed);
   stats.texturesCompletedTotal = m_metrics.texturesCompletedTotal.load(std::memory_order_relaxed);
+  stats.texturesCompletedThisFrame = m_metrics.texturesThisFrameAccumulator.load(std::memory_order_relaxed);
+  
+  stats.stagingTotalBytes = m_stagingManager->ringBufferSize();
+  stats.stagingUsedBytes = m_stagingManager->getUsedBytes();
+  stats.activeTempBuffers = m_stagingManager->getActiveTemporaryBufferCount();
+  
+  // Map ring buffer to streaming pool for UI visibility
+  stats.streamingPoolBudget = stats.stagingTotalBytes;
+  stats.streamingPoolUsed = stats.stagingUsedBytes;
+  stats.poolUtilizationPercent = (stats.streamingPoolBudget > 0) ? (double(stats.streamingPoolUsed) / stats.streamingPoolBudget) * 100.0 : 0.0;
+  
   return stats;
 }
 

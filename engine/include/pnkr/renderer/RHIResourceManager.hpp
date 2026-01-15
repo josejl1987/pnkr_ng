@@ -255,6 +255,8 @@ namespace pnkr::renderer {
         [[nodiscard]] bool isRenderThread() const {
             return m_renderThreadId == std::thread::id() || std::this_thread::get_id() == m_renderThreadId;
         }
+        
+        [[nodiscard]] rhi::RHIDevice* getDevice() const { return m_device; }
 
         core::StablePool<RHITextureData, core::TextureTag>& textures() { return m_textures; }
         core::StablePool<RHIBufferData, core::BufferTag>& buffers() { return m_buffers; }

@@ -260,8 +260,9 @@ void GPUTransferQueue::transferLoop() {
         continue;
       }
 
+
       auto allocation = m_stagingManager->reserve(
-          req.totalSize, m_inFlightBatches[slotToUse].batchId, true);
+          req.totalSize, m_inFlightBatches[slotToUse].batchId, false);
 
       if (allocation.systemPtr == nullptr) {
         // This should not happen if we passed wait=true unless timeout or shutdown
@@ -551,16 +552,7 @@ bool GPUTransferQueue::processJob(UploadRequest &req, rhi::RHICommandList *cmd,
     req.layoutFinalized = true;
     req.needsMipmapGeneration =
         (req.targetMipLevels > 1) &&
-        (effectiveMipLevels < req.targetMipLevels); // Simple heuristic
-    // Real logic for mipmap generation needs to be checked against original.
-    // Original: "req.needsMipmapGeneration = false;" (default)
-    // Original logic for setting needsMipmapGeneration wasn't explicitly
-    // visible in snippet, but let's assume if we uploaded all levels we don't
-    // need it, unless we uploaded base only and want to gen mips. For now,
-    // assume false unless specifically requested or implied. Actually, original
-    // code checked "req.needsMipmapGeneration" in transferLoop graphics
-    // submission. And "req" initialized it to false. We leave it false for now
-    // as I don't see logic setting it true in original snippet.
+        (effectiveMipLevels < req.targetMipLevels); 
   }
 
   return true; // Made progress or done

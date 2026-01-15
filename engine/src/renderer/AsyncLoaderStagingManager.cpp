@@ -3,10 +3,17 @@
 #include "pnkr/renderer/rhi_renderer.hpp"
 
 namespace pnkr::renderer {
-AsyncLoaderStagingManager::AsyncLoaderStagingManager(RHIResourceManager *resourceManager)
-    : m_resourceManager(resourceManager) {
+AsyncLoaderStagingManager::AsyncLoaderStagingManager(RHIResourceManager *resourceManager, uint64_t ringBufferSize)
+    : m_resourceManager(resourceManager), m_ringBufferSize(ringBufferSize) {
+  
+  // Align size to page size
+  if (m_ringBufferSize % kPageSize != 0) {
+      m_ringBufferSize = ((m_ringBufferSize + kPageSize - 1) / kPageSize) * kPageSize;
+  }
+  m_totalPages = static_cast<uint32_t>(m_ringBufferSize / kPageSize);
+
   rhi::BufferDescriptor desc{};
-  desc.size = kRingBufferSize;
+  desc.size = m_ringBufferSize;
   desc.usage = rhi::BufferUsage::TransferSrc;
   desc.memoryUsage = rhi::MemoryUsage::CPUToGPU;
   m_ringBufferHandle =
@@ -19,7 +26,7 @@ AsyncLoaderStagingManager::AsyncLoaderStagingManager(RHIResourceManager *resourc
       m_initialized = true;
       core::Logger::Asset.info("AsyncLoaderStagingManager: Initialized ring "
                                "buffer ({} MB, {} pages)",
-                               kRingBufferSize / (1024 * 1024), kTotalPages);
+                               m_ringBufferSize / (1024 * 1024), m_totalPages);
     } else {
       core::Logger::Asset.error(
           "AsyncLoaderStagingManager: Failed to map ring buffer memory");
@@ -28,10 +35,10 @@ AsyncLoaderStagingManager::AsyncLoaderStagingManager(RHIResourceManager *resourc
     core::Logger::Asset.error(
         "AsyncLoaderStagingManager: Failed to create ring buffer ({} MB). "
         "This may be due to insufficient GPU memory.",
-        kRingBufferSize / (1024 * 1024));
+        m_ringBufferSize / (1024 * 1024));
   }
 
-  m_pages.resize(kTotalPages);
+  m_pages.resize(m_totalPages);
 }
 
 AsyncLoaderStagingManager::~AsyncLoaderStagingManager() { cleanup(); }
@@ -46,7 +53,7 @@ bool AsyncLoaderStagingManager::waitForPages(uint32_t startPage,
                                              bool wait) {
   std::unique_lock<std::mutex> lock(m_batchMutex);
 
-  for (uint32_t i = startPage; i < endPage && i < kTotalPages; ++i) {
+  for (uint32_t i = startPage; i < endPage && i < m_totalPages; ++i) {
     const uint64_t pageBatchId = m_pages[i].lastBatchId;
 
     if (pageBatchId == 0) {
@@ -76,7 +83,7 @@ bool AsyncLoaderStagingManager::waitForPages(uint32_t startPage,
 
 AsyncLoaderStagingManager::Allocation
 AsyncLoaderStagingManager::reserve(uint64_t size, uint64_t batchId, bool wait) {
-  if (size > kRingBufferSize / 2) {
+  if (size > m_ringBufferSize / 2) {
     auto *temp = allocateTemporaryBuffer(size);
     if (temp) {
       Allocation alloc{};
@@ -95,14 +102,14 @@ AsyncLoaderStagingManager::reserve(uint64_t size, uint64_t batchId, bool wait) {
 
   uint64_t start = (m_head + 255) & ~255;
 
-  if (start + size > kRingBufferSize) {
+  if (start + size > m_ringBufferSize) {
     start = 0;
   }
 
   uint32_t startPage = static_cast<uint32_t>(start / kPageSize);
   uint32_t endPage =
       static_cast<uint32_t>((start + size + kPageSize - 1) / kPageSize);
-  endPage = std::min(endPage, kTotalPages);
+  endPage = std::min(endPage, m_totalPages);
 
   lock.unlock();
 
@@ -132,7 +139,7 @@ void AsyncLoaderStagingManager::markPages(uint64_t offset, uint64_t size,
   uint32_t endPage =
       static_cast<uint32_t>((offset + size + kPageSize - 1) / kPageSize);
 
-  for (uint32_t i = startPage; i < endPage && i < kTotalPages; ++i) {
+  for (uint32_t i = startPage; i < endPage && i < m_totalPages; ++i) {
     m_pages[i].lastBatchId = batchId;
   }
 }
@@ -165,12 +172,20 @@ void AsyncLoaderStagingManager::cleanup() {
   std::scoped_lock lock(m_temporaryMutex);
   for (auto &staging : m_temporaryBuffers) {
     if (staging && staging->handle.isValid()) {
+      // Should not happen with new logic, but keep for fallback
       if (staging->buffer != nullptr && staging->mapped != nullptr) {
         staging->buffer->unmap();
         staging->mapped = nullptr;
       }
-
       staging.reset();
+    }
+    // Handle raw buffer cleanup
+    else if (staging && staging->rawBuffer) {
+        if (staging->buffer != nullptr && staging->mapped != nullptr) {
+            staging->buffer->unmap();
+            staging->mapped = nullptr;
+        }
+        staging.reset();
     }
   }
 }
@@ -207,9 +222,13 @@ AsyncLoaderStagingManager::allocateTemporaryBuffer(uint64_t size) {
       desc.usage = rhi::BufferUsage::TransferSrc;
       desc.memoryUsage = rhi::MemoryUsage::CPUToGPU;
 
-      staging->handle =
-          m_resourceManager->createBuffer("AsyncLoader_TemporaryStaging", desc);
-      staging->buffer = m_resourceManager->getBuffer(staging->handle);
+      // Use raw device creation to bypass Thread Thread assertion in RHIResourceManager
+      staging->rawBuffer = m_resourceManager->getDevice()->createBuffer("AsyncLoader_TemporaryStaging", desc);
+      staging->buffer = staging->rawBuffer.get();
+      
+      // Old way:
+      // staging->handle = m_resourceManager->createBuffer("AsyncLoader_TemporaryStaging", desc);
+      // staging->buffer = m_resourceManager->getBuffer(staging->handle);
 
       if (staging->buffer != nullptr) {
         staging->mapped = reinterpret_cast<uint8_t *>(staging->buffer->map());
@@ -243,5 +262,20 @@ void AsyncLoaderStagingManager::releaseTemporaryBuffer(StagingBuffer *buffer) {
   if (buffer == nullptr)
     return;
   buffer->inUse.store(false, std::memory_order_release);
+}
+
+uint64_t AsyncLoaderStagingManager::getUsedBytes() const {
+  std::unique_lock<std::mutex> lock(m_ringMutex);
+  uint64_t completed = m_completedBatchId.load(std::memory_order_acquire);
+  uint64_t used = 0;
+  
+  // This is an estimation based on pages. 
+  // Ideally we would track bytes, but since we mark pages, we count pages that have pending batches.
+  for (const auto& page : m_pages) {
+     if (page.lastBatchId > completed) {
+         used += kPageSize;
+     }
+  }
+  return used;
 }
 } // namespace pnkr::renderer

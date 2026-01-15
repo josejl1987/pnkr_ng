@@ -14,6 +14,7 @@ namespace pnkr::renderer {
 
 struct StagingBuffer {
   BufferPtr handle;
+  std::unique_ptr<rhi::RHIBuffer> rawBuffer;
   rhi::RHIBuffer *buffer = nullptr;
   uint8_t *mapped = nullptr;
   uint64_t size = 0;
@@ -26,16 +27,19 @@ struct RingBufferPage {
 
 class AsyncLoaderStagingManager {
 public:
-  explicit AsyncLoaderStagingManager(RHIResourceManager *resourceManager);
+
+  explicit AsyncLoaderStagingManager(RHIResourceManager *resourceManager, uint64_t ringBufferSize = kDefaultRingBufferSize);
   ~AsyncLoaderStagingManager();
 
   AsyncLoaderStagingManager(const AsyncLoaderStagingManager &) = delete;
   AsyncLoaderStagingManager &
   operator=(const AsyncLoaderStagingManager &) = delete;
 
+  static constexpr uint64_t kDefaultRingBufferSize = 32 * 1024 * 1024;
+
   uint8_t *ringBufferMapped() const { return m_ringBufferMapped; }
   rhi::RHIBuffer *ringBuffer() const { return m_ringBuffer; }
-  uint64_t ringBufferSize() const { return kRingBufferSize; }
+  uint64_t ringBufferSize() const { return m_ringBufferSize; }
 
   struct Allocation {
     uint64_t offset = 0;
@@ -56,6 +60,8 @@ public:
 
   uint32_t getActiveTemporaryBufferCount() const;
 
+  uint64_t getUsedBytes() const;
+
   void cleanup();
 
   bool isInitialized() const { return m_initialized; }
@@ -66,11 +72,13 @@ private:
 
   RHIResourceManager *m_resourceManager = nullptr;
   bool m_initialized = false;
-
-  static constexpr uint64_t kRingBufferSize = 512 * 1024 * 1024;
+  
   static constexpr uint64_t kPageSize = 2 * 1024 * 1024;
-  static constexpr uint32_t kTotalPages = kRingBufferSize / kPageSize;
   static constexpr uint32_t kMaxTemporaryBuffers = 16;
+
+  // Configuration
+  uint64_t m_ringBufferSize = kDefaultRingBufferSize;
+  uint32_t m_totalPages = 0;
 
   BufferPtr m_ringBufferHandle;
   rhi::RHIBuffer *m_ringBuffer = nullptr;

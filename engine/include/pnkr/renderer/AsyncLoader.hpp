@@ -25,7 +25,7 @@ struct DeletionQueueItem {
 
 class AsyncLoader {
 public:
-  explicit AsyncLoader(RHIRenderer &renderer);
+  explicit AsyncLoader(RHIRenderer &renderer, uint64_t stagingBufferSize = AsyncLoaderStagingManager::kDefaultRingBufferSize);
   ~AsyncLoader() noexcept;
 
   AsyncLoader(const AsyncLoader &) = delete;
@@ -68,19 +68,9 @@ private:
   
   // High-level state that doesn't fit into components perfectly yet, 
   // or needs to be accessible by the facade.
-  // Deletion Queue - still here or move to GPUTransferQueue?
-  // GPUTransferQueue manages fences, so it might be better placed there or expose fences.
-  // For now keep here to minimize changes, but we need access to fences.
-  // actually, let's keep deletion queue simple for now. 
-  // Wait, DeletionQueueItem uses fenceSlot. GPUTransferQueue manages fences.
-  // We should probably move deletion logic to GPUTransferQueue later, but for now 
-  // AsyncLoader needs to poll it.
-  // But AsyncLoader can't see fences easily if they are private in GPUTransferQueue.
-  // For this step, I will assume GPUTransferQueue handles transfer logic internally. 
-  // Maybe I'll leave DeletionQueue in AsyncLoader but it won't work if fences are hidden.
-  // I will move Deletion Queue logic to GPUTransferQueue in the implementation file if possible 
-  // or expose fences.
-  // Better yet: Add a cleanUpResources() method to GPUTransferQueue.
+  // Deletion Queue
+  // GPUTransferQueue manages fences and resource destruction.
+  // AsyncLoader polls completion/errors.
   
 
 

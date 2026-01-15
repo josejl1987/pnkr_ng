@@ -173,20 +173,8 @@ void AsyncIOLoader::processFileRequest(const LoadRequest &req) {
   // Maybe we just enqueue and let the transfer thread wake up periodically or
   // handle CV in Manager.
 
-  // Refactor idea: ResourceRequestManager owns the CV for uploads?
-  // Let's assume for now GPUTransferQueue will poll or wait on a CV that
-  // Manager knows? Or simpler: AsyncLoader facade handles the notification? No,
-  // this runs in a task thread. AsyncIOLoader needs to wake up
-  // GPUTransferQueue. Let's stick strictly to separating concerns.
-  // ResourceRequestManager is the data holder.
-  // GPUTransferQueue consumes data.
-  // We can pass a "onEnqueue" callback to ResourceRequestManager?
-  // Or pass GPUTransferQueue to AsyncIOLoader? (Cyclic dependency risk if
-  // header inclusion not careful) Forward declare GPUTransferQueue in
-  // AsyncIOLoader.hpp? Actually, ResourceRequestManager should probably allow
-  // waiting for work. Let's leave notification for now. The transfer loop
-  // usually waits on a CV. We will revisit this logic in GPUTransferQueue
-  // implementation.
+  // Notification is handled by ResourceRequestManager via callback to GPUTransferQueue
+  // when the request is eventually moved to the upload queue.
 }
 
 } // namespace pnkr::renderer
