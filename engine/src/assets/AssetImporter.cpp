@@ -57,6 +57,17 @@
 #include "pnkr/renderer/scene/GLTFUtils.hpp"
 
 namespace pnkr::assets {
+
+#define PNKR_VERBOSE_TEXTURE_LOADING 0
+
+#if PNKR_VERBOSE_TEXTURE_LOADING
+#define LOG_TEXTURE_DEBUG(...) core::Logger::Asset.debug(__VA_ARGS__)
+#define LOG_TEXTURE_INFO(...) core::Logger::Asset.info(__VA_ARGS__)
+#else
+#define LOG_TEXTURE_DEBUG(...) ((void)0)
+#define LOG_TEXTURE_INFO(...) ((void)0)
+#endif
+
 namespace {
 constexpr uint64_t fnv1a64(std::string_view s) {
   uint64_t h = 0xcbf29ce484222325ULL;
@@ -153,7 +164,7 @@ struct TextureProcessTask : enki::ITaskSet {
   std::filesystem::path m_cacheDir;
   uint32_t m_maxTextureSize{};
   LoadProgress *m_progress = nullptr;
-  static constexpr uint32_t K_TEXTURES_PER_BATCH = 8;
+  static constexpr uint32_t K_TEXTURES_PER_BATCH = 32;
   core::ScopeSnapshot m_scopeSnapshot = core::Logger::captureScopes();
 
   void ExecuteRange(enki::TaskSetPartition range, uint32_t threadnum) override {
@@ -202,7 +213,7 @@ struct TextureProcessTask : enki::ITaskSet {
                                      [](auto &) {}},
                    img.data);
         const auto t2 = std::chrono::high_resolution_clock::now();
-        core::Logger::Asset.debug(
+        LOG_TEXTURE_DEBUG(
             "[Thread {}] URI extraction: {:.3f}ms", threadnum,
             std::chrono::duration<double, std::milli>(t2 - t1).count());
 
@@ -239,10 +250,10 @@ struct TextureProcessTask : enki::ITaskSet {
           const auto ktxPath = TextureCacheSystem::getCachedPath(
               m_cacheDir, sourceKey, m_maxTextureSize, srgb);
 
-          core::Logger::Asset.info("[Thread {}] Texture {} source: {}",
-                                   threadnum, texIdx, uriPath);
-          core::Logger::Asset.debug("[Thread {}] Cache path: {}", threadnum,
-                                    ktxPath.string());
+          LOG_TEXTURE_INFO("[Thread {}] Texture {} source: {}", threadnum,
+                           texIdx, uriPath);
+          LOG_TEXTURE_DEBUG("[Thread {}] Cache path: {}", threadnum,
+                            ktxPath.string());
 
           bool cacheValid = false;
           const auto t3 = std::chrono::high_resolution_clock::now();
@@ -257,7 +268,7 @@ struct TextureProcessTask : enki::ITaskSet {
             }
           }
           const auto t4 = std::chrono::high_resolution_clock::now();
-          core::Logger::Asset.debug(
+          LOG_TEXTURE_DEBUG(
               "[Thread {}] Cache check: {:.3f}ms (valid: {})", threadnum,
               std::chrono::duration<double, std::milli>(t4 - t3).count(),
               cacheValid);
@@ -278,33 +289,27 @@ struct TextureProcessTask : enki::ITaskSet {
             continue;
           }
 
-          std::vector<std::uint8_t> fileBytes;
+          auto mmapFile =
+              std::make_unique<pnkr::assets::MemoryMappedFile>(uriPath);
+          const uint8_t *fileData = nullptr;
+          size_t fileSize = 0;
           {
             PNKR_PROFILE_SCOPE("FileRead");
             const auto t5 = std::chrono::high_resolution_clock::now();
 
-            std::ifstream is(uriPath, std::ios::binary);
-            if (is) {
-              is.seekg(0, std::ios::end);
-              const auto sz = (std::streamsize)is.tellg();
-              if (sz > 0) {
-                fileBytes.resize((size_t)sz);
-                is.seekg(0, std::ios::beg);
-                is.read(reinterpret_cast<char *>(fileBytes.data()), sz);
-                if (!is.good()) {
-                  fileBytes.clear();
-                }
-              }
+            if (mmapFile->isValid()) {
+              fileData = mmapFile->data();
+              fileSize = mmapFile->size();
             }
             const auto t6 = std::chrono::high_resolution_clock::now();
-            core::Logger::Asset.info(
-                "[Thread {}] File read: {:.3f}ms ({} bytes)", threadnum,
+            LOG_TEXTURE_DEBUG(
+                "[Thread {}] Memory-mapped: {:.3f}ms ({} bytes)", threadnum,
                 std::chrono::duration<double, std::milli>(t6 - t5).count(),
-                fileBytes.size());
+                fileSize);
           }
-          if (fileBytes.empty()) {
+          if (fileData == nullptr || fileSize == 0) {
             core::Logger::Asset.error(
-                "[Thread {}] Failed to read texture file: {}", threadnum,
+                "[Thread {}] Failed to memory-map texture file: {}", threadnum,
                 uriPath);
             continue;
           }
@@ -316,14 +321,13 @@ struct TextureProcessTask : enki::ITaskSet {
           stbi_uc *rgba = nullptr;
           {
             PNKR_PROFILE_SCOPE("STBI_Load");
-            rgba = stbi_load_from_memory(
-                fileBytes.data(), (int)fileBytes.size(), &w, &h, &comp, 4);
+            rgba = stbi_load_from_memory(fileData, (int)fileSize, &w, &h, &comp,
+                                         4);
           }
           const auto t8 = std::chrono::high_resolution_clock::now();
-          core::Logger::Asset.info(
-              "[Thread {}] Image decode: {:.3f}ms ({}x{}, {} comp)", threadnum,
-              std::chrono::duration<double, std::milli>(t8 - t7).count(), w, h,
-              comp);
+          LOG_TEXTURE_INFO(
+              "[Thread {}] Decoded {}x{} in {:.1f}ms", threadnum, w, h,
+              std::chrono::duration<double, std::milli>(t8 - t7).count());
           if (rgba != nullptr) {
             PNKR_PROFILE_SCOPE("CacheWrite");
             (void)TextureCacheSystem::writeKtx2RGBA8MipmappedAtomic(
