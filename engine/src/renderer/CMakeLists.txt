@@ -215,7 +215,6 @@ target_sources(pnkr_engine
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/scene/GLTFUtils.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/scene/GltfCamera.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/scene/InfiniteGrid.hpp"
-    "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/scene/Light.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/scene/MaterialPipelineMap.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/scene/MaterialType.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/renderer/scene/ModelAsset.hpp"

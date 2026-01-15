@@ -9,7 +9,6 @@ target_sources(pnkr_engine
     implementations.cpp
     logger.cpp
     RecentFiles.cpp
-    RecentFilesImGui.cpp
     RecentFilesStore.cpp
     TaskSystem.cpp
 
@@ -21,7 +20,6 @@ target_sources(pnkr_engine
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/LinearAllocator.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/Pool.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/RecentFiles.hpp"
-    "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/RecentFilesImGui.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/RecentFilesStore.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/System.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/TaskSystem.hpp"
