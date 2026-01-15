@@ -4,6 +4,7 @@
 namespace pnkr::core
 {
     std::unique_ptr<enki::TaskScheduler> TaskSystem::s_scheduler;
+    std::unique_ptr<enki::TaskScheduler> TaskSystem::s_ioScheduler;
 
     void TaskSystem::init()
     {
@@ -17,9 +18,22 @@ namespace pnkr::core
             return;
         }
 
+        uint32_t threads = config.numThreads;
+        if (threads == 0) {
+            uint32_t cores = std::thread::hardware_concurrency();
+            // Reserve cores for Main, Render, and OS/Driver (4 total)
+            threads = cores > 4 ? cores - 4 : 4;
+        }
+
         s_scheduler = std::make_unique<enki::TaskScheduler>();
-        s_scheduler->Initialize(config.numThreads);
-        Logger::info("TaskSystem initialized with {} threads.", s_scheduler->GetNumTaskThreads());
+        s_scheduler->Initialize(threads);
+        
+        s_ioScheduler = std::make_unique<enki::TaskScheduler>();
+        s_ioScheduler->Initialize(config.numIoThreads);
+
+        Logger::info("TaskSystem initialized: {} compute threads, {} I/O threads.", 
+                     s_scheduler->GetNumTaskThreads(), 
+                     s_ioScheduler->GetNumTaskThreads());
     }
 
     void TaskSystem::shutdown()
@@ -28,6 +42,11 @@ namespace pnkr::core
         {
             s_scheduler->WaitforAllAndShutdown();
             s_scheduler.reset();
+        }
+        if (s_ioScheduler)
+        {
+            s_ioScheduler->WaitforAllAndShutdown();
+            s_ioScheduler.reset();
         }
     }
 
@@ -39,6 +58,11 @@ namespace pnkr::core
     enki::TaskScheduler& TaskSystem::scheduler()
     {
         return *s_scheduler;
+    }
+
+    enki::TaskScheduler& TaskSystem::ioScheduler()
+    {
+        return *s_ioScheduler;
     }
 
     void TaskSystem::launchPinnedTask(enki::IPinnedTask* task, uint32_t threadNum)

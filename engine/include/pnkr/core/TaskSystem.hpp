@@ -28,7 +28,8 @@ namespace pnkr::core
     public:
         struct Config
         {
-            uint32_t numThreads = 4;
+            uint32_t numThreads = 0; // 0 = hardware_concurrency() - 4
+            uint32_t numIoThreads = 32;
         };
 
         static void init();
@@ -36,6 +37,7 @@ namespace pnkr::core
         static void shutdown();
         static bool isInitialized();
         static enki::TaskScheduler& scheduler();
+        static enki::TaskScheduler& ioScheduler();
 
         static void launchPinnedTask(enki::IPinnedTask* task, uint32_t threadNum);
 
@@ -48,5 +50,6 @@ namespace pnkr::core
 
     private:
         static std::unique_ptr<enki::TaskScheduler> s_scheduler;
+        static std::unique_ptr<enki::TaskScheduler> s_ioScheduler;
     };
 }
