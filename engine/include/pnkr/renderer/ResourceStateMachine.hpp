@@ -66,7 +66,6 @@ public:
             break;
         case ResourceState::Complete:
             // Complete allows transition back to Unloaded (if we implement unloading)
-            // or maybe nothing else for now.
             valid = (newState == ResourceState::Unloaded);
             break;
         case ResourceState::Failed:

@@ -42,6 +42,13 @@ void ResourceRequestManager::enqueueUpload(UploadRequest&& req, bool highPriorit
     } else {
         m_uploadQueue.enqueue(std::move(req));
     }
+    if (m_notifyCallback) {
+        m_notifyCallback();
+    }
+}
+
+void ResourceRequestManager::setUploadNotifyCallback(NotifyCallback cb) {
+    m_notifyCallback = std::move(cb);
 }
 
 std::optional<UploadRequest> ResourceRequestManager::dequeueUpload() {

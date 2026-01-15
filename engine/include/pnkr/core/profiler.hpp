@@ -19,12 +19,8 @@
         };
 
         struct ScopedVTuneTask {
-            ScopedVTuneTask(const char* name) {
-                // Ideally this should use a static handle for performance, but for a generic wrapper 
-                // we'd need a macro that declares a static local handle.
-                // For now, creating the handle on the fly is acceptable for coarse profiling.
+            ScopedVTuneTask(__itt_string_handle* handle) {
                 static __itt_domain* domain = VTuneDomain::Get();
-                __itt_string_handle* handle = __itt_string_handle_create(name);
                 __itt_task_begin(domain, __itt_null, __itt_null, handle);
             }
             
@@ -35,7 +31,9 @@
         };
     }
     
-    #define PNKR_VTUNE_SCOPE_IMPL(name) pnkr::core::profiler::ScopedVTuneTask vtune_scope_##__LINE__(name)
+    #define PNKR_VTUNE_SCOPE_IMPL(name) \
+        static __itt_string_handle* vtune_handle_##__LINE__ = __itt_string_handle_create(name); \
+        pnkr::core::profiler::ScopedVTuneTask vtune_scope_##__LINE__(vtune_handle_##__LINE__)
     #define PNKR_VTUNE_FRAME_BEGIN() __itt_frame_begin_v3(pnkr::core::profiler::VTuneDomain::Get(), NULL)
     #define PNKR_VTUNE_FRAME_END()   __itt_frame_end_v3(pnkr::core::profiler::VTuneDomain::Get(), NULL)
 #else

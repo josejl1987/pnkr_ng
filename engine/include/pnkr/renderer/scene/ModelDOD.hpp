@@ -89,14 +89,8 @@ namespace pnkr::renderer::scene
         SceneGraphDOD& scene() { return *m_scene; }
         const SceneGraphDOD& scene() const { return *m_scene; }
 
-        // Forwarding buffer pointers is tricky because they are now split.
-        // We will expose getters or leave them if they are public members in the new classes?
-        // In ModelDOD they were public: BufferPtr vertexBuffer;
-        // Now they are in m_assets.vertexBuffer
-        // To maintain compatibility for now, we can use references or just getters.
-        // But for public member access, we can't easily emulate it without getters.
-        // I will add getters and update usages if possible, OR just expose the member.
-        // Given ModelDOD is a "God Class" being broken down, let's expose the sub-objects.
+        // Buffer accessors
+        // Exposed via getters for compatibility and encapsulation.
 
         SceneAssetDatabase& assets() { return m_assets; }
         const SceneAssetDatabase& assets() const { return m_assets; }
@@ -115,8 +109,7 @@ namespace pnkr::renderer::scene
         // Setters for buffers if needed (or just access via assets()/state())
         void setMorphVertexBuffer(BufferPtr buffer) { m_state.morphVertexBuffer = buffer; }
         
-        // This should probably be managed dynamically or in SceneState?
-        // For now we keep it as member but private/accessible via getter.
+        // Manually managed buffer for visible instances
         void setVisibleListBuffer(BufferPtr buffer) { m_visibleListBuffer = buffer; }
 
     private:

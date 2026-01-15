@@ -91,7 +91,7 @@ void FrameGraphResourcePool::allocateResources(
                     pooled.inUse = true;
                     // Re-wrap the raw handle into a TexturePtr.
                     // IMPORTANT: TexturePtr ctor usually takes (RenderResourceManager*, TextureHandle).
-                    // We need to ensure we have m_resourceMgr set.
+                    // Ensure m_resourceMgr is set.
                     if (m_resourceMgr) {
                          res.physicalHandle = TexturePtr(m_renderer->resourceManager(), pooled.handle);
                     } else {

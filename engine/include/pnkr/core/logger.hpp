@@ -141,8 +141,8 @@ public:
     std::string trace = cpptrace::generate_trace().to_string();
 
     // We pass the already formatted message to avoid double formatting issues
-    // if it contains {} But wait, Core.critical expects a format string. Let's
-    // use a specialized call.
+    // Use specialized call (Core.critical expects a format string) to avoid double formatting issues.
+
     log_impl(LogLevel::Critical, "Core", fmt.loc, "{}\nStack Trace:\n{}",
              userMsg, trace);
 

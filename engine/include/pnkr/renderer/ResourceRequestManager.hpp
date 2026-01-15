@@ -6,6 +6,7 @@
 #include <deque>
 #include <mutex>
 #include <vector>
+#include <functional>
 
 namespace pnkr::renderer {
 
@@ -40,9 +41,14 @@ public:
     // Statistics / Metrics helper
     // No manual size tracking needed with size_approx()
 
+    using NotifyCallback = std::function<void()>;
+    void setUploadNotifyCallback(NotifyCallback cb);
+
 private:
     std::deque<LoadRequest> m_pendingFileRequests;
     mutable std::mutex m_fileRequestMutex;
+
+    NotifyCallback m_notifyCallback;
 
     core::LockFreeQueue<UploadRequest> m_uploadQueue;
     core::LockFreeQueue<UploadRequest> m_highPriorityQueue;

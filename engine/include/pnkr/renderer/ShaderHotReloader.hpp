@@ -1,6 +1,7 @@
 #include <unordered_set>
 #include <vector>
 #include <span>
+#include <filesystem>
 #include "pnkr/core/Handle.h"
 #include "pnkr/rhi/rhi_pipeline.hpp"
 #include "pnkr/rhi/rhi_types.hpp"
