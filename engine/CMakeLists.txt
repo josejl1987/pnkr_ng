@@ -6,9 +6,30 @@
 # ============================================================================
 
 # Create the library target
+set(CMP_CORE_SOURCES
+    src/assets/compressonator/source/cmp_core.cpp
+    src/assets/compressonator/source/core_simd_sse.cpp
+    src/assets/compressonator/source/core_simd_avx.cpp
+    src/assets/compressonator/shaders/bc7_encode_kernel.cpp
+    src/assets/compressonator/cmp_math/cpu_extensions.cpp
+    src/assets/compressonator/cmp_math/cmp_math_common.cpp
+)
+
 add_library(pnkr_engine STATIC ""
-        src/renderer/passes/WBOITPass.cpp
-        src/renderer/passes/OITPass.cpp)
+         src/renderer/passes/WBOITPass.cpp
+         src/renderer/passes/OITPass.cpp
+         src/assets/BC7Encoder.cpp
+         ${CMP_CORE_SOURCES}
+         )
+
+target_compile_definitions(pnkr_engine PRIVATE ENABLE_MAKE_COMPATIBLE_API)
+
+if(MSVC)
+    set_source_files_properties(${CMP_CORE_SOURCES} PROPERTIES COMPILE_FLAGS "/arch:AVX2")
+    # Disable PCH for compressonator files to avoid CPU mismatch errors
+    set_source_files_properties(${CMP_CORE_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+endif()
+
 
 # ============================================================================
 # Include Directories
@@ -21,6 +42,9 @@ target_include_directories(pnkr_engine
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/assets/compressonator/source
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/assets/compressonator/shaders
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/assets/compressonator/cmp_math
 )
 
 # ============================================================================
@@ -405,27 +429,32 @@ endif()
 # VMA
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 target_link_libraries(pnkr_engine PUBLIC GPUOpen::VulkanMemoryAllocator)
-
 # ImGui
 find_package(imgui CONFIG REQUIRED)
 target_link_libraries(pnkr_engine PRIVATE imgui::imgui)
 
 # enkiTS
-find_package(enkits CONFIG QUIET)
-if(NOT enkits_FOUND)
-  find_package(enkiTS CONFIG REQUIRED)
-endif()
+CPMAddPackage(
+  NAME enkiTS
+  GITHUB_REPOSITORY dougbinks/enkiTS
+  GIT_TAG master
+  OPTIONS
+    "ENKITS_BUILD_EXAMPLES OFF"
+    "ENKITS_INSTALL OFF"
+    "ENKITS_BUILD_SHARED OFF"
+)
 
 if(TARGET enkiTS::enkiTS)
   set(PNKR_ENKITS_TARGET enkiTS::enkiTS)
 elseif(TARGET EnkiTS::EnkiTS)
   set(PNKR_ENKITS_TARGET EnkiTS::EnkiTS)
-elseif(TARGET EnkiTS::enkiTS)
-  set(PNKR_ENKITS_TARGET EnkiTS::enkiTS)
 elseif(TARGET enkiTS)
   set(PNKR_ENKITS_TARGET enkiTS)
-else()
-  message(FATAL_ERROR "enkiTS target not found")
+endif()
+
+# Enable Tracy in EnkiTS if TRACY_ENABLE is set
+if(TRACY_ENABLE)
+  target_compile_definitions(${PNKR_ENKITS_TARGET} PUBLIC TRACY_ENABLE=1)
 endif()
 
 target_link_libraries(pnkr_engine PUBLIC ${PNKR_ENKITS_TARGET})
@@ -488,6 +517,7 @@ find_package(fastgltf CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(mikktspace CONFIG REQUIRED)
 find_package(nfd CONFIG REQUIRED)
+find_package(xxHash CONFIG REQUIRED)
 
 target_link_libraries(pnkr_engine
   PUBLIC
@@ -498,11 +528,11 @@ target_link_libraries(pnkr_engine
     fastgltf::fastgltf
     meshoptimizer::meshoptimizer
     meshoptimizer::meshoptimizer
-    meshoptimizer::meshoptimizer
     mikktspace::mikktspace
     cpptrace::cpptrace
     nfd::nfd
-)
+    xxHash::xxhash
+  )
 
 # ============================================================================
 # Copy Shaders to Output Directory
