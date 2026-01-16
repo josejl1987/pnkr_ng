@@ -1,8 +1,8 @@
 #include "pnkr/assets/AssetImporter.hpp"
 #include "pnkr/assets/GLTFParser.hpp"
 #include "pnkr/assets/GeometryProcessor.hpp"
-#include "pnkr/assets/MemoryMappedFile.hpp"
 #include "pnkr/assets/TextureCacheSystem.hpp"
+#include "pnkr/core/MemoryMappedFile.hpp"
 #include "pnkr/core/TaskSystem.hpp"
 #include "pnkr/core/common.hpp"
 #include "pnkr/core/logger.hpp"
@@ -36,6 +36,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include <xxhash.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -69,14 +70,7 @@ namespace pnkr::assets {
 #endif
 
 namespace {
-constexpr uint64_t fnv1a64(std::string_view s) {
-  uint64_t h = 0xcbf29ce484222325ULL;
-  for (char c : s) {
-    h ^= static_cast<uint64_t>(c);
-    h *= 0x100000001b3ULL;
-  }
-  return h;
-}
+uint64_t hash64(std::string_view s) { return XXH3_64bits(s.data(), s.size()); }
 
 bool pathExistsNoThrow(const std::filesystem::path &p) noexcept {
   std::error_code ec;
@@ -290,7 +284,7 @@ struct TextureProcessTask : enki::ITaskSet {
           }
 
           auto mmapFile =
-              std::make_unique<pnkr::assets::MemoryMappedFile>(uriPath);
+              std::make_unique<pnkr::core::MemoryMappedFile>(uriPath);
           const uint8_t *fileData = nullptr;
           size_t fileSize = 0;
           {
@@ -358,18 +352,32 @@ struct TextureProcessTask : enki::ITaskSet {
         core::Logger::Asset.warn(
             "[Thread {}] Texture {} using embedded/bufferView data", threadnum,
             texIdx);
+        const auto contentHash = renderer::scene::hashImageBytes(
+            *m_gltf, img, m_assetPath.parent_path());
+        if (contentHash == 0) {
+          continue;
+        }
+
         const auto encoded = renderer::scene::extractImageBytes(
             *m_gltf, img, m_assetPath.parent_path());
         if (encoded.empty()) {
           continue;
         }
 
-        const uint64_t contentHash = fnv1a64(
-            std::string_view((const char *)encoded.data(), encoded.size()));
-        sourceKey = m_assetPath.string() + "#img" +
-                    std::to_string(*imgIndexOpt) + "#tex" +
-                    std::to_string(texIdx) + "#h" +
-                    std::to_string((unsigned long long)contentHash);
+        char keyBuf[256];
+        const size_t basePathLen = m_assetPath.string().size();
+        if (basePathLen < sizeof(keyBuf) - 64) {
+          int len =
+              std::snprintf(keyBuf, sizeof(keyBuf), "%s#img%zu#tex%u#h%llu",
+                            m_assetPath.string().c_str(), *imgIndexOpt, texIdx,
+                            (unsigned long long)contentHash);
+          sourceKey = std::string(keyBuf, len);
+        } else {
+          sourceKey = m_assetPath.string() + "#img" +
+                      std::to_string(*imgIndexOpt) + "#tex" +
+                      std::to_string(texIdx) + "#h" +
+                      std::to_string((unsigned long long)contentHash);
+        }
 
         bool sourceIsKtx2 = false;
         sourceIsKtx2 = isKtx2Magic(encoded);
@@ -509,8 +517,7 @@ AssetImporter::loadGLTF(const std::filesystem::path &path,
   {
     PNKR_PROFILE_SCOPE("Parse GLTF");
     auto expected = parser.loadGltf(data, path.parent_path(),
-                                    fastgltf::Options::LoadExternalBuffers |
-                                        fastgltf::Options::LoadExternalImages);
+                                    fastgltf::Options::LoadExternalBuffers);
     if (expected.error() != fastgltf::Error::None) {
       core::Logger::Asset.error("AssetImporter: Failed to parse GLTF '{}': {}",
                                 path.string(),

@@ -9,14 +9,16 @@
     "stb",
     "fastgltf",
     "doctest",
-    "ktx",
+    {
+      "name": "ktx"
+    },
     "opencl",
     "meshoptimizer",
     "mikktspace",
     "nlohmann-json",
     "imguizmo",
     "cpptrace",
-    "enkits",
+    "xxhash",
     "quill",
     "shader-slang",
     "nativefiledialog-extended",
