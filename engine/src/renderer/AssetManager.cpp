@@ -244,8 +244,8 @@ namespace pnkr::renderer
         TexturePtr handle = m_errorTexture;
         if (ktxTexture_WriteToMemory(reinterpret_cast<ktxTexture*>(ktxTex), &outData, &outSize) == KTX_SUCCESS)
         {
-            handle = loadTextureKTXFromMemory(std::span<const std::byte>(reinterpret_cast<const std::byte*>(outData), outSize), srgb);
-            free(outData);
+            std::unique_ptr<ktx_uint8_t, void (*)(void*)> outDataPtr(outData, std::free);
+            handle = loadTextureKTXFromMemory(std::span<const std::byte>(reinterpret_cast<const std::byte*>(outDataPtr.get()), outSize), srgb);
         }
 
         ktxTexture_Destroy(reinterpret_cast<ktxTexture*>(ktxTex));

@@ -9,6 +9,9 @@
 #include <fstream>
 #include <ktx.h>
 #include <stb_image_resize2.h>
+#include <xxhash.h>
+
+#include "pnkr/assets/BC7Encoder.hpp"
 
 namespace pnkr::assets {
 
@@ -23,14 +26,7 @@ namespace pnkr::assets {
 #endif
 
 namespace {
-uint64_t fnv1a64(std::string_view s) {
-  uint64_t h = 14695981039346656037ULL;
-  for (unsigned char c : s) {
-    h ^= uint64_t(c);
-    h *= 1099511628211ULL;
-  }
-  return h;
-}
+uint64_t hash64(std::string_view s) { return XXH3_64bits(s.data(), s.size()); }
 
 bool pathExistsNoThrow(const std::filesystem::path &p) noexcept {
   std::error_code ec;
@@ -121,7 +117,7 @@ TextureCacheSystem::getCachedPath(const std::filesystem::path &cacheDir,
   const std::string key = std::string(sourceKey) + "|" +
                           std::to_string(maxSize) + "|" +
                           (srgb ? "srgb" : "lin") + "|v2";
-  const uint64_t h = fnv1a64(key);
+  const uint64_t h = hash64(key);
 
   char buf[64];
   std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)h);
@@ -167,9 +163,12 @@ bool TextureCacheSystem::writeKtx2RGBA8MipmappedAtomic(
                   origW, origH, newW, newH, mips);
 
   const auto t1 = std::chrono::high_resolution_clock::now();
+
+  // VK_FORMAT_BC7_UNORM_BLOCK = 145, VK_FORMAT_BC7_SRGB_BLOCK = 146
+  const uint32_t vkFormatBC7 = srgb ? 146 : 145;
+
   ktxTextureCreateInfo ci{};
-  ci.vkFormat =
-      srgb ? 43 /*VK_FORMAT_R8G8B8A8_SRGB*/ : 37 /*VK_FORMAT_R8G8B8A8_UNORM*/;
+  ci.vkFormat = vkFormatBC7;
   ci.baseWidth = (uint32_t)newW;
   ci.baseHeight = (uint32_t)newH;
   ci.baseDepth = 1;
@@ -183,10 +182,6 @@ bool TextureCacheSystem::writeKtx2RGBA8MipmappedAtomic(
   const auto createResult =
       ktxTexture2_Create(&ci, KTX_TEXTURE_CREATE_ALLOC_STORAGE, &tex);
   const auto t2 = std::chrono::high_resolution_clock::now();
-  LOG_CACHE_DEBUG("[Thread {}] ktxTexture2_Create: {:.3f}ms (result: {})",
-                  threadnum,
-                  std::chrono::duration<double, std::milli>(t2 - t1).count(),
-                  static_cast<int>(createResult));
   if (createResult != KTX_SUCCESS) {
     return false;
   }
@@ -195,38 +190,52 @@ bool TextureCacheSystem::writeKtx2RGBA8MipmappedAtomic(
   int h = newH;
 
   const auto t3 = std::chrono::high_resolution_clock::now();
-  for (uint32_t level = 0; level < mips; ++level) {
-    size_t offset = 0;
-    ktxTexture_GetImageOffset(ktxTexture(tex), level, 0, 0, &offset);
-    uint8_t *dst = ktxTexture_GetData(ktxTexture(tex)) + offset;
+  std::vector<uint8_t> tempLevelRGBA;
+  std::vector<uint8_t> bc7Blocks;
 
+  BC7EncoderConfig encoderConfig;
+  encoderConfig.perceptual = srgb;
+  encoderConfig.useSRGB = srgb;
+  encoderConfig.qualityLevel = 1;
+
+  for (uint32_t level = 0; level < mips; ++level) {
     if (level == 0) {
-      resizeRGBA(rgba, origW, origH, dst, w, h, srgb);
+      tempLevelRGBA.resize(w * h * 4);
+      resizeRGBA(rgba, origW, origH, tempLevelRGBA.data(), w, h, srgb);
     } else {
-      size_t prevOffset = 0;
-      ktxTexture_GetImageOffset(ktxTexture(tex), level - 1, 0, 0, &prevOffset);
-      const uint8_t *prev = ktxTexture_GetData(ktxTexture(tex)) + prevOffset;
+      // For higher mips, we resize from the previous level's RGBA data for
+      // better performance and quality
+      std::vector<uint8_t> prevRGBA = std::move(tempLevelRGBA);
       const int pw = std::max(1, w * 2);
       const int ph = std::max(1, h * 2);
-      resizeRGBA(prev, pw, ph, dst, w, h, srgb);
+      tempLevelRGBA.resize(w * h * 4);
+      resizeRGBA(prevRGBA.data(), pw, ph, tempLevelRGBA.data(), w, h, srgb);
+    }
+
+    if (BC7Encoder::compress(tempLevelRGBA.data(), w, h, encoderConfig,
+                             bc7Blocks)) {
+      ktxTexture_SetImageFromMemory(ktxTexture(tex), level, 0, 0,
+                                    bc7Blocks.data(), bc7Blocks.size());
+    } else {
+      // Fallback or error
+      core::Logger::Asset.error("BC7 compression failed for level {}", level);
     }
 
     w = std::max(1, w / 2);
     h = std::max(1, h / 2);
   }
+
   const auto t4 = std::chrono::high_resolution_clock::now();
-  LOG_CACHE_INFO("[Thread {}] Mipmap generation: {:.3f}s", threadnum,
-                 std::chrono::duration<double>(t4 - t3).count());
+
+  // Supercompression
+  ktxTexture2_DeflateZstd(tex, 5);
 
   const auto t7 = std::chrono::high_resolution_clock::now();
   const auto tmp = makeUniqueTempPath(outFile, threadnum);
   const auto tmpStr = tmp.string();
-  const KTX_error_code wr =
-      ktxTexture_WriteToNamedFile(ktxTexture(tex), tmpStr.c_str());
+  const auto wr = ktxTexture_WriteToNamedFile(ktxTexture(tex), tmpStr.c_str());
   ktxTexture_Destroy(ktxTexture(tex));
-  const auto t8 = std::chrono::high_resolution_clock::now();
-  LOG_CACHE_DEBUG("[Thread {}] File write: {:.3f}ms", threadnum,
-                  std::chrono::duration<double, std::milli>(t8 - t7).count());
+
   if (wr != KTX_SUCCESS) {
     core::Logger::Asset.error("[Thread {}] File write failed: {}", threadnum,
                               static_cast<int>(wr));
@@ -234,15 +243,12 @@ bool TextureCacheSystem::writeKtx2RGBA8MipmappedAtomic(
     std::filesystem::remove(tmp, ec);
     return false;
   }
-  const auto t9 = std::chrono::high_resolution_clock::now();
+
   const bool renamed = atomicRenameOrDiscard(tmp, outFile);
-  const auto t10 = std::chrono::high_resolution_clock::now();
-  LOG_CACHE_DEBUG("[Thread {}] Atomic rename: {:.3f}ms", threadnum,
-                  std::chrono::duration<double, std::milli>(t10 - t9).count());
 
   const auto funcEnd = std::chrono::high_resolution_clock::now();
   core::Logger::Asset.info(
-      "[Thread {}] writeKtx2 TOTAL: {:.2f}s", threadnum,
+      "[Thread {}] writeKtx2 (BC7+Zstd) TOTAL: {:.2f}s", threadnum,
       std::chrono::duration<double>(funcEnd - funcStart).count());
   return renamed;
 }
