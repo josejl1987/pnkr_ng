@@ -17,27 +17,27 @@ namespace pnkr::renderer::scene {
 
     class Relationship {
     public:
-        ecs::Entity parent() const noexcept { return parent_; }
-        ecs::Entity firstChild() const noexcept { return firstChild_; }
-        ecs::Entity prevSibling() const noexcept { return prevSibling_; }
-        ecs::Entity nextSibling() const noexcept { return nextSibling_; }
-        ecs::Entity lastChild() const noexcept { return lastChild_; }
-        uint16_t level() const noexcept { return level_; }
+        ecs::Entity parent() const noexcept { return m_parent; }
+        ecs::Entity firstChild() const noexcept { return m_firstChild; }
+        ecs::Entity prevSibling() const noexcept { return m_prevSibling; }
+        ecs::Entity nextSibling() const noexcept { return m_nextSibling; }
+        ecs::Entity lastChild() const noexcept { return m_lastChild; }
+        uint16_t level() const noexcept { return m_level; }
 
-        void setParent(ecs::Entity parent) noexcept { parent_ = parent; }
-        void setFirstChild(ecs::Entity child) noexcept { firstChild_ = child; }
-        void setPrevSibling(ecs::Entity sibling) noexcept { prevSibling_ = sibling; }
-        void setNextSibling(ecs::Entity sibling) noexcept { nextSibling_ = sibling; }
-        void setLastChild(ecs::Entity child) noexcept { lastChild_ = child; }
-        void setLevel(uint16_t level) noexcept { level_ = level; }
+        void setParent(ecs::Entity parent) noexcept { m_parent = parent; }
+        void setFirstChild(ecs::Entity child) noexcept { m_firstChild = child; }
+        void setPrevSibling(ecs::Entity sibling) noexcept { m_prevSibling = sibling; }
+        void setNextSibling(ecs::Entity sibling) noexcept { m_nextSibling = sibling; }
+        void setLastChild(ecs::Entity child) noexcept { m_lastChild = child; }
+        void setLevel(uint16_t level) noexcept { m_level = level; }
 
     private:
-        ecs::Entity parent_ = ecs::NULL_ENTITY;
-        ecs::Entity firstChild_ = ecs::NULL_ENTITY;
-        ecs::Entity prevSibling_ = ecs::NULL_ENTITY;
-        ecs::Entity nextSibling_ = ecs::NULL_ENTITY;
-        ecs::Entity lastChild_ = ecs::NULL_ENTITY;
-        uint16_t level_ = 0;
+        ecs::Entity m_parent = ecs::kNullEntity;
+        ecs::Entity m_firstChild = ecs::kNullEntity;
+        ecs::Entity m_prevSibling = ecs::kNullEntity;
+        ecs::Entity m_nextSibling = ecs::kNullEntity;
+        ecs::Entity m_lastChild = ecs::kNullEntity;
+        uint16_t m_level = 0;
     };
 
     struct LocalTransform {

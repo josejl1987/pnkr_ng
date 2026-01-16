@@ -97,7 +97,7 @@ namespace pnkr::renderer::scene
         auto& sceneGraph = *m_scene;
         ecs::Entity parent = sceneGraph.root();
 
-        if (sceneGraph.root() == ecs::NULL_ENTITY) {
+        if (sceneGraph.root() == ecs::kNullEntity) {
             return -1;
         }
 
@@ -139,7 +139,7 @@ namespace pnkr::renderer::scene
         auto& sceneGraph = *m_scene;
         auto lightView = sceneGraph.registry().view<LightSource>();
 
-        ecs::Entity toDestroy = ecs::NULL_ENTITY;
+        ecs::Entity toDestroy = ecs::kNullEntity;
         uint32_t currentIdx = 0;
 
         lightView.each([&](ecs::Entity e, LightSource& ) {
@@ -149,7 +149,7 @@ namespace pnkr::renderer::scene
             currentIdx++;
         });
 
-        if (toDestroy != ecs::NULL_ENTITY) {
+        if (toDestroy != ecs::kNullEntity) {
             sceneGraph.destroyNode(toDestroy);
         }
     }

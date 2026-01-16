@@ -7,20 +7,20 @@ namespace pnkr::renderer::scene {
 
     class SceneGraphDOD {
     public:
-        ecs::Registry& registry() noexcept { return registry_; }
-        const ecs::Registry& registry() const noexcept { return registry_; }
+        ecs::Registry& registry() noexcept { return m_registry; }
+        const ecs::Registry& registry() const noexcept { return m_registry; }
 
-        ecs::Entity createNode(ecs::Entity parent = ecs::NULL_ENTITY);
+        ecs::Entity createNode(ecs::Entity parent = ecs::kNullEntity);
         void destroyNode(ecs::Entity entity);
 
-        std::vector<ecs::Entity>& topoOrder() noexcept { return topoOrder_; }
-        const std::vector<ecs::Entity>& topoOrder() const noexcept { return topoOrder_; }
+        std::vector<ecs::Entity>& topoOrder() noexcept { return m_topoOrder; }
+        const std::vector<ecs::Entity>& topoOrder() const noexcept { return m_topoOrder; }
 
-        std::vector<ecs::Entity>& roots() noexcept { return roots_; }
-        const std::vector<ecs::Entity>& roots() const noexcept { return roots_; }
+        std::vector<ecs::Entity>& roots() noexcept { return m_roots; }
+        const std::vector<ecs::Entity>& roots() const noexcept { return m_roots; }
 
-        bool hierarchyDirty() const noexcept { return hierarchyDirty_; }
-        void setHierarchyDirty(bool dirty) noexcept { hierarchyDirty_ = dirty; }
+        bool hierarchyDirty() const noexcept { return m_hierarchyDirty; }
+        void setHierarchyDirty(bool dirty) noexcept { m_hierarchyDirty = dirty; }
         void onHierarchyChanged();
 
         void recalculateGlobalTransformsFull();
@@ -33,20 +33,20 @@ namespace pnkr::renderer::scene {
 
         void setParent(ecs::Entity entity, ecs::Entity parent);
 
-        ecs::Entity root() const noexcept { return root_; }
-        void setRoot(ecs::Entity r) noexcept { root_ = r; }
+        ecs::Entity root() const noexcept { return m_root; }
+        void setRoot(ecs::Entity r) noexcept { m_root = r; }
 
-        uint32_t materialBaseIndex() const noexcept { return materialBaseIndex_; }
-        void setMaterialBaseIndex(uint32_t baseIndex) noexcept { materialBaseIndex_ = baseIndex; }
+        uint32_t materialBaseIndex() const noexcept { return m_materialBaseIndex; }
+        void setMaterialBaseIndex(uint32_t baseIndex) noexcept { m_materialBaseIndex = baseIndex; }
 
     private:
         void updateTopoOrder();
 
-        ecs::Registry registry_;
-        std::vector<ecs::Entity> topoOrder_;
-        std::vector<ecs::Entity> roots_;
-        bool hierarchyDirty_ = false;
-        ecs::Entity root_ = ecs::NULL_ENTITY;
-        uint32_t materialBaseIndex_ = 0;
+        ecs::Registry m_registry;
+        std::vector<ecs::Entity> m_topoOrder;
+        std::vector<ecs::Entity> m_roots;
+        bool m_hierarchyDirty = false;
+        ecs::Entity m_root = ecs::kNullEntity;
+        uint32_t m_materialBaseIndex = 0;
     };
 }
