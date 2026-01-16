@@ -141,24 +141,25 @@ public:
     std::string trace = cpptrace::generate_trace().to_string();
 
     // We pass the already formatted message to avoid double formatting issues
-    // Use specialized call (Core.critical expects a format string) to avoid double formatting issues.
+    // Use specialized call (Core.critical expects a format string) to avoid
+    // double formatting issues.
 
-    log_impl(LogLevel::Critical, "Core", fmt.loc, "{}\nStack Trace:\n{}",
-             userMsg, trace);
+    logImpl(LogLevel::Critical, "Core", fmt.loc, "{}\nStack Trace:\n{}",
+            userMsg, trace);
 
     // Flush happens in shutdown or manually if we could access the logger.
     // We'll rely on the fact that Critical often flushes or we can force it in
-    // log_impl.
+    // logImpl.
   }
 
 private:
-  static quill::Logger *get_logger();
+  static quill::Logger *getLogger();
 
   template <typename... Args>
-  static void log_impl(LogLevel level, const char *tag,
-                       const std::source_location &loc, std::string_view fmt,
-                       Args &&...args) {
-    auto *logger = get_logger();
+  static void logImpl(LogLevel level, const char *tag,
+                      const std::source_location &loc, std::string_view fmt,
+                      Args &&...args) {
+    auto *logger = getLogger();
     if (!logger)
       return;
 
@@ -231,38 +232,38 @@ private:
 
 template <typename... Args>
 void Channel::trace(LogFormat fmt, Args &&...args) const {
-  Logger::log_impl(LogLevel::Trace, name, fmt.loc, fmt.fmt,
-                   std::forward<Args>(args)...);
+  Logger::logImpl(LogLevel::Trace, name, fmt.loc, fmt.fmt,
+                  std::forward<Args>(args)...);
 }
 
 template <typename... Args>
 void Channel::debug(LogFormat fmt, Args &&...args) const {
-  Logger::log_impl(LogLevel::Debug, name, fmt.loc, fmt.fmt,
-                   std::forward<Args>(args)...);
+  Logger::logImpl(LogLevel::Debug, name, fmt.loc, fmt.fmt,
+                  std::forward<Args>(args)...);
 }
 
 template <typename... Args>
 void Channel::info(LogFormat fmt, Args &&...args) const {
-  Logger::log_impl(LogLevel::Info, name, fmt.loc, fmt.fmt,
-                   std::forward<Args>(args)...);
+  Logger::logImpl(LogLevel::Info, name, fmt.loc, fmt.fmt,
+                  std::forward<Args>(args)...);
 }
 
 template <typename... Args>
 void Channel::warn(LogFormat fmt, Args &&...args) const {
-  Logger::log_impl(LogLevel::Warn, name, fmt.loc, fmt.fmt,
-                   std::forward<Args>(args)...);
+  Logger::logImpl(LogLevel::Warn, name, fmt.loc, fmt.fmt,
+                  std::forward<Args>(args)...);
 }
 
 template <typename... Args>
 void Channel::error(LogFormat fmt, Args &&...args) const {
-  Logger::log_impl(LogLevel::Error, name, fmt.loc, fmt.fmt,
-                   std::forward<Args>(args)...);
+  Logger::logImpl(LogLevel::Error, name, fmt.loc, fmt.fmt,
+                  std::forward<Args>(args)...);
 }
 
 template <typename... Args>
 void Channel::critical(LogFormat fmt, Args &&...args) const {
-  Logger::log_impl(LogLevel::Critical, name, fmt.loc, fmt.fmt,
-                   std::forward<Args>(args)...);
+  Logger::logImpl(LogLevel::Critical, name, fmt.loc, fmt.fmt,
+                  std::forward<Args>(args)...);
 }
 
 } // namespace pnkr::core

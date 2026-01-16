@@ -34,8 +34,8 @@
     #define PNKR_VTUNE_SCOPE_IMPL(name) \
         static __itt_string_handle* vtune_handle_##__LINE__ = __itt_string_handle_create(name); \
         pnkr::core::profiler::ScopedVTuneTask vtune_scope_##__LINE__(vtune_handle_##__LINE__)
-    #define PNKR_VTUNE_FRAME_BEGIN() __itt_frame_begin_v3(pnkr::core::profiler::VTuneDomain::Get(), NULL)
-    #define PNKR_VTUNE_FRAME_END()   __itt_frame_end_v3(pnkr::core::profiler::VTuneDomain::Get(), NULL)
+    #define PNKR_VTUNE_FRAME_BEGIN() __itt_frame_begin_v3(pnkr::core::profiler::VTuneDomain::Get(), nullptr)
+    #define PNKR_VTUNE_FRAME_END()   __itt_frame_end_v3(pnkr::core::profiler::VTuneDomain::Get(), nullptr)
 #else
     #define PNKR_VTUNE_SCOPE_IMPL(name)
     #define PNKR_VTUNE_FRAME_BEGIN()

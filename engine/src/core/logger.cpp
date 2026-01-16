@@ -10,7 +10,7 @@ namespace pnkr::core {
 // Global logger instance
 static quill::Logger *g_logger = nullptr;
 
-quill::Logger *Logger::get_logger() { return g_logger; }
+quill::Logger *Logger::getLogger() { return g_logger; }
 
 void Logger::init(const std::string &pattern) {
   if (g_logger) {

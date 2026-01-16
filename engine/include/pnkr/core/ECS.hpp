@@ -18,7 +18,7 @@ namespace pnkr::ecs {
     concept Component = std::is_move_constructible_v<T> && std::is_destructible_v<T> && std::is_object_v<T>;
 
     using Entity = uint32_t;
-    constexpr Entity NULL_ENTITY = std::numeric_limits<Entity>::max();
+    constexpr Entity kNullEntity = std::numeric_limits<Entity>::max();
 
     uint32_t getUniqueComponentID();
 
@@ -41,16 +41,16 @@ namespace pnkr::ecs {
     template <Component T>
     class SparseSet : public ISparseSet {
     private:
-        static constexpr size_t PAGE_SIZE = 4096;
-        static constexpr size_t NULL_INDEX = std::numeric_limits<size_t>::max();
+        static constexpr size_t kPageSize = 4096;
+        static constexpr size_t kNullIndex = std::numeric_limits<size_t>::max();
 
         std::vector<T> dense;
         std::vector<Entity> packed;
         std::vector<std::unique_ptr<size_t[]>> sparsePages;
 
         size_t* getSparseIndex(Entity e) const {
-            size_t page = e / PAGE_SIZE;
-            size_t offset = e % PAGE_SIZE;
+            size_t page = e / kPageSize;
+            size_t offset = e % kPageSize;
             if (page >= sparsePages.size() || !sparsePages[page]) {
                 return nullptr;
             }
@@ -58,16 +58,16 @@ namespace pnkr::ecs {
         }
 
         size_t* ensureSparseIndex(Entity e) {
-            size_t page = e / PAGE_SIZE;
-            size_t offset = e % PAGE_SIZE;
+            size_t page = e / kPageSize;
+            size_t offset = e % kPageSize;
 
             if (page >= sparsePages.size()) {
                 sparsePages.resize(page + 1);
             }
 
             if (!sparsePages[page]) {
-                sparsePages[page] = std::make_unique<size_t[]>(PAGE_SIZE);
-                std::fill_n(sparsePages[page].get(), PAGE_SIZE, NULL_INDEX);
+                sparsePages[page] = std::make_unique<size_t[]>(kPageSize);
+                std::fill_n(sparsePages[page].get(), kPageSize, kNullIndex);
             }
 
             return &sparsePages[page][offset];
@@ -83,7 +83,7 @@ namespace pnkr::ecs {
         T& emplace(Entity e, Args&&... args) {
             size_t* idx = ensureSparseIndex(e);
 
-            if (*idx != NULL_INDEX) {
+            if (*idx != kNullIndex) {
                 PNKR_ASSERT(*idx < dense.size(), "Sparse set corruption");
                 dense[*idx] = T(std::forward<Args>(args)...);
                 return dense[*idx];
@@ -97,7 +97,7 @@ namespace pnkr::ecs {
 
         void remove(Entity e) override {
             size_t* idx = getSparseIndex(e);
-            if (!idx || *idx == NULL_INDEX) return;
+            if (!idx || *idx == kNullIndex) return;
 
             size_t idxToRemove = *idx;
             size_t idxLast = dense.size() - 1;
@@ -112,7 +112,7 @@ namespace pnkr::ecs {
                 *idxSwap = idxToRemove;
             }
 
-            *idx = NULL_INDEX;
+            *idx = kNullIndex;
 
             dense.pop_back();
             packed.pop_back();
@@ -120,18 +120,18 @@ namespace pnkr::ecs {
 
         bool has(Entity e) const override {
             size_t* idx = getSparseIndex(e);
-            return idx && *idx != NULL_INDEX;
+            return idx && *idx != kNullIndex;
         }
 
         T& get(Entity e) {
             size_t* idx = getSparseIndex(e);
-            PNKR_ASSERT(idx && *idx != NULL_INDEX, "Entity does not have component");
+            PNKR_ASSERT(idx && *idx != kNullIndex, "Entity does not have component");
             return dense[*idx];
         }
 
         const T& get(Entity e) const {
             size_t* idx = getSparseIndex(e);
-            PNKR_ASSERT(idx && *idx != NULL_INDEX, "Entity does not have component");
+            PNKR_ASSERT(idx && *idx != kNullIndex, "Entity does not have component");
             return dense[*idx];
         }
 
