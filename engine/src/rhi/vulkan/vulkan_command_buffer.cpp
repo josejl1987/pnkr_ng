@@ -109,9 +109,7 @@ namespace pnkr::renderer::rhi::vulkan
             m_tracyZoneStack.pop_back();
         }
         if (m_profilingCtx != nullptr) {
-          auto *ctx = static_cast<TracyContext>(m_profilingCtx);
-          PNKR_PROFILE_GPU_COLLECT(
-              ctx, static_cast<VkCommandBuffer>(m_commandBuffer));
+          // Collection is deferred to Swapchain::present to avoid stalls
         }
 #endif
         if (m_queueFamilyIndex == m_device->graphicsQueueFamily() || m_queueFamilyIndex == m_device->computeQueueFamily())
@@ -823,8 +821,8 @@ namespace pnkr::renderer::rhi::vulkan
           return;
         }
 
-        const uint16_t parentIndex = m_markerStack.empty() ? 0xFFFFU : (uint16_t)m_markerStack.back();
-        const uint16_t depth = (uint16_t)m_markerStack.size();
+        const uint16_t parentIndex = m_markerStack.empty() ? 0xFFFFU : static_cast<uint16_t>(m_markerStack.back());
+        const uint16_t depth = static_cast<uint16_t>(m_markerStack.size());
 
         auto* query = profiler->pushQuery(m_currentFrameIndex, name, parentIndex, depth);
         if (query != nullptr) {
@@ -859,7 +857,7 @@ namespace pnkr::renderer::rhi::vulkan
         uint32_t queryIndex = m_markerStack.back();
         m_markerStack.pop_back();
 
-        auto* query = profiler->getQuery(m_currentFrameIndex, (uint16_t)queryIndex);
+        auto* query = profiler->getQuery(m_currentFrameIndex, static_cast<uint16_t>(queryIndex));
         if (query != nullptr) {
           PNKR_ASSERT(query->endQueryIndex < profiler->getQueriesPerFrame() * 2,
                       "Out of bounds GPU query index");

@@ -56,7 +56,7 @@ namespace pnkr::renderer::rhi::vulkan
         }
 
         if (!desc.debugName.empty()) {
-            VulkanUtils::setDebugName(m_device->device(), vk::ObjectType::eBuffer, u64((VkBuffer)m_handle), desc.debugName);
+            VulkanUtils::setDebugName(m_device->device(), vk::ObjectType::eBuffer, u64(static_cast<VkBuffer>(m_handle)), desc.debugName);
         }
 
         if (bufferInfo.usage & vk::BufferUsageFlagBits::eShaderDeviceAddress)

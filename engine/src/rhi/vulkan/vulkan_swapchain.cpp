@@ -520,6 +520,9 @@ namespace pnkr::renderer::rhi::vulkan
             try
             {
                 PNKR_PROFILE_SCOPE("QueuePresent");
+                if (m_tracyContext) {
+                    PNKR_PROFILE_GPU_COLLECT(m_tracyContext, nullptr); // Context is void*, cmd buffer not needed for collect
+                }
                 presentResult = m_device->graphicsQueue().presentKHR(present);
             }
             catch (const vk::OutOfDateKHRError&)

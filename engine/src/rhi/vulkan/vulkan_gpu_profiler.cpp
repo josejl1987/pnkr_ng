@@ -345,7 +345,7 @@ void VulkanGPUTimeQueriesManager::updateStreamingStatistics(uint32_t frameIndex,
 
 void* VulkanGPUTimeQueriesManager::getQueryPoolHandle(uint32_t frameIndex) {
     uint32_t index = frameIndex % kMaxFrames;
-    return (void*)((VkQueryPool)mFramePools[index].timestampQueryPool);
+    return static_cast<void*>(static_cast<VkQueryPool>(mFramePools[index].timestampQueryPool));
 }
 
 void VulkanGPUTimeQueriesManager::resetQueryPool(RHICommandList* cmd, uint32_t frameIndex) {

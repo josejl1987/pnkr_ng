@@ -105,7 +105,7 @@ namespace pnkr::renderer::rhi::vulkan
         ~VulkanRHICommandPool() override;
 
         void reset() override;
-        void* nativeHandle() override { return (void*)(VkCommandPool)m_pool; }
+        void* nativeHandle() override { return static_cast<void*>(static_cast<VkCommandPool>(m_pool)); }
         vk::CommandPool pool() const { return m_pool; }
         uint32_t queueFamilyIndex() const { return m_queueFamilyIndex; }
 
@@ -194,7 +194,7 @@ namespace pnkr::renderer::rhi::vulkan
         RHIDescriptorSet* getBindlessDescriptorSet() override;
         RHIDescriptorSetLayout* getBindlessDescriptorSetLayout() override;
 
-        void* getNativeInstance() const override { return (void*)(VkInstance)instance(); }
+        void* getNativeInstance() const override { return static_cast<void*>(static_cast<VkInstance>(instance())); }
 
         vk::Semaphore getTimelineSemaphore() const;
         vk::Semaphore getComputeTimelineSemaphore() const;

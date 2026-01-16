@@ -108,7 +108,7 @@ void VulkanRHIImGui::beginFrame(uint32_t frameIndex) {
     if (!queue.empty()) {
         /*
         for (auto ds : queue) {
-           core::Logger::Render.debug("Unfreeing ImGui DS: {}", (void*)ds);
+           core::Logger::Render.debug("Unfreeing ImGui DS: {}", static_cast<void*>(ds));
         }
         */
         m_device->device().freeDescriptorSets(m_descriptorPool, queue);
@@ -129,7 +129,7 @@ void* VulkanRHIImGui::registerTexture(void* nativeTextureView, void* nativeSampl
         static_cast<VkImageView>(nativeTextureView),
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
-    // core::Logger::Render.debug("Allocated ImGui DS: {}", (void*)ds);
+    // core::Logger::Render.debug("Allocated ImGui DS: {}", static_cast<void*>(ds));
     return static_cast<void*>(ds);
 }
 
@@ -137,7 +137,7 @@ void VulkanRHIImGui::removeTexture(void* descriptorSet) {
   auto ds = static_cast<VkDescriptorSet>(descriptorSet);
   if (ds && !m_deferredReleases.empty()) {
       const uint32_t slot = m_currentFrameIndex % static_cast<uint32_t>(m_deferredReleases.size());
-      // core::Logger::Render.debug("Deferring ImGui DS release: {} to slot {} (frame: {})", (void*)ds, slot, m_currentFrameIndex);
+      // core::Logger::Render.debug("Deferring ImGui DS release: {} to slot {} (frame: {})", static_cast<void*>(ds), slot, m_currentFrameIndex);
       m_deferredReleases[slot].push_back(ds);
   }
 }
