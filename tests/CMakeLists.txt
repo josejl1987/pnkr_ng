@@ -20,6 +20,10 @@ add_executable(pnkr_tests
 
 target_include_directories(pnkr_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/include)
 
+set_target_properties(pnkr_tests PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
 # Link against the engine library. 
 target_link_libraries(pnkr_tests PRIVATE pnkr_engine doctest::doctest quill::quill)
 
@@ -37,6 +41,10 @@ add_executable(pnkr_vulkan_tests
     rhi/Test_VulkanPipelines.cpp
     rhi/Test_VulkanSynchronization.cpp
     rhi/Test_VulkanBindless.cpp
+)
+
+set_target_properties(pnkr_vulkan_tests PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
 target_include_directories(pnkr_vulkan_tests
@@ -84,11 +92,11 @@ if(SLANGC_EXECUTABLE)
     string(REPLACE "." "_" OUTPUT_SAFE "${output_name}")
 
     set(SRC "${CMAKE_CURRENT_SOURCE_DIR}/${shader_source}")
-    set(SPV "${CMAKE_CURRENT_BINARY_DIR}/bin/shaders/${output_name}.spv")
+    set(SPV "${CMAKE_BINARY_DIR}/bin/shaders/${output_name}.spv")
 
     add_custom_command(
       OUTPUT ${SPV}
-      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/bin/shaders"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/shaders"
       COMMAND ${SLANGC_EXECUTABLE} ${SRC}
               ${SLANG_DEBUG_FLAGS} ${SLANG_OPT_FLAGS}
               -target spirv
@@ -125,14 +133,6 @@ if(SLANGC_EXECUTABLE)
 else()
   message(STATUS "slangc not found - Vulkan test shaders will not be compiled")
 endif()
-
-add_custom_command(TARGET pnkr_vulkan_tests POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/tests/bin/shaders"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_BINARY_DIR}/bin/shaders"
-        "${CMAKE_BINARY_DIR}/tests/bin/shaders"
-    COMMENT "Copying shaders to test output directory"
-)
 
 set(PNKR_VK_ICD_FILENAMES "" CACHE STRING "Path to Vulkan ICD JSON to use for Vulkan tests")
 set(PNKR_VK_LAYER_PATH "" CACHE STRING "Path to Vulkan explicit layer directory for Vulkan tests")
