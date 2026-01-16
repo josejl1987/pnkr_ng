@@ -7,7 +7,6 @@ target_sources(pnkr_engine
     AssetImporter.cpp
     TextureLoader.cpp
     TextureCacheSystem.cpp
-    MemoryMappedFile.cpp
     GLTFParser.cpp
     GeometryProcessor.cpp
 
@@ -22,7 +21,6 @@ target_sources(pnkr_engine
       "${CMAKE_SOURCE_DIR}/engine/include/pnkr/assets/AssetData.hpp"
       "${CMAKE_SOURCE_DIR}/engine/include/pnkr/assets/TextureLoader.hpp"
       "${CMAKE_SOURCE_DIR}/engine/include/pnkr/assets/TextureCacheSystem.hpp"
-      "${CMAKE_SOURCE_DIR}/engine/include/pnkr/assets/MemoryMappedFile.hpp"
       "${CMAKE_SOURCE_DIR}/engine/include/pnkr/assets/GLTFParser.hpp"
       "${CMAKE_SOURCE_DIR}/engine/include/pnkr/assets/GeometryProcessor.hpp"
 )

@@ -11,6 +11,7 @@ target_sources(pnkr_engine
     RecentFiles.cpp
     RecentFilesStore.cpp
     TaskSystem.cpp
+    MemoryMappedFile.cpp
 
   PUBLIC FILE_SET headers BASE_DIRS "${CMAKE_SOURCE_DIR}/engine/include" FILES
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/cvar.hpp"
@@ -18,6 +19,7 @@ target_sources(pnkr_engine
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/FramePacer.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/Handle.h"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/LinearAllocator.hpp"
+    "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/MemoryMappedFile.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/Pool.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/RecentFiles.hpp"
     "${CMAKE_SOURCE_DIR}/engine/include/pnkr/core/RecentFilesStore.hpp"
