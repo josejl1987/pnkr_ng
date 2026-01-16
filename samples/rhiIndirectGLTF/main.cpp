@@ -54,7 +54,7 @@ namespace
                                    ? "Point"
                                    : "Spot";
         const char* name = "Light";
-        if (scene && entity != ecs::NULL_ENTITY && scene->registry().has<Name>(entity))
+        if (scene && entity != ecs::kNullEntity && scene->registry().has<Name>(entity))
         {
             name = scene->registry().get<Name>(entity).str.c_str();
         }
@@ -64,7 +64,7 @@ namespace
         {
             ImGui::Checkbox("Debug Draw", &light.debugDraw);
 
-            if (scene && entity != ecs::NULL_ENTITY)
+            if (scene && entity != ecs::kNullEntity)
             {
                 glm::vec3 pos = glm::vec3(scene->registry().get<LocalTransform>(entity).matrix[3]);
                 const std::string posLabel = "Position" + id;
@@ -871,7 +871,7 @@ public:
                     const auto& scene = m_model->scene();
                     auto lightPool = scene.registry().view<LightSource>();
                     int currentUIIdx = 0;
-                    ecs::Entity toRemove = ecs::NULL_ENTITY;
+                    ecs::Entity toRemove = ecs::kNullEntity;
                     int removeIdx = -1;
 
                     lightPool.each([&](ecs::Entity entity, LightSource& ls) {
@@ -880,7 +880,7 @@ public:
                         }
                         currentUIIdx++;
                     });
-                    if (toRemove != ecs::NULL_ENTITY) m_model->removeLight(removeIdx);
+                    if (toRemove != ecs::kNullEntity) m_model->removeLight(removeIdx);
                     ImGui::TreePop();
                 }
             }

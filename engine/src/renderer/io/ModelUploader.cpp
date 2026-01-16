@@ -353,7 +353,7 @@ namespace pnkr::renderer::io {
         }
 
         for (auto rootIdx : source.rootNodes) {
-            model->scene().setParent(entityMap[rootIdx], ecs::NULL_ENTITY);
+            model->scene().setParent(entityMap[rootIdx], ecs::kNullEntity);
         }
 
         if (!source.rootNodes.empty()) {

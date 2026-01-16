@@ -8,7 +8,7 @@ namespace pnkr::ui {
 using namespace renderer::scene;
 
 int renderSceneTree(renderer::scene::SceneGraphDOD& scene, uint32_t nodeIndex, int currentSelection) {
-    if (nodeIndex == ecs::NULL_ENTITY) return -1;
+    if (nodeIndex == ecs::kNullEntity) return -1;
     ecs::Entity entity = static_cast<ecs::Entity>(nodeIndex);
     std::string name = "Node " + std::to_string(nodeIndex);
     if (scene.registry().has<Name>(entity)) {
@@ -17,7 +17,7 @@ int renderSceneTree(renderer::scene::SceneGraphDOD& scene, uint32_t nodeIndex, i
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow;
     const auto& rel = scene.registry().get<Relationship>(entity);
-    if (rel.firstChild() == ecs::NULL_ENTITY) flags |= ImGuiTreeNodeFlags_Leaf;
+    if (rel.firstChild() == ecs::kNullEntity) flags |= ImGuiTreeNodeFlags_Leaf;
     if ((int)nodeIndex == currentSelection) flags |= ImGuiTreeNodeFlags_Selected;
 
     bool isOpen = ImGui::TreeNodeEx((void*)(uintptr_t)nodeIndex, flags, "%s", name.c_str());
@@ -27,7 +27,7 @@ int renderSceneTree(renderer::scene::SceneGraphDOD& scene, uint32_t nodeIndex, i
 
     if (isOpen) {
         ecs::Entity child = rel.firstChild();
-        while (child != ecs::NULL_ENTITY) {
+        while (child != ecs::kNullEntity) {
             int subSelect = renderSceneTree(scene, static_cast<uint32_t>(child), currentSelection);
             if (subSelect != -1) clickedNode = subSelect;
             child = scene.registry().get<Relationship>(child).nextSibling();
@@ -47,7 +47,7 @@ static glm::mat4 computeGlobalMatrix(const renderer::scene::SceneGraphDOD& scene
     glm::mat4 global = scene.registry().get<LocalTransform>(entity).matrix;
     ecs::Entity parent = scene.registry().get<Relationship>(entity).parent();
 
-    while (parent != ecs::NULL_ENTITY) {
+    while (parent != ecs::kNullEntity) {
 
         if (scene.registry().has<LocalTransform>(parent)) {
             global = scene.registry().get<LocalTransform>(parent).matrix * global;
@@ -100,7 +100,7 @@ bool editTransformUI(const renderer::scene::Camera& camera, renderer::scene::Sce
 
         ecs::Entity entity = static_cast<ecs::Entity>(selectedNode);
         ecs::Entity parent = scene.registry().get<Relationship>(entity).parent();
-        glm::mat4 parentGlobal = computeGlobalMatrix(scene, (parent == ecs::NULL_ENTITY) ? -1 : (int32_t)parent);
+        glm::mat4 parentGlobal = computeGlobalMatrix(scene, (parent == ecs::kNullEntity) ? -1 : (int32_t)parent);
 
         scene.registry().get<LocalTransform>(entity).matrix = glm::inverse(parentGlobal) * global;
         scene.registry().get<WorldTransform>(entity).matrix = global;

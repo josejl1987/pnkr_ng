@@ -382,7 +382,7 @@ void Application::onInit() {}
 void Application::onUpdate(float dt) { (void)dt; }
 void Application::onEvent(const SDL_Event &event) { (void)event; }
 void Application::onRecord(const renderer::RHIFrameContext &ctx) { (void)ctx; }
-void Application::onShutdown() {}
+void Application::onShutdown() { core::CVarSystem::saveToIni("engine.ini"); }
 void Application::onImGui() {}
 
 std::filesystem::path
